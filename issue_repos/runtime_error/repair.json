@@ -1,0 +1,12 @@
+[
+  {
+    "action": {
+      "action": "edit",
+      "reason": "Use the supplied name instead of an undefined variable.",
+      "files": {
+        "greeting.py": "def greet(name):\n    return \"Hello, \" + name\n"
+      }
+    },
+    "approved": true
+  }
+]
