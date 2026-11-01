@@ -1,7 +1,7 @@
 {
   "endpoint": "https://openai.rc.asu.edu/v1",
   "api_key_env": "ASU_AIR_API_KEY",
-  "fixer_model": "kimi-k2-7-code",
-  "judge_model": "deepseek-v4-1-flash",
+  "fixer_model": "qwen3-coder-30b-a3b-instruct",
+  "judge_model": "qwen3-235b-a22b",
   "api_timeout_seconds": 300
 }
