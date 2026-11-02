@@ -1,0 +1,316 @@
+package components
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/jesseduffield/lazygit/pkg/commands/git_commands"
+	"github.com/jesseduffield/lazygit/pkg/commands/models"
+	"github.com/jesseduffield/lazygit/pkg/config"
+	"github.com/jesseduffield/lazygit/pkg/gocui"
+	"github.com/jesseduffield/lazygit/pkg/gui/types"
+	integrationTypes "github.com/jesseduffield/lazygit/pkg/integration/types"
+	"github.com/jesseduffield/lazygit/pkg/utils"
+	"github.com/stretchr/testify/assert"
+)
+
+// this file is for testing our test code (meta, I know)
+
+type coordinate struct {
+	x, y int
+}
+
+type fakeGuiDriver struct {
+	failureMessage      string
+	pressedKeys         []string
+	clickedCoordinates  []coordinate
+	heldCoordinates     []coordinate
+	movedCoordinates    []coordinate
+	releasedCoordinates []coordinate
+	scrolledCoordinates []coordinate
+	onUIThread          bool
+	onUIThreadCallCount int
+}
+
+var _ integrationTypes.GuiDriver = &fakeGuiDriver{}
+
+func (self *fakeGuiDriver) PressKey(key string) {
+	self.pressedKeys = append(self.pressedKeys, key)
+}
+
+func (self *fakeGuiDriver) PressKeysRapidly(keys ...string) {
+	self.pressedKeys = append(self.pressedKeys, keys...)
+}
+
+func (self *fakeGuiDriver) Click(x, y int) {
+	self.clickedCoordinates = append(self.clickedCoordinates, coordinate{x: x, y: y})
+}
+
+func (self *fakeGuiDriver) ClickWithModifier(x, y int, modifier gocui.Modifier) {
+	self.clickedCoordinates = append(self.clickedCoordinates, coordinate{x: x, y: y})
+}
+
+func (self *fakeGuiDriver) DoubleClick(x, y int) {
+	self.clickedCoordinates = append(self.clickedCoordinates, coordinate{x: x, y: y})
+}
+
+func (self *fakeGuiDriver) ClickAndHold(x, y int) {
+	self.heldCoordinates = append(self.heldCoordinates, coordinate{x: x, y: y})
+}
+
+func (self *fakeGuiDriver) MouseMove(x, y int) {
+	self.movedCoordinates = append(self.movedCoordinates, coordinate{x: x, y: y})
+}
+
+func (self *fakeGuiDriver) MouseRelease(x, y int) {
+	self.releasedCoordinates = append(self.releasedCoordinates, coordinate{x: x, y: y})
+}
+
+func (self *fakeGuiDriver) ScrollWheelDown(x, y int) {
+	self.scrolledCoordinates = append(self.scrolledCoordinates, coordinate{x: x, y: y})
+}
+
+func (self *fakeGuiDriver) RefreshInBackground() {
+}
+
+func (self *fakeGuiDriver) OnUIThreadAndWait(f func()) {
+	self.onUIThreadCallCount++
+	self.onUIThread = true
+	f()
+	self.onUIThread = false
+}
+
+func (self *fakeGuiDriver) FocusIn() {
+}
+
+func (self *fakeGuiDriver) FocusInAndClick(x, y int) {
+	self.clickedCoordinates = append(self.clickedCoordinates, coordinate{x: x, y: y})
+}
+
+func (self *fakeGuiDriver) Keys() config.KeybindingConfig {
+	return config.KeybindingConfig{}
+}
+
+func (self *fakeGuiDriver) CurrentContext() types.Context {
+	return nil
+}
+
+func (self *fakeGuiDriver) CursorVisible() bool {
+	return false
+}
+
+func (self *fakeGuiDriver) ContextForView(viewName string) types.Context {
+	return nil
+}
+
+func (self *fakeGuiDriver) Fail(message string) {
+	self.failureMessage = message
+}
+
+func (self *fakeGuiDriver) Log(message string) {
+}
+
+func (self *fakeGuiDriver) LogUI(message string) {
+}
+
+func (self *fakeGuiDriver) CheckedOutRef() *models.Branch {
+	return nil
+}
+
+func (self *fakeGuiDriver) MainView() *gocui.View {
+	return nil
+}
+
+func (self *fakeGuiDriver) SecondaryView() *gocui.View {
+	return nil
+}
+
+func (self *fakeGuiDriver) View(viewName string) *gocui.View {
+	return nil
+}
+
+func (self *fakeGuiDriver) TopViewInWindow(windowName string) *gocui.View {
+	return nil
+}
+
+func (self *fakeGuiDriver) SetCaption(string) {
+}
+
+func (self *fakeGuiDriver) SetCaptionPrefix(string) {
+}
+
+func (self *fakeGuiDriver) NextToast() *string {
+	return nil
+}
+
+func (self *fakeGuiDriver) CheckAllToastsAcknowledged() {}
+
+func (self *fakeGuiDriver) Headless() bool { return false }
+
+func (self *fakeGuiDriver) PretendMergeOrRebaseStartedInLazygit() {}
+
+func TestManualFailure(t *testing.T) {
+	test := NewIntegrationTest(NewIntegrationTestArgs{
+		Description: unitTestDescription,
+		Run: func(t *TestDriver, keys config.KeybindingConfig) {
+			t.Fail("blah")
+		},
+	})
+	driver := &fakeGuiDriver{}
+	test.Run(driver)
+	assert.Equal(t, "blah", driver.failureMessage)
+}
+
+func TestSuccess(t *testing.T) {
+	test := NewIntegrationTest(NewIntegrationTestArgs{
+		Description: unitTestDescription,
+		Run: func(t *TestDriver, keys config.KeybindingConfig) {
+			t.press("a")
+			t.press("b")
+			t.click(0, 1)
+			t.click(2, 3)
+			t.clickAndHold(0, 1)
+			t.mouseMove(2, 3)
+			t.repeatMouseMove()
+			t.mouseRelease()
+		},
+	})
+	driver := &fakeGuiDriver{}
+	test.Run(driver)
+	assert.EqualValues(t, []string{"a", "b"}, driver.pressedKeys)
+	assert.EqualValues(t, []coordinate{{0, 1}, {2, 3}}, driver.clickedCoordinates)
+	assert.EqualValues(t, []coordinate{{0, 1}}, driver.heldCoordinates)
+	assert.EqualValues(t, []coordinate{{2, 3}, {2, 3}}, driver.movedCoordinates)
+	assert.EqualValues(t, []coordinate{{2, 3}}, driver.releasedCoordinates)
+	assert.Equal(t, "", driver.failureMessage)
+}
+
+func TestViewDriverPointerCoordinates(t *testing.T) {
+	guiDriver := &fakeGuiDriver{}
+	testDriver := NewTestDriver(guiDriver, nil, config.KeybindingConfig{}, 0)
+	view := gocui.NewView("source", 10, 20, 30, 31, gocui.OutputNormal)
+	targetView := gocui.NewView("target", 40, 50, 60, 61, gocui.OutputNormal)
+	viewDriver := &ViewDriver{
+		getView: func() *gocui.View {
+			assert.True(t, guiDriver.onUIThread)
+			return view
+		},
+		t: testDriver,
+	}
+	targetViewDriver := &ViewDriver{
+		getView: func() *gocui.View {
+			assert.True(t, guiDriver.onUIThread)
+			return targetView
+		},
+		t: testDriver,
+	}
+
+	viewDriver.
+		Click(1, 2).
+		AltClick(2, 3).
+		ShiftClick(4, 5).
+		FocusInAndClick(3, 4).
+		DoubleClick(6, 7).
+		ClickAndHold(5, 6).
+		MouseMove(7, 8).
+		MouseMoveToBottom(9).
+		MouseMoveToView(targetViewDriver, 10, 11).
+		ScrollWheelDown()
+
+	assert.Equal(t,
+		[]coordinate{{12, 23}, {13, 24}, {15, 26}, {14, 25}, {17, 28}},
+		guiDriver.clickedCoordinates)
+	assert.Equal(t, []coordinate{{16, 27}}, guiDriver.heldCoordinates)
+	assert.Equal(t, []coordinate{{18, 29}, {20, 30}, {51, 62}}, guiDriver.movedCoordinates)
+	assert.Equal(t, []coordinate{{11, 21}}, guiDriver.scrolledCoordinates)
+	assert.Equal(t, 10, guiDriver.onUIThreadCallCount)
+}
+
+func TestFailingFixture(t *testing.T) {
+	test := NewIntegrationTest(NewIntegrationTestArgs{
+		Description: unitTestDescription,
+		SetupRepo: func(shell *Shell) {
+			shell.RunCommand([]string{"git", "checkout", "no-such-branch"})
+			shell.CreateFile("reached.txt", "")
+		},
+		Run: func(t *TestDriver, keys config.KeybindingConfig) {},
+	})
+
+	paths := NewPaths(t.TempDir())
+	assert.NoError(t, os.MkdirAll(paths.ActualRepo(), 0o777))
+
+	rootDir, err := utils.FindLazygitRootDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workingDir, err := createFixture(test, paths, rootDir)
+
+	assert.ErrorContains(t, err, "git checkout no-such-branch")
+	assert.Empty(t, workingDir)
+	// the steps following the failing one are skipped
+	assert.NoFileExists(t, filepath.Join(paths.ActualRepo(), "reached.txt"))
+}
+
+func TestGitVersionRestriction(t *testing.T) {
+	scenarios := []struct {
+		testName          string
+		gitVersion        GitVersionRestriction
+		expectedShouldRun bool
+	}{
+		{
+			testName:          "AtLeast, current is newer",
+			gitVersion:        AtLeast("2.24.9"),
+			expectedShouldRun: true,
+		},
+		{
+			testName:          "AtLeast, current is same",
+			gitVersion:        AtLeast("2.25.0"),
+			expectedShouldRun: true,
+		},
+		{
+			testName:          "AtLeast, current is older",
+			gitVersion:        AtLeast("2.26.0"),
+			expectedShouldRun: false,
+		},
+		{
+			testName:          "Before, current is older",
+			gitVersion:        Before("2.24.9"),
+			expectedShouldRun: false,
+		},
+		{
+			testName:          "Before, current is same",
+			gitVersion:        Before("2.25.0"),
+			expectedShouldRun: false,
+		},
+		{
+			testName:          "Before, current is newer",
+			gitVersion:        Before("2.26.0"),
+			expectedShouldRun: true,
+		},
+		{
+			testName:          "Includes, current is included",
+			gitVersion:        Includes("2.23.0", "2.25.0"),
+			expectedShouldRun: true,
+		},
+		{
+			testName:          "Includes, current is not included",
+			gitVersion:        Includes("2.23.0", "2.27.0"),
+			expectedShouldRun: false,
+		},
+	}
+
+	currentGitVersion := git_commands.GitVersion{Major: 2, Minor: 25, Patch: 0}
+
+	for _, s := range scenarios {
+		t.Run(s.testName, func(t *testing.T) {
+			test := NewIntegrationTest(NewIntegrationTestArgs{
+				Description: unitTestDescription,
+				GitVersion:  s.gitVersion,
+			})
+			shouldRun := test.ShouldRunForGitVersion(&currentGitVersion)
+			assert.Equal(t, shouldRun, s.expectedShouldRun)
+		})
+	}
+}

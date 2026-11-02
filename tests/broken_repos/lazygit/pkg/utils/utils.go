@@ -1,0 +1,155 @@
+package utils
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
+
+	"github.com/jesseduffield/lazygit/pkg/gocui"
+)
+
+// GetProjectRoot returns the path to the root of the project. Only to be used
+// in testing contexts, as with binaries it's unlikely this path will exist on
+// the machine
+func GetProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	return strings.Split(dir, "lazygit")[0] + "lazygit"
+}
+
+func SortRange(x int, y int) (int, int) {
+	if x < y {
+		return x, y
+	}
+	return y, x
+}
+
+func AsJson(i any) string {
+	bytes, _ := json.MarshalIndent(i, "", "    ")
+	return string(bytes)
+}
+
+// used to keep a number n between 0 and max, allowing for wraparounds
+func ModuloWithWrap(n, max int) int {
+	if max == 0 {
+		return 0
+	}
+
+	if n >= max {
+		return n % max
+	} else if n < 0 {
+		return max + n
+	}
+	return n
+}
+
+func FindStringSubmatch(str string, regexpStr string) (bool, []string) {
+	re := regexp.MustCompile(regexpStr)
+	match := re.FindStringSubmatch(str)
+	return len(match) > 0, match
+}
+
+func MustConvertToInt(s string) int {
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		panic(err)
+	}
+	return i
+}
+
+// Safe will close tcell if a panic occurs so that we don't end up in a malformed
+// terminal state
+func Safe(f func()) {
+	_ = SafeWithError(func() error { f(); return nil })
+}
+
+func SafeWithError(f func() error) error {
+	panicking := true
+	defer func() {
+		if panicking && gocui.Screen != nil {
+			gocui.Screen.Fini()
+		}
+	}()
+
+	err := f()
+
+	panicking = false
+
+	return err
+}
+
+// SafeFunc returns a function that runs f through Safe. Use it for functions
+// that something else runs on a goroutine of its own, such as time.AfterFunc.
+func SafeFunc(f func()) func() {
+	return func() { Safe(f) }
+}
+
+// SafeFuncWithError is like SafeFunc, for functions that return an error, such
+// as the ones passed to errgroup.Group.Go.
+func SafeFuncWithError(f func() error) func() error {
+	return func() error { return SafeWithError(f) }
+}
+
+func StackTrace() string {
+	buf := make([]byte, 10000)
+	n := runtime.Stack(buf, false)
+	return fmt.Sprintf("%s\n", buf[:n])
+}
+
+// returns the path of the file that calls the function.
+// 'skip' is the number of stack frames to skip.
+func FilePath(skip int) string {
+	_, path, _, _ := runtime.Caller(skip)
+	return path
+}
+
+// ExpandTilde expands a leading "~" that refers to the current user's home
+// directory: "~" and "~/foo" become e.g. "/home/user" and "/home/user/foo". A
+// tilde anywhere other than the start, or one immediately followed by a
+// username ("~other/foo"), is left untouched, as is the path if the home
+// directory can't be determined. We expand it ourselves because lazygit runs
+// git directly, with no shell to do it for us.
+func ExpandTilde(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") &&
+		!(runtime.GOOS == "windows" && strings.HasPrefix(path, `~\`)) {
+		return path
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, path[2:])
+}
+
+// ContractTilde is the inverse of ExpandTilde: it replaces the current user's
+// home directory at the start of a path with "~", so that paths can be shown
+// in a shorter form. Paths outside the home directory are left untouched, as
+// is the path if the home directory can't be determined.
+func ContractTilde(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+
+	if path == home {
+		return "~"
+	}
+
+	if rest, found := strings.CutPrefix(path, home+string(filepath.Separator)); found {
+		return "~" + string(filepath.Separator) + rest
+	}
+
+	return path
+}

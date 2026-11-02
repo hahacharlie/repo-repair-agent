@@ -1,0 +1,81 @@
+package worktree
+
+import (
+	"github.com/jesseduffield/lazygit/pkg/config"
+	. "github.com/jesseduffield/lazygit/pkg/integration/components"
+)
+
+var WorktreeInRepo = NewIntegrationTest(NewIntegrationTestArgs{
+	Description:  "Add a worktree inside the repo, then remove the directory and confirm the worktree is removed",
+	ExtraCmdArgs: []string{},
+	Skip:         false,
+	SetupConfig:  func(config *config.AppConfig) {},
+	SetupRepo: func(shell *Shell) {
+		shell.NewBranch("mybranch")
+		shell.CreateFileAndAdd("README.md", "hello world")
+		shell.Commit("initial commit")
+	},
+	Run: func(t *TestDriver, keys config.KeybindingConfig) {
+		t.Views().Branches().
+			Lines(
+				Contains("mybranch"),
+			)
+
+		t.Views().Worktrees().
+			Focus().
+			Lines(
+				Contains("(main worktree)"),
+			).
+			Press(keys.Universal.New).
+			Tap(func() {
+				t.ExpectPopup().Prompt().
+					Title(Equals("New worktree for branch")).
+					Type("newbranch").
+					Confirm()
+
+				t.ExpectPopup().Menu().
+					Title(Equals("Worktree location")).
+					Select(Contains("Other…")).
+					Confirm()
+
+				t.ExpectPopup().Prompt().
+					Title(Equals("New worktree path")).
+					Clear().
+					Type("linked-worktree").
+					Confirm()
+			}).
+			Lines(
+				Contains("linked-worktree").IsSelected(),
+				Contains("(main worktree)"),
+			).
+			// switch back to main worktree
+			NavigateToLine(Contains("(main worktree)")).
+			Press(keys.Universal.Select).
+			Lines(
+				Contains("(main worktree)").IsSelected(),
+				Contains("linked-worktree"),
+			)
+
+		t.Views().Files().
+			Focus().
+			Lines(
+				Contains("linked-worktree"),
+			).
+			Press(keys.Universal.Remove).
+			Tap(func() {
+				t.ExpectPopup().Menu().
+					Title(Equals("Remove worktree 'linked-worktree'?")).
+					Select(MatchesRegexp("Remove worktree$")).
+					Confirm()
+			}).
+			IsEmpty()
+
+		t.FileSystem().PathNotPresent("linked-worktree")
+
+		t.Views().Worktrees().
+			Focus().
+			Lines(
+				Contains("(main worktree)").IsSelected(),
+			)
+	},
+})

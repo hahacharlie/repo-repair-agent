@@ -1,0 +1,61 @@
+package worktree
+
+import (
+	"github.com/jesseduffield/lazygit/pkg/config"
+	. "github.com/jesseduffield/lazygit/pkg/integration/components"
+)
+
+var RemoveWorktreeFromBranch = NewIntegrationTest(NewIntegrationTestArgs{
+	Description:  "Delete a branch that's checked out in another worktree by removing that worktree",
+	ExtraCmdArgs: []string{},
+	Skip:         false,
+	SetupConfig:  func(config *config.AppConfig) {},
+	SetupRepo: func(shell *Shell) {
+		shell.NewBranch("mybranch")
+		shell.CreateFileAndAdd("README.md", "hello world")
+		shell.Commit("initial commit")
+		shell.EmptyCommit("commit 2")
+		shell.EmptyCommit("commit 3")
+		shell.AddWorktree("mybranch", "../linked-worktree", "newbranch")
+		shell.AddFileInWorktreeOrSubmodule("../linked-worktree", "file", "content")
+	},
+	Run: func(t *TestDriver, keys config.KeybindingConfig) {
+		t.Views().Branches().
+			Focus().
+			Lines(
+				Contains("mybranch").IsSelected(),
+				Contains("newbranch (worktree linked-worktree)"),
+			).
+			NavigateToLine(Contains("newbranch")).
+			Press(keys.Universal.Remove).
+			Tap(func() {
+				t.ExpectPopup().
+					Menu().
+					Title(Equals("Delete branch 'newbranch'?")).
+					Select(Contains("Delete local branch")).
+					Confirm()
+			}).
+			Tap(func() {
+				t.ExpectPopup().Menu().
+					Title(Equals("Branch newbranch is checked out by worktree linked-worktree")).
+					Select(Contains("Remove worktree and delete branch")).
+					Confirm()
+
+				// The worktree is dirty, so we get asked to force-remove it
+				t.ExpectPopup().Confirmation().
+					Title(Equals("Remove worktree")).
+					Content(Equals("'linked-worktree' contains modified or untracked files, or submodules (or all of these). Are you sure you want to remove it?")).
+					Confirm()
+			}).
+			// The branch is gone, not just unlinked from its worktree
+			Lines(
+				Contains("mybranch").IsSelected(),
+			)
+
+		t.Views().Worktrees().
+			Focus().
+			Lines(
+				Contains("(main worktree)").IsSelected(),
+			)
+	},
+})

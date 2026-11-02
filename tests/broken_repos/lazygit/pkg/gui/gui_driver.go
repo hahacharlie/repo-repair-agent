@@ -1,0 +1,293 @@
+package gui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/gdamore/tcell/v3"
+	"github.com/jesseduffield/lazygit/pkg/commands/models"
+	"github.com/jesseduffield/lazygit/pkg/config"
+	"github.com/jesseduffield/lazygit/pkg/gocui"
+	"github.com/jesseduffield/lazygit/pkg/gui/types"
+	integrationTypes "github.com/jesseduffield/lazygit/pkg/integration/types"
+)
+
+// this gives our integration test a way of interacting with the gui for sending keypresses
+// and reading state.
+type GuiDriver struct {
+	gui       *Gui
+	toastChan chan string
+	headless  bool
+}
+
+var _ integrationTypes.GuiDriver = &GuiDriver{}
+
+func (self *GuiDriver) PressKey(keyStr string) {
+	self.PressKeysRapidly(keyStr)
+}
+
+// PressKeysRapidly presses the given keys in immediate succession, waiting for
+// lazygit to become idle only after the last one. Keys pressed this way can
+// arrive while the previous key's processing is still in flight, like a user
+// typing faster than lazygit handles the input.
+func (self *GuiDriver) PressKeysRapidly(keyStrs ...string) {
+	self.CheckAllToastsAcknowledged()
+
+	for _, keyStr := range keyStrs {
+		key, ok := config.KeyFromLabel(keyStr)
+		if !ok {
+			self.Fail("Unrecognized key: " + keyStr)
+		}
+
+		self.gui.g.ReplayKeyEvent(gocui.NewTcellKeyEventWrapper(
+			tcell.NewEventKey(tcell.Key(key.KeyName()), key.Str(), tcell.ModMask(key.Mod())),
+		))
+	}
+
+	self.waitTillIdle()
+}
+
+func (self *GuiDriver) Click(x, y int) {
+	self.ClickWithModifier(x, y, gocui.ModNone)
+}
+
+// ClickWithModifier clicks with a keyboard modifier held down for the whole
+// gesture, as a terminal reports it.
+func (self *GuiDriver) ClickWithModifier(x, y int, modifier gocui.Modifier) {
+	self.CheckAllToastsAcknowledged()
+
+	self.replayMouseEvent(x, y, tcell.ButtonPrimary, modifier)
+	self.replayMouseEvent(x, y, tcell.ButtonNone, modifier)
+}
+
+func (self *GuiDriver) DoubleClick(x, y int) {
+	self.CheckAllToastsAcknowledged()
+
+	for range 2 {
+		self.replayMouseEventWithoutWaiting(x, y, tcell.ButtonPrimary, gocui.ModNone)
+		self.replayMouseEventWithoutWaiting(x, y, tcell.ButtonNone, gocui.ModNone)
+	}
+	self.waitTillIdle()
+}
+
+func (self *GuiDriver) ClickAndHold(x, y int) {
+	self.CheckAllToastsAcknowledged()
+	self.replayMouseEvent(x, y, tcell.ButtonPrimary, gocui.ModNone)
+}
+
+// MouseMove reports the mouse at a new position with the left button still
+// held down, i.e. a drag movement. (No test needs pointer motion without a
+// button held, so that variant doesn't exist.)
+func (self *GuiDriver) MouseMove(x, y int) {
+	self.replayMouseEvent(x, y, tcell.ButtonPrimary, gocui.ModNone)
+}
+
+func (self *GuiDriver) ScrollWheelDown(x, y int) {
+	self.replayMouseEvent(x, y, tcell.WheelDown, gocui.ModNone)
+}
+
+func (self *GuiDriver) MouseRelease(x, y int) {
+	self.replayMouseEvent(x, y, tcell.ButtonNone, gocui.ModNone)
+}
+
+func (self *GuiDriver) MouseReleaseWithoutWaiting(x, y int) {
+	self.replayMouseEventWithoutWaiting(x, y, tcell.ButtonNone, gocui.ModNone)
+}
+
+func (self *GuiDriver) WaitUntilIdle() {
+	self.waitTillIdle()
+}
+
+func (self *GuiDriver) OnUIThreadAndWait(f func()) {
+	_ = self.gui.g.OnUIThreadAndWait(f)
+}
+
+func (self *GuiDriver) replayMouseEvent(x, y int, buttons tcell.ButtonMask, modifier gocui.Modifier) {
+	self.replayMouseEventWithoutWaiting(x, y, buttons, modifier)
+	self.waitTillIdle()
+}
+
+func (self *GuiDriver) replayMouseEventWithoutWaiting(
+	x, y int, buttons tcell.ButtonMask, modifier gocui.Modifier,
+) {
+	self.gui.g.ReplayMouseEvent(gocui.NewTcellMouseEventWrapper(
+		tcell.NewEventMouse(x, y, buttons, tcell.ModMask(modifier)),
+	))
+}
+
+// replayFocusIn takes the focus away before handing it back, because that's the
+// only way a terminal can report regaining it, and lazygit only reacts to focus
+// reports that change the focus (see gocui.Gui.IsFocused).
+func (self *GuiDriver) replayFocusIn() {
+	self.gui.g.ReplayFocusEvent(gocui.NewTcellFocusEventWrapper(
+		tcell.NewEventFocus(false),
+	))
+	self.gui.g.ReplayFocusEvent(gocui.NewTcellFocusEventWrapper(
+		tcell.NewEventFocus(true),
+	))
+}
+
+// FocusIn simulates the terminal window regaining focus, which is how lazygit
+// learns to reload changed config files. Tests use it to exercise the live
+// config-reload path.
+func (self *GuiDriver) FocusIn() {
+	self.replayFocusIn()
+
+	self.waitTillIdle()
+}
+
+func (self *GuiDriver) FocusInAndClick(x, y int) {
+	self.CheckAllToastsAcknowledged()
+
+	self.replayFocusIn()
+	self.gui.g.ReplayMouseEvent(gocui.NewTcellMouseEventWrapper(
+		tcell.NewEventMouse(x, y, tcell.ButtonPrimary, 0),
+	))
+	self.waitTillIdle()
+	self.gui.g.ReplayMouseEvent(gocui.NewTcellMouseEventWrapper(
+		tcell.NewEventMouse(x, y, tcell.ButtonNone, 0),
+	))
+	self.waitTillIdle()
+}
+
+// RefreshInBackground performs the refresh that the background routines perform
+// on a timer (see BackgroundRoutineMgr). Tests drive it directly rather than
+// turning those routines on, so that they neither wait for a timer nor depend on
+// one firing at a particular moment.
+func (self *GuiDriver) RefreshInBackground() {
+	self.gui.c.RefreshFromWorker(types.RefreshOptions{Background: true})
+
+	self.waitTillIdle()
+}
+
+func (self *GuiDriver) PretendMergeOrRebaseStartedInLazygit() {
+	self.gui.onUIThread(func() error {
+		self.gui.State.SetMergeOrRebaseStartedInLazygit(true)
+		return nil
+	})
+
+	self.waitTillIdle()
+}
+
+// wait until lazygit is idle (i.e. all processing is done) before continuing
+func (self *GuiDriver) waitTillIdle() {
+	self.gui.g.WaitUntilIdle()
+}
+
+func (self *GuiDriver) CheckAllToastsAcknowledged() {
+	if t := self.NextToast(); t != nil {
+		self.Fail("Toast not acknowledged: " + *t)
+	}
+}
+
+func (self *GuiDriver) Keys() config.KeybindingConfig {
+	return self.gui.Config.GetUserConfig().Keybinding
+}
+
+func (self *GuiDriver) CurrentContext() types.Context {
+	// Read the context manager directly rather than through c.Context(): the
+	// driver runs on the test goroutine, not the UI thread, so it must bypass
+	// the UI-thread assertion that accessor carries.
+	return self.gui.State.ContextMgr.Current()
+}
+
+func (self *GuiDriver) CursorVisible() bool {
+	return self.gui.g.Cursor
+}
+
+func (self *GuiDriver) ContextForView(viewName string) types.Context {
+	context, ok := self.gui.helpers.View.ContextForView(viewName)
+	if !ok {
+		return nil
+	}
+
+	return context
+}
+
+func (self *GuiDriver) Fail(message string) {
+	currentView := self.gui.g.CurrentView()
+
+	// Check for unacknowledged toast: it may give us a hint as to why the test failed
+	toastMessage := ""
+	if t := self.NextToast(); t != nil {
+		toastMessage = fmt.Sprintf("Unacknowledged toast message: %s\n", *t)
+	}
+
+	fullMessage := fmt.Sprintf(
+		"%s\nFinal Lazygit state:\n%s\nUpon failure, focused view was '%s'.\n%sLog:\n%s", message,
+		self.gui.g.Snapshot(),
+		currentView.Name(),
+		toastMessage,
+		strings.Join(self.gui.GuiLog, "\n"),
+	)
+
+	self.gui.g.Close()
+	// need to give the gui time to close
+	time.Sleep(time.Millisecond * 100)
+	_, err := fmt.Fprintln(os.Stderr, fullMessage)
+	if err != nil {
+		panic("Test failed. Failed writing to stderr")
+	}
+	panic("Test failed")
+}
+
+// logs to the normal place that you log to i.e. viewable with `lazygit --logs`
+func (self *GuiDriver) Log(message string) {
+	self.gui.c.Log.Warn(message)
+}
+
+// logs in the actual UI (in the commands panel)
+func (self *GuiDriver) LogUI(message string) {
+	self.gui.c.LogAction(message)
+}
+
+func (self *GuiDriver) CheckedOutRef() *models.Branch {
+	return self.gui.helpers.Refs.GetCheckedOutRef()
+}
+
+func (self *GuiDriver) MainView() *gocui.View {
+	return self.gui.mainView()
+}
+
+func (self *GuiDriver) SecondaryView() *gocui.View {
+	return self.gui.secondaryView()
+}
+
+func (self *GuiDriver) View(viewName string) *gocui.View {
+	view, err := self.gui.g.View(viewName)
+	if err != nil {
+		panic(err)
+	}
+	return view
+}
+
+// TopViewInWindow returns the frontmost visible view in the given window, i.e.
+// the tab that is currently shown when a window holds several tabbed views.
+func (self *GuiDriver) TopViewInWindow(windowName string) *gocui.View {
+	return self.gui.helpers.Window.TopViewInWindow(windowName, false)
+}
+
+func (self *GuiDriver) SetCaption(caption string) {
+	self.OnUIThreadAndWait(func() { self.gui.setCaption(caption) })
+	self.waitTillIdle()
+}
+
+func (self *GuiDriver) SetCaptionPrefix(prefix string) {
+	self.OnUIThreadAndWait(func() { self.gui.setCaptionPrefix(prefix) })
+	self.waitTillIdle()
+}
+
+func (self *GuiDriver) NextToast() *string {
+	select {
+	case t := <-self.toastChan:
+		return &t
+	default:
+		return nil
+	}
+}
+
+func (self *GuiDriver) Headless() bool {
+	return self.headless
+}

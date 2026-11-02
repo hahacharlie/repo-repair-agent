@@ -1,0 +1,1049 @@
+package components
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/jesseduffield/lazygit/pkg/config"
+	"github.com/jesseduffield/lazygit/pkg/gocui"
+	"github.com/samber/lo"
+)
+
+type ViewDriver struct {
+	// context is prepended to any error messages e.g. 'context: "current view"'
+	context string
+	getView func() *gocui.View
+	t       *TestDriver
+}
+
+func (self *ViewDriver) getSelectedLines() []string {
+	view := self.t.gui.View(self.getView().Name())
+	return view.SelectedLines()
+}
+
+func (self *ViewDriver) getSelectedRange() (int, int) {
+	view := self.t.gui.View(self.getView().Name())
+	return view.SelectedLineRange()
+}
+
+func (self *ViewDriver) getSelectedLineIdx() int {
+	view := self.t.gui.View(self.getView().Name())
+	return view.SelectedLineIdx()
+}
+
+// asserts that the view has the expected title
+func (self *ViewDriver) Title(expected *TextMatcher) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actual := self.getView().Title
+		return expected.context(fmt.Sprintf("%s title", self.context)).test(actual)
+	})
+
+	return self
+}
+
+// asserts that the view has the expected footer, i.e. the "x of y" text on its
+// bottom border
+func (self *ViewDriver) Footer(expected *TextMatcher) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actual := self.getView().Footer
+		return expected.context(fmt.Sprintf("%s footer", self.context)).test(actual)
+	})
+
+	return self
+}
+
+// asserts that the view has the expected subtitle
+func (self *ViewDriver) Subtitle(expected *TextMatcher) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actual := self.getView().Subtitle
+		return expected.context(fmt.Sprintf("%s subtitle", self.context)).test(actual)
+	})
+
+	return self
+}
+
+// asserts that the view hangs off the bottom of the given one, sharing a border
+// with it
+func (self *ViewDriver) SharesTopBorderWithBottomOf(upper *ViewDriver) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		_, _, _, upperY1 := upper.getView().Dimensions()
+		_, y0, _, _ := self.getView().Dimensions()
+		return y0 == upperY1, fmt.Sprintf(
+			"%s: Expected view to start on row %d, where the view above it ends, but it starts on row %d",
+			self.context, upperY1, y0)
+	})
+
+	return self
+}
+
+// asserts that the view starts on the row below the given one
+func (self *ViewDriver) IsImmediatelyBelow(upper *ViewDriver) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		_, _, _, upperY1 := upper.getView().Dimensions()
+		_, y0, _, _ := self.getView().Dimensions()
+		return y0 == upperY1+1, fmt.Sprintf(
+			"%s: Expected view to start on row %d, but it starts on row %d", self.context, upperY1+1, y0)
+	})
+
+	return self
+}
+
+// TitlePrefix asserts on the label a view wears in front of its title, which is the
+// key that jumps to it.
+func (self *ViewDriver) TitlePrefix(expected *TextMatcher) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actual := self.getView().TitlePrefix
+		return expected.context(fmt.Sprintf("%s title prefix", self.context)).test(actual)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) Clear() *ViewDriver {
+	// clearing multiple times in case there's multiple lines
+	//  (the clear button only clears a single line at a time)
+	maxAttempts := 100
+	for i := range maxAttempts + 1 {
+		if self.getView().Buffer() == "" {
+			break
+		}
+
+		self.t.press(ClearKey)
+		if i == maxAttempts {
+			panic("failed to clear view buffer")
+		}
+	}
+
+	return self
+}
+
+// asserts that the view has lines matching the given matchers. One matcher must be passed for each line.
+// If you only care about the top n lines, use the TopLines method instead.
+// If you only care about a subset of lines, use the ContainsLines method instead.
+func (self *ViewDriver) Lines(matchers ...*TextMatcher) *ViewDriver {
+	self.validateMatchersPassed(matchers)
+	self.LineCount(EqualsInt(len(matchers)))
+
+	return self.assertLines(0, matchers...)
+}
+
+// asserts that the view has lines matching the given matchers. So if three matchers
+// are passed, we only check the first three lines of the view.
+// This method is convenient when you have a list of commits but you only want to
+// assert on the first couple of commits.
+func (self *ViewDriver) TopLines(matchers ...*TextMatcher) *ViewDriver {
+	self.validateMatchersPassed(matchers)
+	self.validateEnoughLines(matchers)
+
+	return self.assertLines(0, matchers...)
+}
+
+// Asserts on the visible lines of the view.
+// Note, this assumes that the view's viewport is filled with lines
+func (self *ViewDriver) VisibleLines(matchers ...*TextMatcher) *ViewDriver {
+	self.validateMatchersPassed(matchers)
+	self.validateVisibleLineCount(matchers)
+
+	// Get the origin of the view and offset that.
+	// Note that we don't do any retrying here so if we want to bring back retry logic
+	// we'll need to update this.
+	originY := self.getView().OriginY()
+
+	return self.assertLines(originY, matchers...)
+}
+
+// ContainsViewLines asserts that somewhere in the view there are consecutive view lines
+// matching the given matchers. View lines are the rows the view draws its content in,
+// so a line too long for the view is as many view lines as the view wraps it into.
+func (self *ViewDriver) ContainsViewLines(matchers ...*TextMatcher) *ViewDriver {
+	self.validateMatchersPassed(matchers)
+
+	self.t.assertWithRetries(func() (bool, string) {
+		lines := self.getView().ViewBufferLines()
+
+		for i := 0; i+len(matchers) <= len(lines); i++ {
+			matches := true
+			for j, matcher := range matchers {
+				if ok, _ := matcher.test(lines[i+j]); !ok {
+					matches = false
+					break
+				}
+			}
+			if matches {
+				return true, ""
+			}
+		}
+
+		return false, fmt.Sprintf(
+			"%s: Expected the following view lines to be contained:\n-----\n%s\n-----\nBut got:\n-----\n%s\n-----",
+			self.context,
+			expectedContentFromMatchers(matchers),
+			strings.Join(lines, "\n"),
+		)
+	})
+
+	return self
+}
+
+// Asserts on the line the view shows at the top of its viewport, i.e. on where the
+// view is scrolled to. It is a view line, so a wrapped line above it doesn't throw the
+// count off.
+func (self *ViewDriver) TopVisibleLine(matcher *TextMatcher) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		view := self.getView()
+		lines := view.ViewBufferLines()
+		originY := view.OriginY()
+		if originY >= len(lines) {
+			return false, fmt.Sprintf("%s: the view is scrolled to line %d, but it has only %d lines",
+				self.context, originY, len(lines))
+		}
+		return matcher.context(fmt.Sprintf("%s top visible line", self.context)).test(lines[originY])
+	})
+
+	return self
+}
+
+// asserts that somewhere in the view there are consecutive lines matching the given matchers.
+func (self *ViewDriver) ContainsLines(matchers ...*TextMatcher) *ViewDriver {
+	self.validateMatchersPassed(matchers)
+	self.validateEnoughLines(matchers)
+
+	self.t.assertWithRetries(func() (bool, string) {
+		content := self.getView().Buffer()
+		lines := strings.Split(content, "\n")
+
+		startIdx, endIdx := self.getSelectedRange()
+
+		for i := range len(lines) - len(matchers) + 1 {
+			matches := true
+			for j, matcher := range matchers {
+				checkIsSelected, matcher := matcher.checkIsSelected() // strip the IsSelected matcher out
+				lineIdx := i + j
+				ok, _ := matcher.test(lines[lineIdx])
+				if !ok {
+					matches = false
+					break
+				}
+				if checkIsSelected {
+					if lineIdx < startIdx || lineIdx > endIdx {
+						matches = false
+						break
+					}
+				}
+			}
+			if matches {
+				return true, ""
+			}
+		}
+
+		expectedContent := expectedContentFromMatchers(matchers)
+
+		return false, fmt.Sprintf(
+			"Expected the following lines to be contained in the selected range:\n-----\n%s\n-----\nBut got:\n-----\n%s\n-----\nSelected range: %d-%d",
+			expectedContent,
+			content,
+			startIdx,
+			endIdx,
+		)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) ContainsColoredText(fgColorStr string, text string) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		view := self.getView()
+		ok := self.getView().ContainsColoredText(fgColorStr, text)
+		if !ok {
+			return false, fmt.Sprintf("expected view '%s' to contain colored text '%s' but it didn't", view.Name(), text)
+		}
+
+		return true, ""
+	})
+
+	return self
+}
+
+func (self *ViewDriver) DoesNotContainColoredText(fgColorStr string, text string) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		view := self.getView()
+		ok := !self.getView().ContainsColoredText(fgColorStr, text)
+		if !ok {
+			return false, fmt.Sprintf("expected view '%s' to NOT contain colored text '%s' but it didn't", view.Name(), text)
+		}
+
+		return true, ""
+	})
+
+	return self
+}
+
+// asserts on the lines that are selected in the view. Don't use the `IsSelected` matcher with this because it's redundant.
+func (self *ViewDriver) SelectedLines(matchers ...*TextMatcher) *ViewDriver {
+	self.validateMatchersPassed(matchers)
+	self.validateEnoughLines(matchers)
+
+	self.t.assertWithRetries(func() (bool, string) {
+		selectedLines := self.getSelectedLines()
+
+		selectedContent := strings.Join(selectedLines, "\n")
+		expectedContent := expectedContentFromMatchers(matchers)
+
+		if len(selectedLines) != len(matchers) {
+			return false, fmt.Sprintf("Expected the following to be selected:\n-----\n%s\n-----\nBut got:\n-----\n%s\n-----", expectedContent, selectedContent)
+		}
+
+		for i, line := range selectedLines {
+			checkIsSelected, matcher := matchers[i].checkIsSelected()
+			if checkIsSelected {
+				self.t.fail("You cannot use the IsSelected matcher with the SelectedLines method")
+			}
+
+			ok, message := matcher.test(line)
+			if !ok {
+				return false, fmt.Sprintf("Error: %s. Expected the following to be selected:\n-----\n%s\n-----\nBut got:\n-----\n%s\n-----", message, expectedContent, selectedContent)
+			}
+		}
+
+		return true, ""
+	})
+
+	return self
+}
+
+// SelectedViewLineRange asserts which view lines the selection covers. View lines
+// count the wrapped segments a line is drawn as, so this can say whether a selection
+// covers a wrapped line to its end; SelectedLines, which reports the lines of the
+// content, cannot.
+func (self *ViewDriver) SelectedViewLineRange(first int, last int) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actualFirst, actualLast := self.getSelectedRange()
+		return actualFirst == first && actualLast == last,
+			fmt.Sprintf("%s: Expected view lines %d-%d to be selected, but %d-%d were.",
+				self.context, first, last, actualFirst, actualLast)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) validateMatchersPassed(matchers []*TextMatcher) {
+	if len(matchers) < 1 {
+		self.t.fail("'Lines' methods require at least one matcher to be passed as an argument. If you are trying to assert that there are no lines, use .IsEmpty()")
+	}
+}
+
+func (self *ViewDriver) validateEnoughLines(matchers []*TextMatcher) {
+	view := self.getView()
+
+	self.t.assertWithRetries(func() (bool, string) {
+		lines := view.BufferLines()
+		return len(lines) >= len(matchers), fmt.Sprintf("unexpected number of lines in view '%s'. Expected at least %d, got %d", view.Name(), len(matchers), len(lines))
+	})
+}
+
+// assumes the view's viewport is filled with lines
+func (self *ViewDriver) validateVisibleLineCount(matchers []*TextMatcher) {
+	view := self.getView()
+
+	self.t.assertWithRetries(func() (bool, string) {
+		count := view.InnerHeight()
+		return count == len(matchers), fmt.Sprintf("unexpected number of visible lines in view '%s'. Expected exactly %d, got %d", view.Name(), len(matchers), count)
+	})
+}
+
+func (self *ViewDriver) assertLines(offset int, matchers ...*TextMatcher) *ViewDriver {
+	view := self.getView()
+
+	var expectedStartIdx, expectedEndIdx int
+	foundSelectionStart := false
+	foundSelectionEnd := false
+	expectedSelectedLines := []string{}
+
+	for matcherIndex, matcher := range matchers {
+		lineIdx := matcherIndex + offset
+
+		checkIsSelected, matcher := matcher.checkIsSelected()
+
+		if checkIsSelected {
+			if foundSelectionEnd {
+				self.t.fail("The IsSelected matcher can only be used on a contiguous range of lines.")
+			}
+			if !foundSelectionStart {
+				expectedStartIdx = lineIdx
+				foundSelectionStart = true
+			}
+			expectedSelectedLines = append(expectedSelectedLines, matcher.name())
+			expectedEndIdx = lineIdx
+		} else if foundSelectionStart {
+			foundSelectionEnd = true
+		}
+	}
+
+	for matcherIndex, matcher := range matchers {
+		lineIdx := matcherIndex + offset
+		expectSelected, matcher := matcher.checkIsSelected()
+
+		self.t.matchString(matcher, fmt.Sprintf("Unexpected content in view '%s'.", view.Name()),
+			func() string {
+				return view.BufferLines()[lineIdx]
+			},
+		)
+
+		// If any of the matchers care about the selection, we need to
+		// assert on the selection for each matcher.
+		if foundSelectionStart {
+			self.t.assertWithRetries(func() (bool, string) {
+				startIdx, endIdx := self.getSelectedRange()
+
+				selected := lineIdx >= startIdx && lineIdx <= endIdx
+
+				if (selected && expectSelected) || (!selected && !expectSelected) {
+					return true, ""
+				}
+
+				lines := self.getSelectedLines()
+
+				return false, fmt.Sprintf(
+					"Unexpected selection in view '%s'. Expected %s to be selected but got %s.\nExpected selected lines:\n---\n%s\n---\n\nActual selected lines:\n---\n%s\n---\n",
+					view.Name(),
+					formatLineRange(expectedStartIdx, expectedEndIdx),
+					formatLineRange(startIdx, endIdx),
+					strings.Join(expectedSelectedLines, "\n"),
+					strings.Join(lines, "\n"),
+				)
+			})
+		}
+	}
+
+	return self
+}
+
+func formatLineRange(from int, to int) string {
+	if from == to {
+		return "line " + fmt.Sprintf("%d", from)
+	}
+
+	return "lines " + fmt.Sprintf("%d-%d", from, to)
+}
+
+// asserts on the content of the view i.e. the stuff within the view's frame.
+func (self *ViewDriver) Content(matcher *TextMatcher) *ViewDriver {
+	self.t.matchString(matcher, fmt.Sprintf("%s: Unexpected content.", self.context),
+		func() string {
+			return self.getView().Buffer()
+		},
+	)
+
+	return self
+}
+
+// MarkedLines asserts which lines of the view are marked as being in the custom patch
+// being built. The marks are drawn over the content rather than being part of it, so
+// they are read from the view rather than matched against what Content returns.
+func (self *ViewDriver) MarkedLines(matchers ...*TextMatcher) *ViewDriver {
+	self.validateMatchersPassed(matchers)
+
+	self.t.assertWithRetries(func() (bool, string) {
+		markedLines := self.getView().MarkedLines()
+
+		markedContent := strings.Join(markedLines, "\n")
+		expectedContent := expectedContentFromMatchers(matchers)
+
+		if len(markedLines) != len(matchers) {
+			return false, fmt.Sprintf("%s: Expected the following lines to be marked as being in the custom patch:\n-----\n%s\n-----\nBut got:\n-----\n%s\n-----", self.context, expectedContent, markedContent)
+		}
+
+		for i, line := range markedLines {
+			ok, message := matchers[i].test(line)
+			if !ok {
+				return false, fmt.Sprintf("%s: Error: %s. Expected the following lines to be marked as being in the custom patch:\n-----\n%s\n-----\nBut got:\n-----\n%s\n-----", self.context, message, expectedContent, markedContent)
+			}
+		}
+
+		return true, ""
+	})
+
+	return self
+}
+
+// NoMarkedLines asserts that no line of the view is marked as being in the custom
+// patch, which is also what a view showing no marks at all reports.
+func (self *ViewDriver) NoMarkedLines() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		markedLines := self.getView().MarkedLines()
+		return len(markedLines) == 0, fmt.Sprintf(
+			"%s: Expected no line to be marked as being in the custom patch, but these were:\n-----\n%s\n-----",
+			self.context, strings.Join(markedLines, "\n"))
+	})
+
+	return self
+}
+
+// SelectionIsActive asserts that the view draws its selection as the one the user
+// is working in. These three assertions read the highlight flags rather than the
+// selected lines, which say nothing about whether the selection is drawn at all.
+func (self *ViewDriver) SelectionIsActive() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		view := self.getView()
+		ok := view.Highlight && !view.HighlightInactive
+		return ok, fmt.Sprintf("%s: expected an active selection to be shown, but it wasn't", self.context)
+	})
+
+	return self
+}
+
+// SelectionIsInactive asserts that the view draws its selection dimmed, as a panel
+// does while the focus is somewhere else.
+func (self *ViewDriver) SelectionIsInactive() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		view := self.getView()
+		ok := view.Highlight && view.HighlightInactive
+		return ok, fmt.Sprintf("%s: expected an inactive selection to be shown, but it wasn't", self.context)
+	})
+
+	return self
+}
+
+// SelectionIsHidden asserts that the view draws no selection at all, e.g. a list
+// with nothing in it, where there is nothing to select.
+func (self *ViewDriver) SelectionIsHidden() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		ok := !self.getView().Highlight
+		return ok, fmt.Sprintf("%s: expected no selection to be shown, but one was", self.context)
+	})
+
+	return self
+}
+
+// asserts on the selected line of the view. If you are selecting a range,
+// you should use the SelectedLines method instead.
+func (self *ViewDriver) SelectedLine(matcher *TextMatcher) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		selectedLineIdx := self.getSelectedLineIdx()
+
+		viewLines := self.getView().BufferLines()
+
+		if selectedLineIdx >= len(viewLines) {
+			return false, fmt.Sprintf("%s: Expected view to have at least %d lines, but it only has %d", self.context, selectedLineIdx+1, len(viewLines))
+		}
+
+		value := viewLines[selectedLineIdx]
+
+		return matcher.context(fmt.Sprintf("%s: Unexpected selected line.", self.context)).test(value)
+	})
+
+	return self
+}
+
+// asserts on the index of the selected line. 0 is the first index, representing the line at the top of the view.
+func (self *ViewDriver) SelectedLineIdx(expected int) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actual := self.getView().SelectedLineIdx()
+		return expected == actual, fmt.Sprintf("%s: Expected selected line index to be %d, got %d", self.context, expected, actual)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) SelectedLineIdxAtLeast(expected int) *ViewDriver {
+	self.t.assertEventually(func() (bool, string) {
+		var actual int
+		self.t.gui.OnUIThreadAndWait(func() {
+			actual = self.getView().SelectedLineIdx()
+		})
+		return actual >= expected, fmt.Sprintf("%s: Expected selected line index to be at least %d, got %d", self.context, expected, actual)
+	})
+
+	return self
+}
+
+// asserts on the scroll position of the view, i.e. the index of the line that
+// is shown at the top of the view.
+func (self *ViewDriver) OriginY(expected int) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actual := self.getView().OriginY()
+		return expected == actual, fmt.Sprintf("%s: Expected origin Y to be %d, got %d", self.context, expected, actual)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) OriginX(expected int) *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actual := self.getView().OriginX()
+		return expected == actual, fmt.Sprintf("%s: Expected origin X to be %d, got %d", self.context, expected, actual)
+	})
+
+	return self
+}
+
+// asserts that the selected line is inside the visible area of the view
+func (self *ViewDriver) SelectedLineIsVisible() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		view := self.getView()
+		firstVisible, lastVisible := view.OriginY(), view.OriginY()+view.InnerHeight()-1
+		actual := view.SelectedLineIdx()
+		return actual >= firstVisible && actual <= lastVisible,
+			fmt.Sprintf("%s: Expected the selected line (%d) to be visible, but only lines %d to %d are",
+				self.context, actual, firstVisible, lastVisible)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) OriginYAtLeast(expected int) *ViewDriver {
+	self.t.assertEventually(func() (bool, string) {
+		var actual int
+		self.t.gui.OnUIThreadAndWait(func() {
+			actual = self.getView().OriginY()
+		})
+		return actual >= expected, fmt.Sprintf("%s: Expected origin Y to be at least %d, got %d", self.context, expected, actual)
+	})
+
+	return self
+}
+
+// focus the view (assumes the view is a side-view)
+func (self *ViewDriver) Focus() *ViewDriver {
+	viewName := self.getView().Name()
+
+	type window struct {
+		name      string
+		viewNames []string
+	}
+	windows := []window{
+		{name: "status", viewNames: []string{"status"}},
+		{name: "files", viewNames: []string{"files", "worktrees", "submodules"}},
+		{name: "branches", viewNames: []string{"localBranches", "remotes", "tags"}},
+		{name: "commits", viewNames: []string{"commits", "reflogCommits"}},
+		{name: "stash", viewNames: []string{"stash"}},
+	}
+
+	for windowIndex, window := range windows {
+		if lo.Contains(window.viewNames, viewName) {
+			tabIndex := lo.IndexOf(window.viewNames, viewName)
+			// jump to the desired window
+			self.t.press(self.t.keys.Universal.JumpToBlock[windowIndex][0])
+
+			// assert we're in the window before continuing
+			self.t.assertWithRetries(func() (bool, string) {
+				currentWindowName := self.t.gui.CurrentContext().GetWindowName()
+				// by convention the window is named after the first view in the window
+				return currentWindowName == window.name, fmt.Sprintf("Expected to be in window '%s', but was in '%s'", window.name, currentWindowName)
+			})
+
+			// switch to the desired tab
+			currentViewName := self.t.gui.CurrentContext().GetViewName()
+			currentViewTabIndex := lo.IndexOf(window.viewNames, currentViewName)
+			if tabIndex > currentViewTabIndex {
+				for range tabIndex - currentViewTabIndex {
+					self.t.press(self.t.keys.Universal.NextTab[0])
+				}
+			} else if tabIndex < currentViewTabIndex {
+				for range currentViewTabIndex - tabIndex {
+					self.t.press(self.t.keys.Universal.PrevTab[0])
+				}
+			}
+
+			// assert that we're now in the expected view
+			self.IsFocused()
+
+			return self
+		}
+	}
+
+	self.t.fail(fmt.Sprintf("Cannot focus view %s: Focus() method not implemented", viewName))
+
+	return self
+}
+
+// asserts that the view is focused
+func (self *ViewDriver) IsFocused() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		expected := self.getView().Name()
+		actual := self.t.gui.CurrentContext().GetView().Name()
+		return actual == expected, fmt.Sprintf("%s: Unexpected view focused. Expected %s, got %s", self.context, expected, actual)
+	})
+
+	return self
+}
+
+// asserts that the view is the one currently shown in its window, i.e. it's the
+// active tab of its panel (drawn in front of the window's other tabs). Unlike
+// IsFocused, this is about what's displayed rather than which view has keyboard
+// focus; the two can disagree, e.g. if a config reload reshuffles the tabs.
+func (self *ViewDriver) IsActiveTab() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		expected := self.getView().Name()
+		context := self.t.gui.ContextForView(expected)
+		if context == nil {
+			return false, fmt.Sprintf("%s: Could not find context for view, so can't determine its window", expected)
+		}
+		topView := self.t.gui.TopViewInWindow(context.GetWindowName())
+		actual := ""
+		if topView != nil {
+			actual = topView.Name()
+		}
+		return actual == expected, fmt.Sprintf("%s: Expected view to be the active tab of its window, but it was %s", expected, actual)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) Press(key config.Keybinding) *ViewDriver {
+	self.IsFocused()
+
+	self.t.press(key[0])
+
+	return self
+}
+
+func (self *ViewDriver) Delay() *ViewDriver {
+	self.t.Wait(self.t.inputDelay)
+
+	return self
+}
+
+// for use when typing or navigating, because in demos we want that to happen
+// faster
+func (self *ViewDriver) PressFast(key config.Keybinding) *ViewDriver {
+	self.IsFocused()
+
+	self.t.pressFast(key[0])
+
+	return self
+}
+
+// Presses the given keys in immediate succession, without waiting for lazygit
+// to become idle in between (Press waits after every key). Use this to
+// simulate a user typing faster than lazygit processes the input.
+func (self *ViewDriver) PressRapidly(keys ...config.Keybinding) *ViewDriver {
+	self.IsFocused()
+
+	self.t.pressRapidly(lo.Map(keys, func(key config.Keybinding, _ int) string {
+		return key[0]
+	}))
+
+	return self
+}
+
+func (self *ViewDriver) Click(x, y int) *ViewDriver {
+	offsetX, offsetY, _ := self.viewGeometry()
+
+	self.t.click(offsetX+1+x, offsetY+1+y)
+
+	return self
+}
+
+func (self *ViewDriver) DoubleClick(x, y int) *ViewDriver {
+	offsetX, offsetY, _ := self.viewGeometry()
+
+	self.t.doubleClick(offsetX+1+x, offsetY+1+y)
+
+	return self
+}
+
+// AltClick and ShiftClick click with a modifier held down. Both modifiers are
+// bound to the same gestures, because no single one of them reaches lazygit in
+// every terminal.
+func (self *ViewDriver) AltClick(x, y int) *ViewDriver {
+	offsetX, offsetY, _ := self.viewGeometry()
+
+	self.t.clickWithModifier(offsetX+1+x, offsetY+1+y, gocui.ModAlt, "Alt")
+
+	return self
+}
+
+func (self *ViewDriver) ShiftClick(x, y int) *ViewDriver {
+	offsetX, offsetY, _ := self.viewGeometry()
+
+	self.t.clickWithModifier(offsetX+1+x, offsetY+1+y, gocui.ModShift, "Shift")
+
+	return self
+}
+
+func (self *ViewDriver) FocusInAndClick(x, y int) *ViewDriver {
+	offsetX, offsetY, _ := self.viewGeometry()
+
+	self.t.focusInAndClick(offsetX+1+x, offsetY+1+y)
+
+	return self
+}
+
+func (self *ViewDriver) MouseMoveToView(target *ViewDriver, x, y int) *ViewDriver {
+	offsetX, offsetY, _ := target.viewGeometry()
+	self.t.mouseMove(offsetX+1+x, offsetY+1+y)
+	return self
+}
+
+func (self *ViewDriver) Drag(fromX, fromY, toX, toY int) *ViewDriver {
+	return self.ClickAndHold(fromX, fromY).MouseMove(toX, toY).MouseRelease()
+}
+
+func (self *ViewDriver) ClickAndHold(x, y int) *ViewDriver {
+	offsetX, offsetY, _ := self.viewGeometry()
+	self.t.clickAndHold(offsetX+1+x, offsetY+1+y)
+	return self
+}
+
+func (self *ViewDriver) MouseMove(x, y int) *ViewDriver {
+	offsetX, offsetY, _ := self.viewGeometry()
+	self.t.mouseMove(offsetX+1+x, offsetY+1+y)
+	return self
+}
+
+func (self *ViewDriver) MouseMoveToBottom(x int) *ViewDriver {
+	offsetX, offsetY, innerHeight := self.viewGeometry()
+	self.t.mouseMove(offsetX+1+x, offsetY+innerHeight)
+	return self
+}
+
+// scrolls the view down by one notch of the mouse wheel, i.e. by
+// gui.scrollHeight lines. This moves the scroll position without moving the
+// selection.
+func (self *ViewDriver) ScrollWheelDown() *ViewDriver {
+	offsetX, offsetY, _ := self.viewGeometry()
+	self.t.scrollWheelDown(offsetX+1, offsetY+1)
+	return self
+}
+
+func (self *ViewDriver) viewGeometry() (offsetX int, offsetY int, innerHeight int) {
+	self.t.gui.OnUIThreadAndWait(func() {
+		view := self.getView()
+		offsetX, offsetY, _, _ = view.Dimensions()
+		innerHeight = view.InnerHeight()
+	})
+
+	return offsetX, offsetY, innerHeight
+}
+
+func (self *ViewDriver) RepeatMouseMove() *ViewDriver {
+	self.t.repeatMouseMove()
+	return self
+}
+
+func (self *ViewDriver) MouseRelease() *ViewDriver {
+	self.t.mouseRelease()
+	return self
+}
+
+// i.e. pressing down arrow
+func (self *ViewDriver) SelectNextItem() *ViewDriver {
+	return self.PressFast(self.t.keys.Universal.NextItem)
+}
+
+// i.e. pressing up arrow
+func (self *ViewDriver) SelectPreviousItem() *ViewDriver {
+	return self.PressFast(self.t.keys.Universal.PrevItem)
+}
+
+// i.e. pressing '<'
+func (self *ViewDriver) GotoTop() *ViewDriver {
+	return self.PressFast(self.t.keys.Universal.GotoTop)
+}
+
+// i.e. pressing space
+func (self *ViewDriver) PressPrimaryAction() *ViewDriver {
+	return self.Press(self.t.keys.Universal.Select)
+}
+
+// i.e. pressing space
+func (self *ViewDriver) PressEnter() *ViewDriver {
+	return self.Press(self.t.keys.Universal.Confirm)
+}
+
+// i.e. pressing tab
+func (self *ViewDriver) PressTab() *ViewDriver {
+	return self.Press(self.t.keys.Universal.TogglePanel)
+}
+
+// i.e. pressing escape
+func (self *ViewDriver) PressEscape() *ViewDriver {
+	return self.Press(self.t.keys.Universal.Return)
+}
+
+// this will look for a list item in the current panel and if it finds it, it will
+// enter the keypresses required to navigate to it.
+// The test will fail if:
+// - the user is not in a list item
+// - no list item is found containing the given text
+// - multiple list items are found containing the given text in the initial page of items
+func (self *ViewDriver) NavigateToLine(matcher *TextMatcher) *ViewDriver {
+	self.IsFocused()
+
+	view := self.getView()
+	lines := view.BufferLines()
+
+	matchIndex := -1
+
+	self.t.assertWithRetries(func() (bool, string) {
+		var matches []string
+		// first we look for a duplicate on the current screen. We won't bother looking beyond that though.
+		for i, line := range lines {
+			ok, _ := matcher.test(line)
+			if ok {
+				matches = append(matches, line)
+				matchIndex = i
+			}
+		}
+		if len(matches) > 1 {
+			return false, fmt.Sprintf("Found %d matches for `%s`, expected only a single match. Matching lines:\n%s", len(matches), matcher.name(), strings.Join(matches, "\n"))
+		}
+		return true, ""
+	})
+
+	// If no match was found, it could be that this is a view that renders only
+	// the visible lines. In that case, we jump to the top and then press
+	// down-arrow until we found the match. We simply return the first match we
+	// find, so we have no way to assert that there are no duplicates.
+	if matchIndex == -1 {
+		self.GotoTop()
+		matchIndex = len(lines)
+	}
+
+	selectedLineIdx := self.getSelectedLineIdx()
+	if selectedLineIdx == matchIndex {
+		return self.SelectedLine(matcher)
+	}
+
+	// At this point we can't just take the difference of selected and matched
+	// index and press up or down arrow this many times. The reason is that
+	// there might be section headers between those lines, and these will be
+	// skipped when pressing up or down arrow. So we must keep pressing the
+	// arrow key in a loop, and check after each one whether we now reached the
+	// target line.
+	var maxNumKeyPresses int
+	var keyPress func()
+	if selectedLineIdx < matchIndex {
+		maxNumKeyPresses = matchIndex - selectedLineIdx
+		keyPress = func() { self.SelectNextItem() }
+	} else {
+		maxNumKeyPresses = selectedLineIdx - matchIndex
+		keyPress = func() { self.SelectPreviousItem() }
+	}
+
+	// The loop below only looks at the lines it moves onto, so the line we are
+	// starting from has to be checked here. After jumping to the top that line
+	// is the first item of the list, and for a list we had to scroll through
+	// it is a plausible target.
+	if ok, _ := matcher.test(view.BufferLines()[selectedLineIdx]); ok {
+		return self
+	}
+
+	for range maxNumKeyPresses {
+		keyPress()
+		idx := self.getSelectedLineIdx()
+		// It is important to use view.BufferLines() here and not lines, because it
+		// could change with every keypress.
+		if ok, _ := matcher.test(view.BufferLines()[idx]); ok {
+			return self
+		}
+	}
+
+	self.t.fail(fmt.Sprintf("Could not navigate to item matching: %s. Lines:\n%s", matcher.name(), strings.Join(view.BufferLines(), "\n")))
+	return self
+}
+
+// returns true if the view is a list view and it contains no items
+func (self *ViewDriver) IsEmpty() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		actual := strings.TrimSpace(self.getView().Buffer())
+		return actual == "", fmt.Sprintf("%s: Unexpected content in view: expected no content. Content: %s", self.context, actual)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) LineCount(matcher *IntMatcher) *ViewDriver {
+	view := self.getView()
+
+	self.t.assertWithRetries(func() (bool, string) {
+		lineCount := self.getLineCount()
+		ok, _ := matcher.test(lineCount)
+		return ok, fmt.Sprintf("unexpected number of lines in view '%s'. Expected %s, got %d", view.Name(), matcher.name(), lineCount)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) getLineCount() int {
+	// can't rely entirely on view.BufferLines because it returns 1 even if there's nothing in the view
+	if strings.TrimSpace(self.getView().Buffer()) == "" {
+		return 0
+	}
+
+	view := self.getView()
+	return len(view.BufferLines())
+}
+
+func (self *ViewDriver) IsVisible() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		return self.getView().Visible, fmt.Sprintf("%s: Expected view to be visible, but it was not", self.context)
+	})
+
+	return self
+}
+
+func (self *ViewDriver) IsInvisible() *ViewDriver {
+	self.t.assertWithRetries(func() (bool, string) {
+		return !self.getView().Visible, fmt.Sprintf("%s: Expected view to be invisible, but it was not", self.context)
+	})
+
+	return self
+}
+
+// will filter or search depending on whether the view supports filtering/searching
+func (self *ViewDriver) FilterOrSearch(text string) *ViewDriver {
+	self.IsFocused()
+
+	self.Press(self.t.keys.Universal.StartSearch).
+		Tap(func() {
+			self.t.ExpectSearch().
+				Clear().
+				Type(text).
+				Confirm()
+
+			self.t.Views().Search().IsVisible().Content(Contains(fmt.Sprintf("matches for '%s'", text)))
+		})
+
+	return self
+}
+
+func (self *ViewDriver) SetCaption(caption string) *ViewDriver {
+	self.t.gui.SetCaption(caption)
+
+	return self
+}
+
+func (self *ViewDriver) SetCaptionPrefix(prefix string) *ViewDriver {
+	self.t.gui.SetCaptionPrefix(prefix)
+
+	return self
+}
+
+func (self *ViewDriver) Wait(milliseconds int) *ViewDriver {
+	if !self.t.gui.Headless() {
+		self.t.Wait(milliseconds)
+	}
+
+	return self
+}
+
+// for when you want to make some assertion unrelated to the current view
+// without breaking the method chain
+func (self *ViewDriver) Tap(f func()) *ViewDriver {
+	f()
+
+	return self
+}
+
+// This purely exists as a convenience method for those who hate the trailing periods in multi-line method chains
+func (self *ViewDriver) Self() *ViewDriver {
+	return self
+}
+
+func expectedContentFromMatchers(matchers []*TextMatcher) string {
+	return strings.Join(lo.Map(matchers, func(matcher *TextMatcher, _ int) string {
+		return matcher.name()
+	}), "\n")
+}

@@ -1,0 +1,100 @@
+package controllers
+
+import (
+	"strings"
+
+	"github.com/jesseduffield/lazygit/pkg/config"
+	"github.com/jesseduffield/lazygit/pkg/gocui"
+	"github.com/jesseduffield/lazygit/pkg/gui/types"
+	"github.com/jesseduffield/lazygit/pkg/utils"
+	"github.com/samber/lo"
+)
+
+type OptionsMenuAction struct {
+	c *ControllerCommon
+}
+
+func (self *OptionsMenuAction) Call() error {
+	ctx := self.c.Context().Current()
+	local, global, navigation := self.getBindings(ctx)
+
+	menuItems := []*types.MenuItem{}
+
+	appendBindings := func(bindings []*types.Binding, section *types.MenuSection) {
+		menuItems = append(menuItems,
+			lo.Map(bindings, func(binding *types.Binding, _ int) *types.MenuItem {
+				var disabledReason *types.DisabledReason
+				if binding.GetDisabledReason != nil {
+					disabledReason = binding.GetDisabledReason()
+				}
+				tooltip := binding.GetTooltip()
+				if len(binding.Keys) > 1 {
+					if tooltip != "" {
+						tooltip += "\n\n"
+					}
+					keyLabels := lo.Map(binding.Keys, func(k gocui.Key, _ int) string { return config.LabelForKey(k) })
+					tooltip += self.c.Tr.KeybindingsTooltip + strings.Join(keyLabels, ", ")
+				}
+				return &types.MenuItem{
+					OpensMenu: binding.OpensMenu,
+					Label:     binding.GetDescription(),
+					OnPress: func() error {
+						if binding.Handler == nil {
+							return nil
+						}
+
+						return self.c.IGuiCommon.CallKeybindingHandler(binding)
+					},
+					Keys:           binding.Keys,
+					Tooltip:        tooltip,
+					DisabledReason: disabledReason,
+					Section:        section,
+				}
+			})...)
+	}
+
+	appendBindings(local, &types.MenuSection{Title: self.c.Tr.KeybindingsMenuSectionLocal, Column: 1})
+	appendBindings(global, &types.MenuSection{Title: self.c.Tr.KeybindingsMenuSectionGlobal, Column: 1})
+	appendBindings(navigation, &types.MenuSection{Title: self.c.Tr.KeybindingsMenuSectionNavigation, Column: 1})
+
+	return self.c.Menu(types.CreateMenuOptions{
+		Title:                      self.c.Tr.Keybindings,
+		Items:                      menuItems,
+		HideCancel:                 true,
+		ColumnAlignment:            []utils.Alignment{utils.AlignRight, utils.AlignLeft},
+		AllowFilteringKeybindings:  true,
+		KeepConflictingKeybindings: true,
+		FilterAsYouType:            true,
+	})
+}
+
+// Returns three slices of bindings: local, global, and navigation
+func (self *OptionsMenuAction) getBindings(context types.Context) ([]*types.Binding, []*types.Binding, []*types.Binding) {
+	var bindingsGlobal, bindingsPanel, bindingsNavigation []*types.Binding
+
+	bindings, _ := self.c.GetInitialKeybindingsWithCustomCommands()
+
+	for _, binding := range bindings {
+		if binding.GetDescription() != "" {
+			if binding.ViewName == "" || binding.Tag == "global" {
+				bindingsGlobal = append(bindingsGlobal, binding)
+			} else if binding.ViewName == context.GetViewName() {
+				if binding.Tag == "navigation" {
+					bindingsNavigation = append(bindingsNavigation, binding)
+				} else {
+					bindingsPanel = append(bindingsPanel, binding)
+				}
+			}
+		}
+	}
+
+	return uniqueBindings(bindingsPanel), uniqueBindings(bindingsGlobal), uniqueBindings(bindingsNavigation)
+}
+
+// We shouldn't really need to do this. We should define alternative keys for the same
+// handler in the keybinding struct.
+func uniqueBindings(bindings []*types.Binding) []*types.Binding {
+	return lo.UniqBy(bindings, func(binding *types.Binding) string {
+		return binding.GetDescription()
+	})
+}

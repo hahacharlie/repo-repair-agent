@@ -1,0 +1,19 @@
+# This is the global git config we use for all our integration tests
+
+[user]
+	name = CI
+	email = CI@example.com
+[protocol "file"]
+	# see https://vielmetti.typepad.com/logbook/2022/10/git-security-fixes-lead-to-fatal-transport-file-not-allowed-error-in-ci-systems-cve-2022-39253.html
+	allow = always
+[commit]
+	gpgSign = false
+[maintenance]
+	# Every `git commit` forks `git maintenance run --auto --detach`. Since git
+	# 2.54 that repacks as soon as two objects share the objects/17 fanout
+	# directory, which happens readily in a fixture repo, and `git repack -d`
+	# prunes loose objects while the next fixture command -- or lazygit itself --
+	# is still working in the same repo. That surfaces as
+	# "error: invalid object <hash> for 'file09.txt'" / "Error building trees".
+	# Tests must never race a background repack.
+	auto = false

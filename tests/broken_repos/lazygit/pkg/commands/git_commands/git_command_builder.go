@@ -1,0 +1,214 @@
+package git_commands
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/jesseduffield/lazygit/pkg/commands/oscommands"
+	"github.com/jesseduffield/lazygit/pkg/config"
+	"github.com/jesseduffield/lazygit/pkg/env"
+)
+
+// OptionalLocksEnvVar is the name of the environment variable that tells git
+// whether it may take "optional" locks — chiefly the index.lock that `git
+// status` grabs to write back a refreshed stat-cache. We set it to 0 on every
+// git command by default (see NewGitCmdObjBuilder) so our invocations never
+// contend for index.lock, neither with each other (e.g. a main-view `git diff
+// --submodule`, which runs `git status` inside submodules, racing a submodule
+// action) nor with git commands the user runs in a terminal. The one command
+// that opts back in is the foreground files refresh; see FileLoader.gitStatus.
+const OptionalLocksEnvVar = "GIT_OPTIONAL_LOCKS"
+
+// ForOtherRepo prepares a command that operates on a repo other than the one
+// we have open — a submodule, or another worktree. GIT_DIR and GIT_WORK_TREE
+// say where our repo is, and every command we run inherits them, so a command
+// pointed at a different repo would be resolved against ours instead: `git -C
+// <submodule> log` would silently log the superproject's commits.
+func ForOtherRepo(cmdObj *oscommands.CmdObj) *oscommands.CmdObj {
+	return cmdObj.RemoveEnvVar(env.GitDirEnvVar).RemoveEnvVar(env.GitWorkTreeEnvVar)
+}
+
+// convenience struct for building git commands. Especially useful when
+// including conditional args
+type GitCommandBuilder struct {
+	// command string
+	args []string
+}
+
+func NewGitCmd(command string) *GitCommandBuilder {
+	return &GitCommandBuilder{args: []string{command}}
+}
+
+func (self *GitCommandBuilder) Arg(args ...string) *GitCommandBuilder {
+	self.args = append(self.args, args...)
+
+	return self
+}
+
+func (self *GitCommandBuilder) ArgIf(condition bool, ifTrue ...string) *GitCommandBuilder {
+	if condition {
+		self.Arg(ifTrue...)
+	}
+
+	return self
+}
+
+func (self *GitCommandBuilder) ArgIfElse(condition bool, ifTrue string, ifFalse string) *GitCommandBuilder {
+	if condition {
+		return self.Arg(ifTrue)
+	}
+	return self.Arg(ifFalse)
+}
+
+func (self *GitCommandBuilder) Config(value string) *GitCommandBuilder {
+	// config settings come before the command
+	self.args = append([]string{"-c", value}, self.args...)
+
+	return self
+}
+
+func (self *GitCommandBuilder) ConfigIf(condition bool, ifTrue string) *GitCommandBuilder {
+	if condition {
+		self.Config(ifTrue)
+	}
+
+	return self
+}
+
+// the -C arg will make git do a `cd` to the directory before doing anything else
+func (self *GitCommandBuilder) Dir(path string) *GitCommandBuilder {
+	// repo path comes before the command
+	self.args = append([]string{"-C", path}, self.args...)
+
+	return self
+}
+
+func (self *GitCommandBuilder) DirIf(condition bool, path string) *GitCommandBuilder {
+	if condition {
+		return self.Dir(path)
+	}
+
+	return self
+}
+
+// Note, you may prefer to use the Dir method instead of this one
+func (self *GitCommandBuilder) Worktree(path string) *GitCommandBuilder {
+	// worktree arg comes before the command
+	self.args = append([]string{"--work-tree", path}, self.args...)
+
+	return self
+}
+
+func (self *GitCommandBuilder) WorktreePathIf(condition bool, path string) *GitCommandBuilder {
+	if condition {
+		return self.Worktree(path)
+	}
+
+	return self
+}
+
+// Note, you may prefer to use the Dir method instead of this one
+func (self *GitCommandBuilder) GitDir(path string) *GitCommandBuilder {
+	// git dir arg comes before the command
+	self.args = append([]string{"--git-dir", path}, self.args...)
+
+	return self
+}
+
+func (self *GitCommandBuilder) GitDirIf(condition bool, path string) *GitCommandBuilder {
+	if condition {
+		return self.GitDir(path)
+	}
+
+	return self
+}
+
+// NoLineEndingConversion keeps git's line-ending machinery away from files that are not
+// a working tree's. The trees the custom patch is materialized into hold the bytes git
+// states the patch in, so a command over them has to read and write those bytes as they
+// are. On a machine that checks files out with CRLF, `git apply` writes the after tree
+// in that form while the before tree keeps the LF it was written with. git's own diff
+// converts both back, but it warns about a round trip through a working tree these
+// files never belong to, and an external diff renderer is handed the two files as they
+// stand, one line ending apart in every line.
+func (self *GitCommandBuilder) NoLineEndingConversion() *GitCommandBuilder {
+	return self.
+		// The setting that converts on most machines, and the one Git for Windows
+		// installs itself with.
+		Config("core.autocrlf=false").
+		// An attributes file outside the repo can still mark the files as text. The
+		// form to keep them in is then the form they are written in.
+		Config("core.eol=lf").
+		// An attribute naming CRLF outright overrides that, and git converts after all.
+		// The warning it gives is about a checkout these files never have.
+		Config("core.safecrlf=false")
+}
+
+// ParseableDiffPrefixes makes git put a prefix that we know how to strip in
+// front of the paths of a diff. We read the paths of the diffs we show out of
+// their headers, and we build patches from them for `git apply`. Both rely on
+// such a prefix.
+//
+// For this we override three configs of the user. diff.noprefix leaves the
+// prefix out, and diff.srcPrefix and diff.dstPrefix can set it to any string.
+// We leave diff.mnemonicPrefix alone. The prefixes it chooses, such as i/ and
+// w/, are a single path component like a/ and b/, so we can strip them too, and
+// the diffs we show keep the prefixes the user asked for.
+func (self *GitCommandBuilder) ParseableDiffPrefixes() *GitCommandBuilder {
+	return self.
+		Config("diff.noprefix=false").
+		Config("diff.srcPrefix=a/").
+		Config("diff.dstPrefix=b/")
+}
+
+func (self *GitCommandBuilder) AddCommonDiffArgs(diffRendererConfigManager *config.DiffRendererConfigManager, userConfig *config.UserConfig, mode DiffMode) *GitCommandBuilder {
+	contextSize := userConfig.Git.DiffContextSize
+	useExtDiff := mode == DiffModeRendered && diffRendererConfigManager.GetDiffRendererType() == config.DiffRendererType_ExtDiff
+
+	return self.
+		ArgIfElse(useExtDiff, "--ext-diff", "--no-ext-diff").
+		Arg(fmt.Sprintf("--unified=%d", contextSize)).
+		// Ignoring whitespace is about what the user wants to see, so it holds for a raw
+		// diff as much as for a rendered one. Patches are built from a plain diff,
+		// where a diff that leaves changes out would apply to nothing.
+		ArgIf(mode != DiffModePlain && userConfig.Git.IgnoreWhitespaceInDiffView, "--ignore-all-space").
+		Arg(fmt.Sprintf("--find-renames=%d%%", userConfig.Git.RenameSimilarityThreshold)).
+		// The renderer's own arguments to git — a word diff, say — are part of the
+		// rendering, so they go with it.
+		ArgIf(mode == DiffModeRendered, diffRendererConfigManager.GetRawGitArgs()...)
+}
+
+func (self *GitCommandBuilder) ToArgv() []string {
+	return append([]string{"git"}, self.args...)
+}
+
+func (self *GitCommandBuilder) ToString() string {
+	return strings.Join(self.ToArgv(), " ")
+}
+
+// runGitCmdOnPaths runs `git <subcommand> -- <paths...>`, splitting into
+// multiple calls if needed to stay under the OS command-line length limit.
+// Windows CreateProcess has a ~32 KB limit; we use 30 KB as a safe threshold.
+func runGitCmdOnPaths(subcommand string, paths []string, cmd oscommands.ICmdObjBuilder) error {
+	const maxArgBytes = 30_000
+
+	start := 0
+	for start < len(paths) {
+		end := start
+		total := 0
+		for end < len(paths) {
+			total += len(paths[end]) + 1 // +1 for the separating space
+			if total > maxArgBytes && end > start {
+				break
+			}
+			end++
+		}
+		if err := cmd.New(NewGitCmd(subcommand).Arg("--").
+			Arg(paths[start:end]...).
+			ToArgv()).Run(); err != nil {
+			return err
+		}
+		start = end
+	}
+	return nil
+}

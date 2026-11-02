@@ -1,0 +1,317 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"log"
+	"reflect"
+	"slices"
+	"strings"
+
+	"github.com/jesseduffield/lazygit/pkg/constants"
+	"github.com/jesseduffield/lazygit/pkg/utils"
+	"github.com/samber/lo"
+)
+
+func (config *UserConfig) Validate() error {
+	if err := validateEnum("gui.statusPanelView", config.Gui.StatusPanelView,
+		[]string{"dashboard", "allBranchesLog"}); err != nil {
+		return err
+	}
+	if err := validateEnum("gui.colorScheme", config.Gui.ColorScheme,
+		[]string{"auto", "dark", "light"}); err != nil {
+		return err
+	}
+	if err := validateEnum("gui.showDivergenceFromBaseBranch", config.Gui.ShowDivergenceFromBaseBranch,
+		[]string{"none", "onlyArrow", "arrowAndNumber"}); err != nil {
+		return err
+	}
+	if err := validateEnum("gui.fileTreeSortOrder", config.Gui.FileTreeSortOrder,
+		[]string{"mixed", "filesFirst", "foldersFirst"}); err != nil {
+		return err
+	}
+	if err := validateEnum("gui.commitGraphStyle", config.Gui.CommitGraphStyle,
+		[]string{"auto", "classic", "detailed"}); err != nil {
+		return err
+	}
+	if err := validateEnum("git.autoForwardBranches", config.Git.AutoForwardBranches,
+		[]string{"none", "onlyMainBranches", "allBranches"}); err != nil {
+		return err
+	}
+	if err := validateEnum("git.localBranchSortOrder", config.Git.LocalBranchSortOrder,
+		[]string{"date", "recency", "alphabetical"}); err != nil {
+		return err
+	}
+	if err := validateEnum("git.remoteBranchSortOrder", config.Git.RemoteBranchSortOrder,
+		[]string{"date", "alphabetical"}); err != nil {
+		return err
+	}
+	if err := validateEnum("git.log.order", config.Git.Log.Order,
+		[]string{"date-order", "author-date-order", "topo-order", "default"}); err != nil {
+		return err
+	}
+	if err := validateEnum("git.log.showGraph", config.Git.Log.ShowGraph,
+		[]string{"always", "never", "when-maximised"}); err != nil {
+		return err
+	}
+	if err := validateDiffRenderers(config.Git.DiffRenderers); err != nil {
+		return err
+	}
+	if err := validateKeybindings(config.Keybinding); err != nil {
+		return err
+	}
+	if err := validateCustomCommands(config.CustomCommands); err != nil {
+		return err
+	}
+	if err := validateSpinner(config.Gui.Spinner); err != nil {
+		return err
+	}
+	if err := validateSidePanels(config.Gui.SidePanels); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSidePanels(panels []SidePanel) error {
+	seen := map[string]bool{}
+	total := 0
+	for _, panel := range panels {
+		if len(panel) == 0 {
+			return errors.New("gui.sidePanels: a side panel must have at least one tab.")
+		}
+		for _, name := range panel {
+			if !slices.Contains(ValidSidePanelTabs, name) {
+				return fmt.Errorf("gui.sidePanels: unknown side panel '%s'. Allowed values: %s",
+					name, strings.Join(ValidSidePanelTabs, ", "))
+			}
+			if seen[name] {
+				return fmt.Errorf("gui.sidePanels: '%s' is listed more than once; each side panel may appear only once.", name)
+			}
+			seen[name] = true
+			total++
+		}
+	}
+	if total == 0 {
+		return errors.New("gui.sidePanels must not be empty.")
+	}
+	// A lot of code focuses these panels directly (e.g. after resolving a
+	// conflict or popping a stash), so they must always be present; otherwise
+	// that code would focus a hidden panel.
+	for _, required := range []string{"files", "branches", "commits"} {
+		if !seen[required] {
+			return fmt.Errorf("gui.sidePanels: '%s' must be included; it can't be hidden.", required)
+		}
+	}
+	return nil
+}
+
+func validateSpinner(spinner SpinnerConfig) error {
+	if len(spinner.Frames) == 0 {
+		return errors.New("gui.spinner.frames must not be empty.")
+	}
+	firstWidth := utils.StringWidth(spinner.Frames[0])
+	if lo.SomeBy(spinner.Frames, func(frame string) bool {
+		return utils.StringWidth(frame) != firstWidth
+	}) {
+		return errors.New("All gui.spinner.frames entries must have the same width.")
+	}
+	return nil
+}
+
+func validateDiffRenderers(diffRenderers []DiffRendererConfig) error {
+	for _, diffRenderer := range diffRenderers {
+		switch diffRenderer.Type {
+		case "stdinFilter", "":
+			if diffRenderer.Command == "" {
+				return errors.New("git.diffRenderers: 'command' must be specified for diff renderer type 'stdinFilter'.")
+			}
+			if len(diffRenderer.Args) > 0 {
+				return errors.New("git.diffRenderers: 'args' cannot be used with diff renderer type 'stdinFilter'.")
+			}
+			if err := validateDiffRendererCommand(diffRenderer); err != nil {
+				return err
+			}
+		case "extDiff":
+			if len(diffRenderer.Args) > 0 {
+				return errors.New("git.diffRenderers: 'args' cannot be used with diff renderer type 'extDiff'.")
+			}
+			if err := validateDiffRendererCommand(diffRenderer); err != nil {
+				return err
+			}
+		case "rawGit":
+			if diffRenderer.Command != "" {
+				return errors.New("git.diffRenderers: 'command' cannot be used with diff renderer type 'rawGit'.")
+			}
+		default:
+			return fmt.Errorf("git.diffRenderers: unknown type '%s'. Allowed values: stdinFilter, extDiff, rawGit", diffRenderer.Type)
+		}
+	}
+	return nil
+}
+
+// validateDiffRendererCommand resolves the command with made-up values, so that
+// a mistake in it shows up when the config is loaded rather than when a diff
+// is rendered.
+func validateDiffRendererCommand(diffRenderer DiffRendererConfig) error {
+	_, err := diffRenderer.resolveCommand(DiffRendererValues{Width: 80, DiffContext: 3})
+	return err
+}
+
+func validateEnum(name string, value string, allowedValues []string) error {
+	if slices.Contains(allowedValues, value) {
+		return nil
+	}
+	allowedValuesStr := strings.Join(allowedValues, ", ")
+	return fmt.Errorf("Unexpected value '%s' for '%s'. Allowed values: %s", value, name, allowedValuesStr)
+}
+
+func validateKeybindingsRecurse(path string, node any) error {
+	value := reflect.ValueOf(node)
+	if value.Kind() == reflect.Struct {
+		for _, field := range reflect.VisibleFields(reflect.TypeOf(node)) {
+			var newPath string
+			if len(path) == 0 {
+				newPath = field.Name
+			} else {
+				newPath = fmt.Sprintf("%s.%s", path, field.Name)
+			}
+			if err := validateKeybindingsRecurse(newPath,
+				value.FieldByName(field.Name).Interface()); err != nil {
+				return err
+			}
+		}
+	} else if value.Kind() == reflect.Slice {
+		for i := range value.Len() {
+			if err := validateKeybindingsRecurse(
+				fmt.Sprintf("%s[%d]", path, i), value.Index(i).Interface()); err != nil {
+				return err
+			}
+		}
+	} else if value.Kind() == reflect.String {
+		key := node.(string)
+		if !isValidKeybindingKey(key) {
+			return fmt.Errorf("Unrecognized key '%s' for keybinding '%s'. For permitted values see %s",
+				key, path, constants.Links.Docs.CustomKeybindings)
+		}
+	} else {
+		log.Fatalf("Unexpected type for property '%s': %s", path, value.Kind())
+	}
+	return nil
+}
+
+func validateKeybindings(keybindingConfig KeybindingConfig) error {
+	return validateKeybindingsRecurse("", keybindingConfig)
+}
+
+func validateCustomCommandKey(key Keybinding) error {
+	for _, k := range key {
+		if !isValidKeybindingKey(k) {
+			return fmt.Errorf("Unrecognized key '%s' for custom command. For permitted values see %s",
+				k, constants.Links.Docs.CustomKeybindings)
+		}
+	}
+	return nil
+}
+
+// ValidCustomCommandContexts lists the names a custom command's 'context' may
+// use. It mirrors context.AllContextKeys in the gui package, which this package
+// can't import; a test over there keeps the two in sync.
+var ValidCustomCommandContexts = []string{
+	"global",
+	"status",
+	"files",
+	"localBranches",
+	"remotes",
+	"worktrees",
+	"remoteBranches",
+	"tags",
+	"commits",
+	"reflogCommits",
+	"subCommits",
+	"commitFiles",
+	"stash",
+	"normal",
+	"normalSecondary",
+	"mergeConflicts",
+	"menu",
+	"confirmation",
+	"prompt",
+	"search",
+	"commitMessage",
+	"submodules",
+	"suggestions",
+	"cmdLog",
+}
+
+func validateCustomCommandContext(context string) error {
+	for _, name := range strings.Split(context, ",") {
+		name = strings.TrimSpace(name)
+		if !slices.Contains(ValidCustomCommandContexts, name) {
+			return fmt.Errorf("Unknown context '%s' for custom command. Allowed values: %s",
+				name, strings.Join(ValidCustomCommandContexts, ", "))
+		}
+	}
+	return nil
+}
+
+func validateCustomCommands(customCommands []CustomCommand) error {
+	for _, customCommand := range customCommands {
+		if err := validateCustomCommandKey(customCommand.Key); err != nil {
+			return err
+		}
+
+		if len(customCommand.CommandMenu) > 0 {
+			if len(customCommand.Context) > 0 ||
+				len(customCommand.Command) > 0 ||
+				len(customCommand.Prompts) > 0 ||
+				len(customCommand.LoadingText) > 0 ||
+				len(customCommand.Output) > 0 ||
+				len(customCommand.OutputTitle) > 0 ||
+				customCommand.After != nil {
+				commandRef := ""
+				if len(customCommand.Key) > 0 {
+					commandRef = fmt.Sprintf(" with key '%s'", customCommand.Key.String())
+				}
+				return fmt.Errorf("Error with custom command%s: it is not allowed to use both commandMenu and any of the other fields except key and description.", commandRef)
+			}
+
+			if err := validateCustomCommands(customCommand.CommandMenu); err != nil {
+				return err
+			}
+		} else {
+			// A command in a menu may leave the context out, in which case it is
+			// offered whatever is focused; a top-level one may not, but that is
+			// only noticed when the keybindings are built.
+			if customCommand.Context != "" {
+				if err := validateCustomCommandContext(customCommand.Context); err != nil {
+					return err
+				}
+			}
+
+			for _, prompt := range customCommand.Prompts {
+				if err := validateCustomCommandPrompt(prompt); err != nil {
+					return err
+				}
+			}
+
+			if err := validateEnum("customCommand.output", customCommand.Output,
+				[]string{"", "none", "terminal", "log", "logWithPty", "popup"}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateCustomCommandPrompt(prompt CustomCommandPrompt) error {
+	for _, option := range prompt.Options {
+		for _, k := range option.Key {
+			if !isValidKeybindingKey(k) {
+				return fmt.Errorf("Unrecognized key '%s' for custom command prompt option. For permitted values see %s",
+					k, constants.Links.Docs.CustomKeybindings)
+			}
+		}
+	}
+
+	return nil
+}

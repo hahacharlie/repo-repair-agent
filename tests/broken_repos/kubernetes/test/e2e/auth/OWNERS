@@ -1,0 +1,12 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+reviewers:
+  - liggitt
+  - sttts
+  - tallclair
+approvers:
+  - liggitt
+  - sttts
+  - tallclair
+labels:
+  - sig/auth

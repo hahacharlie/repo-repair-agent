@@ -1,0 +1,389 @@
+package controllers
+
+import (
+	"github.com/jesseduffield/lazygit/pkg/gocui"
+	"github.com/jesseduffield/lazygit/pkg/gui/controllers/helpers"
+	"github.com/jesseduffield/lazygit/pkg/gui/types"
+)
+
+type ListControllerFactory struct {
+	c *ControllerCommon
+}
+
+func NewListControllerFactory(c *ControllerCommon) *ListControllerFactory {
+	return &ListControllerFactory{
+		c: c,
+	}
+}
+
+func (self *ListControllerFactory) Create(context types.IListContext) *ListController {
+	controller := &ListController{
+		baseController: baseController{},
+		c:              self.c,
+		context:        context,
+	}
+	controller.dragAutoscroller = helpers.NewDragAutoscroller(
+		self.c.HelperCommon,
+		context,
+		func(int) bool { return context.GetList().IsSelectingRange() },
+		controller.handleDragAutoscroll,
+	)
+	return controller
+}
+
+type ListController struct {
+	baseController
+	c *ControllerCommon
+
+	context           types.IListContext
+	dragAutoscroller  *helpers.DragAutoscroller
+	draggingWithMouse bool
+}
+
+func (self *ListController) Context() types.Context {
+	return self.context
+}
+
+func (self *ListController) HandlePrevLine() error {
+	return self.handleLineChange(-1)
+}
+
+func (self *ListController) HandleNextLine() error {
+	return self.handleLineChange(1)
+}
+
+func (self *ListController) HandleScrollLeft() error {
+	return self.scrollHorizontal(self.context.GetViewTrait().ScrollLeft)
+}
+
+func (self *ListController) HandleScrollRight() error {
+	return self.scrollHorizontal(self.context.GetViewTrait().ScrollRight)
+}
+
+func (self *ListController) HandleScrollUp() error {
+	scrollHeight := self.c.UserConfig().Gui.ScrollHeight
+	self.context.GetViewTrait().ScrollUp(scrollHeight)
+	if self.context.RenderOnlyVisibleLines() {
+		self.context.HandleRender()
+	}
+
+	return nil
+}
+
+func (self *ListController) HandleScrollDown() error {
+	scrollHeight := self.c.UserConfig().Gui.ScrollHeight
+	self.context.GetViewTrait().ScrollDown(scrollHeight)
+	if self.context.RenderOnlyVisibleLines() {
+		self.context.HandleRender()
+	}
+
+	return nil
+}
+
+func (self *ListController) scrollHorizontal(scrollFunc func()) error {
+	scrollFunc()
+
+	self.context.HandleFocus(types.OnFocusOpts{})
+	if self.context.NeedsRerenderOnWidthChange() == types.NEEDS_RERENDER_ON_WIDTH_CHANGE_WHEN_WIDTH_CHANGES {
+		self.context.HandleRender()
+	}
+	return nil
+}
+
+func (self *ListController) handleLineChange(change int) error {
+	return self.handleLineChangeAux(
+		self.context.GetList().MoveSelectedLine, change,
+	)
+}
+
+func (self *ListController) HandleRangeSelectChange(change int) error {
+	return self.handleLineChangeAux(
+		self.context.GetList().ExpandNonStickyRange, change,
+	)
+}
+
+func (self *ListController) handleLineChangeAux(f func(int), change int) error {
+	list := self.context.GetList()
+
+	rangeBefore := list.IsSelectingRange()
+	before := list.GetSelectedLineIdx()
+	f(change)
+	rangeAfter := list.IsSelectingRange()
+	after := list.GetSelectedLineIdx()
+
+	// doing this check so that if we're holding the up key at the start of the list
+	// we're not constantly re-rendering the main view.
+	cursorMoved := before != after
+	originYBefore := self.context.GetView().OriginY()
+	if cursorMoved {
+		switch change {
+		case -1:
+			checkScrollUp(self.context.GetViewTrait(), self.c.UserConfig(),
+				self.context.ModelIndexToViewIndex(before), self.context.ModelIndexToViewIndex(after))
+		case 1:
+			checkScrollDown(self.context.GetViewTrait(), self.c.UserConfig(),
+				self.context.ModelIndexToViewIndex(before), self.context.ModelIndexToViewIndex(after))
+		}
+	}
+
+	if cursorMoved || rangeBefore != rangeAfter {
+		if originYBefore != self.context.GetView().OriginY() {
+			// Since we already scrolled the view above, the normal mechanism that
+			// ListContextTrait.FocusLine uses for deciding whether rerendering is needed won't
+			// work. It is based on checking whether the origin was changed by the call to
+			// FocusPoint in that function, but since we scrolled the view directly above, the
+			// origin has already been updated. So we must tell it explicitly to rerender.
+			self.context.SetNeedRerenderVisibleLines()
+		}
+
+		self.context.HandleFocus(types.OnFocusOpts{})
+	} else {
+		// If the selection did not change (because, for example, we are at the top of the list and
+		// press up), we still want to ensure that the selection is visible. This is useful after
+		// scrolling the selection out of view with the mouse.
+		self.context.FocusLine(true)
+	}
+
+	return nil
+}
+
+func (self *ListController) HandlePrevPage() error {
+	return self.handlePageChange(-self.context.GetViewTrait().PageDelta())
+}
+
+func (self *ListController) HandleNextPage() error {
+	return self.handlePageChange(self.context.GetViewTrait().PageDelta())
+}
+
+func (self *ListController) handlePageChange(delta int) error {
+	list := self.context.GetList()
+	view := self.context.GetViewTrait()
+
+	before := list.GetSelectedLineIdx()
+
+	viewPortStart, viewPortHeight := view.ViewPortYBounds()
+	beforeViewIdx := self.context.ModelIndexToViewIndex(before)
+	afterViewIdx := beforeViewIdx + delta
+	newModelIndex := self.context.ViewIndexToModelIndex(afterViewIdx)
+
+	if delta < 0 {
+		// Previous page: keep selection at top of viewport
+		indexAtTopOfPage := self.context.ViewIndexToModelIndex(viewPortStart)
+		if before != indexAtTopOfPage {
+			// If the selection isn't already at the top of the page, move it there without scrolling
+			list.MoveSelectedLine(indexAtTopOfPage - before)
+		} else {
+			// Otherwise, move the selection by one page and scroll
+			list.MoveSelectedLine(newModelIndex - before)
+
+			linesToScroll := afterViewIdx - viewPortStart
+			if linesToScroll < 0 {
+				view.ScrollUp(-linesToScroll)
+			}
+		}
+	} else {
+		// Next page: keep selection at bottom of viewport
+		indexAtBottomOfPage := self.context.ViewIndexToModelIndex(viewPortStart + viewPortHeight - 1)
+		if before != indexAtBottomOfPage {
+			// If the selection isn't already at the bottom of the page, move it there without scrolling
+			list.MoveSelectedLine(indexAtBottomOfPage - before)
+		} else {
+			// Otherwise, move the selection by one page and scroll
+			list.MoveSelectedLine(newModelIndex - before)
+
+			linesToScroll := afterViewIdx - (viewPortStart + viewPortHeight - 1)
+			if linesToScroll > 0 {
+				view.ScrollDown(linesToScroll)
+			}
+		}
+	}
+
+	// Since we already scrolled the view above, the normal mechanism that
+	// ListContextTrait.FocusLine uses for deciding whether rerendering is needed won't work. It is
+	// based on checking whether the origin was changed by the call to FocusPoint in that function,
+	// but since we scrolled the view directly above, the origin has already been updated. So we
+	// must tell it explicitly to rerender.
+	self.context.SetNeedRerenderVisibleLines()
+
+	// This function scrolls the view itself, keeping the selection at the edge of
+	// the viewport rather than in its middle, so the scroll position is ours to
+	// maintain, not the focus mechanism's.
+	self.context.HandleFocus(types.OnFocusOpts{KeepScrollPosition: true})
+
+	return nil
+}
+
+func (self *ListController) HandleGotoTop() error {
+	return self.handleLineChange(-self.context.GetList().Len())
+}
+
+func (self *ListController) HandleGotoBottom() error {
+	bottomIdx := self.context.IndexForGotoBottom()
+	change := bottomIdx - self.context.GetList().GetSelectedLineIdx()
+	return self.handleLineChange(change)
+}
+
+func (self *ListController) HandleToggleRangeSelect() error {
+	list := self.context.GetList()
+
+	list.ToggleStickyRange()
+
+	self.context.HandleFocus(types.OnFocusOpts{})
+	return nil
+}
+
+func (self *ListController) HandleRangeSelectDown() error {
+	return self.HandleRangeSelectChange(1)
+}
+
+func (self *ListController) HandleRangeSelectUp() error {
+	return self.HandleRangeSelectChange(-1)
+}
+
+func (self *ListController) HandleClick(opts gocui.ViewMouseBindingOpts) error {
+	newSelectedLineIdx := self.context.ViewIndexToModelIndex(opts.Y)
+	alreadyFocused := self.isFocused()
+
+	if err := self.pushContextIfNotFocused(); err != nil {
+		return err
+	}
+
+	if newSelectedLineIdx > self.context.GetList().Len()-1 {
+		return nil
+	}
+
+	self.context.GetList().SetSelection(newSelectedLineIdx)
+
+	if opts.IsDoubleClick && alreadyFocused && self.context.GetOnDoubleClick() != nil {
+		return self.context.GetOnDoubleClick()()
+	}
+
+	self.context.HandleFocus(types.OnFocusOpts{})
+
+	// Let view-specific controllers do additional click handling
+	if self.context.GetOnClick() != nil {
+		return self.context.GetOnClick()(opts)
+	}
+
+	return nil
+}
+
+func (self *ListController) HandleDrag(opts gocui.ViewMouseBindingOpts) error {
+	self.draggingWithMouse = true
+	self.selectRangeThroughViewIndex(opts.Y)
+	originY, _ := self.context.GetViewTrait().ViewPortYBounds()
+	self.dragAutoscroller.Update(opts.Y - originY)
+	return nil
+}
+
+func (self *ListController) selectRangeThroughViewIndex(viewIndex int) {
+	list := self.context.GetList()
+	newSelectedLineIdx := self.context.ViewIndexToModelIndex(viewIndex)
+	list.ExpandNonStickyRange(newSelectedLineIdx - list.GetSelectedLineIdx())
+
+	// The pointer can be outside the viewport, in which case so is the end of
+	// the range; the drag autoscroller takes care of following it, one line at a
+	// time, for as long as the pointer stays there.
+	self.context.HandleFocus(types.OnFocusOpts{KeepScrollPosition: true})
+}
+
+func (self *ListController) handleDragAutoscroll(viewIndex int) bool {
+	if !self.context.GetList().IsSelectingRange() {
+		return false
+	}
+
+	self.context.SetNeedRerenderVisibleLines()
+	self.selectRangeThroughViewIndex(viewIndex)
+	return true
+}
+
+func (self *ListController) handleDragRelease() error {
+	self.draggingWithMouse = false
+	self.dragAutoscroller.Cancel()
+	return nil
+}
+
+func (self *ListController) GetOnFocusLost() func(types.OnFocusLostOpts) {
+	return func(types.OnFocusLostOpts) {
+		self.dragAutoscroller.Cancel()
+		if self.draggingWithMouse {
+			self.draggingWithMouse = false
+			self.c.GocuiGui().CancelMouseCapture()
+		}
+	}
+}
+
+func (self *ListController) pushContextIfNotFocused() error {
+	if !self.isFocused() {
+		self.c.Context().Push(self.context, types.OnFocusOpts{})
+	}
+
+	return nil
+}
+
+func (self *ListController) isFocused() bool {
+	return self.c.Context().Current().GetKey() == self.context.GetKey()
+}
+
+func (self *ListController) GetKeybindings(opts types.KeybindingsOpts) []*types.Binding {
+	bindings := []*types.Binding{
+		{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.PrevItem), Handler: self.HandlePrevLine},
+		{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.NextItem), Handler: self.HandleNextLine},
+		{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.PrevPage), Handler: self.HandlePrevPage, Description: self.c.Tr.PrevPage},
+		{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.NextPage), Handler: self.HandleNextPage, Description: self.c.Tr.NextPage},
+		{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.GotoTop), Handler: self.HandleGotoTop, Description: self.c.Tr.GotoTop},
+		{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.GotoBottom), Handler: self.HandleGotoBottom, Description: self.c.Tr.GotoBottom},
+		{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.ScrollLeft), Handler: self.HandleScrollLeft},
+		{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.ScrollRight), Handler: self.HandleScrollRight},
+	}
+
+	if self.context.RangeSelectEnabled() {
+		bindings = append(bindings,
+			[]*types.Binding{
+				{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.ToggleRangeSelect), Handler: self.HandleToggleRangeSelect, Description: self.c.Tr.ToggleRangeSelect},
+				{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.RangeSelectDown), Handler: self.HandleRangeSelectDown, Description: self.c.Tr.RangeSelectDown},
+				{Tag: "navigation", Keys: opts.GetKeys(opts.Config.Universal.RangeSelectUp), Handler: self.HandleRangeSelectUp, Description: self.c.Tr.RangeSelectUp},
+			}...,
+		)
+	}
+
+	return bindings
+}
+
+func (self *ListController) GetMouseKeybindings(opts types.KeybindingsOpts) []*gocui.ViewMouseBinding {
+	bindings := []*gocui.ViewMouseBinding{
+		{
+			ViewName: self.context.GetViewName(),
+			Key:      gocui.MouseWheelUp,
+			Handler:  func(gocui.ViewMouseBindingOpts) error { return self.HandleScrollUp() },
+		},
+		{
+			ViewName: self.context.GetViewName(),
+			Key:      gocui.MouseLeft,
+			Handler:  func(opts gocui.ViewMouseBindingOpts) error { return self.HandleClick(opts) },
+		},
+		{
+			ViewName: self.context.GetViewName(),
+			Key:      gocui.MouseWheelDown,
+			Handler:  func(gocui.ViewMouseBindingOpts) error { return self.HandleScrollDown() },
+		},
+	}
+
+	if self.context.RangeSelectEnabled() {
+		bindings = append(bindings,
+			&gocui.ViewMouseBinding{
+				ViewName: self.context.GetViewName(),
+				Key:      gocui.MouseLeft,
+				Modifier: gocui.ModMotion,
+				Handler:  self.HandleDrag,
+			},
+			&gocui.ViewMouseBinding{
+				ViewName: self.context.GetViewName(),
+				Key:      gocui.MouseRelease,
+				Handler:  func(gocui.ViewMouseBindingOpts) error { return self.handleDragRelease() },
+			},
+		)
+	}
+
+	return bindings
+}

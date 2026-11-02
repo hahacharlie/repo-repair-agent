@@ -1,0 +1,85 @@
+package types
+
+import (
+	"github.com/jesseduffield/lazygit/pkg/commands/models"
+	"github.com/jesseduffield/lazygit/pkg/config"
+	"github.com/jesseduffield/lazygit/pkg/gocui"
+	"github.com/jesseduffield/lazygit/pkg/gui/types"
+)
+
+// these interfaces are used by the gui package so that it knows what it needs
+// to provide to a test in order for the test to run.
+
+type IntegrationTest interface {
+	Run(GuiDriver)
+	SetupConfig(config *config.AppConfig)
+	RequiresHeadless() bool
+	// width and height when running headless
+	HeadlessDimensions() (int, int)
+	// If true, we are recording/replaying a demo
+	IsDemo() bool
+}
+
+// this is the interface through which our integration tests interact with the lazygit gui
+type GuiDriver interface {
+	PressKey(string)
+	// Like PressKey, but presses several keys in immediate succession, waiting
+	// for lazygit to become idle only after the last one. Use it to simulate a
+	// user typing faster than lazygit processes the input.
+	PressKeysRapidly(...string)
+	Click(int, int)
+	// Click with a keyboard modifier held down, for the gestures that only exist
+	// as a modified click.
+	ClickWithModifier(int, int, gocui.Modifier)
+	// Two clicks in immediate succession, waiting for lazygit to become idle only
+	// after the second one. If it waited after the first one too, the second click
+	// could come too late to count as a double click.
+	DoubleClick(int, int)
+	ClickAndHold(int, int)
+	MouseMove(int, int)
+	MouseRelease(int, int)
+	ScrollWheelDown(int, int)
+	// Perform the refresh that a background routine would perform on a timer
+	RefreshInBackground()
+	// Can be used to avoid data races with the UI thread in the uncommon cases that
+	// the test driver needs to assert state while the gui is not idle.
+	OnUIThreadAndWait(func())
+	// Simulate the terminal window regaining focus (which triggers a reload of
+	// changed config files)
+	FocusIn()
+	// Simulate a terminal dispatching focus-in immediately followed by a click,
+	// without waiting for the focus refresh to finish in between.
+	FocusInAndClick(int, int)
+	Keys() config.KeybindingConfig
+	CurrentContext() types.Context
+	// Whether the terminal's text cursor is currently shown
+	CursorVisible() bool
+	ContextForView(viewName string) types.Context
+	Fail(message string)
+	// These two log methods are for the sake of debugging while testing. There's no need to actually
+	// commit any logging.
+	// logs to the normal place that you log to i.e. viewable with `lazygit --logs`
+	Log(message string)
+	// logs in the actual UI (in the commands panel)
+	LogUI(message string)
+	CheckedOutRef() *models.Branch
+	// the view that appears to the right of the side panel
+	MainView() *gocui.View
+	// the other view that sometimes appears to the right of the side panel
+	// e.g. when we're showing both staged and unstaged changes
+	SecondaryView() *gocui.View
+	View(viewName string) *gocui.View
+	// the frontmost visible view in the given window, i.e. the currently shown tab
+	TopViewInWindow(windowName string) *gocui.View
+	SetCaption(caption string)
+	SetCaptionPrefix(prefix string)
+	// Pop the next toast that was displayed; returns nil if there was none
+	NextToast() *string
+	CheckAllToastsAcknowledged()
+	Headless() bool
+	// Record that the in-progress rebase/merge/etc. is to be treated as one
+	// that was started from within lazygit. Lets a test that starts an
+	// operation by running git directly (rather than through the UI) still get
+	// the "continue?" prompt when its conflicts are resolved.
+	PretendMergeOrRebaseStartedInLazygit()
+}
