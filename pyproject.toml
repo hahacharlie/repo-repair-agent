@@ -6,5 +6,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
-[tool.uv]
-package = false
+[project.scripts]
+repo-repair-agent = "cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["agents", "cli", "config", "execution", "repair", "repository", "validation"]

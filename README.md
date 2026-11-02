@@ -1,25 +1,61 @@
 # Repository Repair Agent
 
-An initial Python implementation of the capstone design documented in the parent workspace’s `../document/` directory. It detects a Python entry point, copies a repository into a temporary directory, creates a fresh virtual environment, executes the application and detected unittest tests, and iterates through Fixer proposals and independent Judge reviews. Original repository files remain unchanged.
+An initial Python implementation of the repository-repair capstone design. It finds a Python start file, copies the repository into a temporary folder, creates a clean Python environment, runs the app and its unittest tests, and works through Fixer proposals and Judge reviews. The original repository stays unchanged.
 
 ## Requirements and quick start
 
-Install uv and Python 3.10+. The project uses `pyproject.toml` and `uv.lock` to manage its environment, with no third-party Python dependencies. Run from this directory:
+The commands below use the same form on Windows, macOS, and Linux. If your system uses `python3` instead of `python`, use `python3` in the setup command.
 
-```sh
-uv sync --locked
-uv run repair.py issue_repos/runtime_error --script issue_repos/runtime_error/repair.json
-uv run python -m unittest discover -s tests -v
+Install Python 3.10 or newer. Run this one time from the project folder:
+
+```console
+python -m pip install -r requirements.txt
 ```
 
-The offline example repairs an undefined variable and checks greeting behavior. Its scripted approval is a deterministic integration demonstration, not evidence of model judgment quality. Outputs are `results/run.json` and `results/run.patch`. CLI exit codes: 0 for passing execution, 1 for unsuccessful repair, 2 for setup errors. `execution_only` explicitly indicates that no tests were found.
+Run the offline sample without an API key:
+
+```console
+uv run repo-repair-agent undefined_greeting_variable
+```
+
+The offline example repairs an undefined variable and checks greeting behavior. Its scripted approval is a fixed test run, not proof that a model Judge works well. Results are saved under `results/<repo-name>/`. CLI exit codes: 0 for passing execution, 1 for unsuccessful repair, 2 for setup errors. `execution_only` means that no tests were found.
 
 ## Model-backed operation
 
-Set `ASU_AIR_API_KEY` in your environment, then run:
+Add your key to the local `.env` file:
 
-```sh
-uv run repair.py /path/to/trusted/python-repository --rounds 5 --timeout 30
+```text
+ASU_AIR_API_KEY=your_key_here
+```
+
+The program loads `.env` by itself. The file is ignored by Git and must not be committed. Save a broken reposiotry under `tests/broken_repos/`, and while excuting the erapir, give only its folder name:
+
+```console
+uv run repo-repair-agent broken-repo-folder-name
+```
+
+The default limit is five repair rounds with 30 seconds for each command. Change these only when needed:
+
+```console
+uv run repo-repair-agent broken-repo-folder-name --rounds 8 --timeout 60
+```
+
+You can still provide a full path when the repository is saved somewhere else.
+
+Every run saves a patch and report. After a successful repair, it also saves only the changed files:
+
+```text
+results/
+└── repo-name/
+    ├── fixed_files/
+    ├── repair.patch
+    └── report.json
+```
+
+Run the repair-agent tests with:
+
+```console
+uv run python -m unittest discover -s tests -v
 ```
 
 ### Configure agent models
@@ -28,10 +64,10 @@ Edit `config.json` to select the Fixer and Judge models:
 
 ```json
 {
-  "endpoint": "https://openai.rc.asu.edu/v1/chat/completions",
+  "endpoint": "https://openai.rc.asu.edu/v1",
   "api_key_env": "ASU_AIR_API_KEY",
   "fixer_model": "qwen3-coder-30b-a3b-instruct",
-  "judge_model": "qwen3-235b-a22b-instruct-2507",
+  "judge_model": "qwen3-235b-a22b",
   "api_timeout_seconds": 300
 }
 ```
@@ -40,11 +76,11 @@ Edit `config.json` to select the Fixer and Judge models:
 
 Use a separate configuration with:
 
-```sh
-uv run repair.py /path/to/trusted/python-repository --config /path/to/models.json
+```console
+uv run repo-repair-agent "<repo-path>" --config "<config-path>"
 ```
 
-By default, the runner loads `config.json` beside `repair.py`, regardless of the current working directory. The four endpoint/model/key fields are required. `api_timeout_seconds` is optional and defaults to 300 (integer, 1–3600). It controls socket waits, including the wait for initial response headers; it is not a total wall-clock deadline for an active stream. The CLI `--timeout` separately limits each target execution or installation command. Unknown fields are rejected. Offline `--script` mode does not load model configuration or require a key.
+By default, the runner loads `config.json` from the project root, regardless of the current working directory. The four endpoint/model/key fields are required. `api_timeout_seconds` is optional and defaults to 300 (integer, 1–3600). It controls socket waits, including the wait for initial response headers; it is not a total wall-clock deadline for an active stream. The CLI `--timeout` separately limits each target execution or installation command. Unknown fields are rejected. Offline `--script` mode does not load model configuration or require a key.
 
 The configuration selects ASU Voyager. Requests enable SSE streaming with usage reporting. Progress goes to stderr every 15 seconds while waiting and when reasoning or answer generation begins; model reasoning and answer text are not printed. The run report records per-request timing, request IDs, finish reasons, and token usage when provided. A server that returns a regular JSON completion instead is also accepted.
 
@@ -62,10 +98,11 @@ Next milestones: Docker isolation and image selection; model-driven orchestratio
 
 ## Layout and contribution
 
-- `repair.py`: inspection, execution, validation, agent clients, repair loop, CLI.
+- `src/`: production code containing the CLI, agents, repository inspection, execution, validation, and repair loop.
+- `.env`: local API key file; ignored by Git.
 - `config.json`: model names, shared API endpoint, and credential environment-variable name.
-- `pyproject.toml`, `uv.lock`, `.python-version`: uv project metadata, dependency lock, and development Python version.
-- `issue_repos/runtime_error/`: deliberately broken repository, protected functional tests, offline repair script.
-- `tests/`: runner integration and validation checks.
+- `pyproject.toml`, `requirements.txt`, `uv.lock`, `.python-version`: project metadata, dependency declarations, lock file, and development Python version.
+- `tests/broken_repos/`: deliberately broken sample repositories and offline repair scripts.
+- `tests/`: unit and integration checks for the repair agent.
 
 Use four-space Python indentation, descriptive snake_case names, and standard-library unittest. Run the test command above before submitting changes. Describe behavior changes, validation, and scope limitations in pull requests. Never commit API keys, local environments, or private run logs.
