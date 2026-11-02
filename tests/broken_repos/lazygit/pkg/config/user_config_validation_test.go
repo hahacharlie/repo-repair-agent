@@ -1,0 +1,443 @@
+package config
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestUserConfigValidate_enums(t *testing.T) {
+	type testCase struct {
+		value string
+		valid bool
+	}
+
+	scenarios := []struct {
+		name      string
+		setup     func(config *UserConfig, value string)
+		testCases []testCase
+	}{
+		{
+			name: "Gui.StatusPanelView",
+			setup: func(config *UserConfig, value string) {
+				config.Gui.StatusPanelView = value
+			},
+			testCases: []testCase{
+				{value: "dashboard", valid: true},
+				{value: "allBranchesLog", valid: true},
+				{value: "", valid: false},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Gui.ShowDivergenceFromBaseBranch",
+			setup: func(config *UserConfig, value string) {
+				config.Gui.ShowDivergenceFromBaseBranch = value
+			},
+			testCases: []testCase{
+				{value: "none", valid: true},
+				{value: "onlyArrow", valid: true},
+				{value: "arrowAndNumber", valid: true},
+				{value: "", valid: false},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Git.AutoForwardBranches",
+			setup: func(config *UserConfig, value string) {
+				config.Git.AutoForwardBranches = value
+			},
+			testCases: []testCase{
+				{value: "none", valid: true},
+				{value: "onlyMainBranches", valid: true},
+				{value: "allBranches", valid: true},
+				{value: "", valid: false},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Git.LocalBranchSortOrder",
+			setup: func(config *UserConfig, value string) {
+				config.Git.LocalBranchSortOrder = value
+			},
+			testCases: []testCase{
+				{value: "date", valid: true},
+				{value: "recency", valid: true},
+				{value: "alphabetical", valid: true},
+				{value: "", valid: false},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Git.RemoteBranchSortOrder",
+			setup: func(config *UserConfig, value string) {
+				config.Git.RemoteBranchSortOrder = value
+			},
+			testCases: []testCase{
+				{value: "date", valid: true},
+				{value: "recency", valid: false},
+				{value: "alphabetical", valid: true},
+				{value: "", valid: false},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Git.Log.Order",
+			setup: func(config *UserConfig, value string) {
+				config.Git.Log.Order = value
+			},
+			testCases: []testCase{
+				{value: "date-order", valid: true},
+				{value: "author-date-order", valid: true},
+				{value: "topo-order", valid: true},
+				{value: "default", valid: true},
+
+				{value: "", valid: false},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Git.Log.ShowGraph",
+			setup: func(config *UserConfig, value string) {
+				config.Git.Log.ShowGraph = value
+			},
+			testCases: []testCase{
+				{value: "always", valid: true},
+				{value: "never", valid: true},
+				{value: "when-maximised", valid: true},
+
+				{value: "", valid: false},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Keybindings",
+			setup: func(config *UserConfig, value string) {
+				config.Keybinding.Universal.Quit = Keybinding{value}
+			},
+			testCases: []testCase{
+				{value: "", valid: true},
+				{value: "<disabled>", valid: true},
+				{value: "q", valid: true},
+				{value: "<c-c>", valid: true},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "JumpToBlock keybinding",
+			setup: func(config *UserConfig, value string) {
+				labels := strings.Split(value, ",")
+				config.Keybinding.Universal.JumpToBlock = lo.Map(labels, func(label string, _ int) Keybinding {
+					return Keybinding{label}
+				})
+			},
+			testCases: []testCase{
+				// The number of entries no longer has to match the number of side
+				// panels, so only the validity of the individual keys matters.
+				{value: "1,2,3", valid: true},
+				{value: "1,2,3,4,5", valid: true},
+				{value: "1,2,3,4,5,6", valid: true},
+				{value: "1,2,3,4,invalid", valid: false},
+			},
+		},
+		{
+			name: "Custom command keybinding",
+			setup: func(config *UserConfig, value string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Key:     Keybinding{value},
+						Command: "echo 'hello'",
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: true},
+				{value: "<disabled>", valid: true},
+				{value: "q", valid: true},
+				{value: "<c-c>", valid: true},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Custom command keybinding in sub menu",
+			setup: func(config *UserConfig, value string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Key:         Keybinding{"X"},
+						Description: "My Custom Commands",
+						CommandMenu: []CustomCommand{
+							{Key: Keybinding{value}, Command: "echo 'hello'", Context: "global"},
+						},
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: true},
+				{value: "<disabled>", valid: true},
+				{value: "q", valid: true},
+				{value: "<c-c>", valid: true},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Custom command keybinding in prompt menu",
+			setup: func(config *UserConfig, value string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Key:         Keybinding{"X"},
+						Description: "My Custom Commands",
+						Prompts: []CustomCommandPrompt{
+							{
+								Options: []CustomCommandMenuOption{
+									{Key: Keybinding{value}},
+								},
+							},
+						},
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: true},
+				{value: "<disabled>", valid: true},
+				{value: "q", valid: true},
+				{value: "<c-c>", valid: true},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Custom command output",
+			setup: func(config *UserConfig, value string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Output: value,
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: true},
+				{value: "none", valid: true},
+				{value: "terminal", valid: true},
+				{value: "log", valid: true},
+				{value: "logWithPty", valid: true},
+				{value: "popup", valid: true},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Custom command context",
+			setup: func(config *UserConfig, value string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Context: value,
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: true},
+				{value: "global", valid: true},
+				{value: "commits", valid: true},
+				{value: "commits, subCommits", valid: true},
+				{value: "commits,subCommits", valid: true},
+				{value: "invalid_value", valid: false},
+				{value: "commits, invalid_value", valid: false},
+				// The staging and patch-building panels are gone, so a config that
+				// still names their contexts is reported rather than fatal.
+				{value: "staging", valid: false},
+				{value: "patchBuilding", valid: false},
+			},
+		},
+		{
+			name: "Custom command context in a sub menu",
+			setup: func(config *UserConfig, value string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Key: Keybinding{"X"},
+						CommandMenu: []CustomCommand{
+							{Key: Keybinding{"1"}, Command: "echo 'hello'", Context: value},
+						},
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: true},
+				{value: "commits", valid: true},
+				{value: "invalid_value", valid: false},
+			},
+		},
+		{
+			name: "Custom command sub menu",
+			setup: func(config *UserConfig, _ string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Key:         Keybinding{"X"},
+						Description: "My Custom Commands",
+						CommandMenu: []CustomCommand{
+							{Key: Keybinding{"1"}, Command: "echo 'hello'", Context: "global"},
+						},
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: true},
+			},
+		},
+		{
+			name: "Custom command sub menu",
+			setup: func(config *UserConfig, _ string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Key:     Keybinding{"X"},
+						Context: "global", // context is not allowed for submenus
+						CommandMenu: []CustomCommand{
+							{Key: Keybinding{"1"}, Command: "echo 'hello'", Context: "global"},
+						},
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: false},
+			},
+		},
+		{
+			name: "Custom command sub menu",
+			setup: func(config *UserConfig, _ string) {
+				config.CustomCommands = []CustomCommand{
+					{
+						Key:         Keybinding{"X"},
+						LoadingText: "loading", // other properties are not allowed for submenus (using loadingText as an example)
+						CommandMenu: []CustomCommand{
+							{Key: Keybinding{"1"}, Command: "echo 'hello'", Context: "global"},
+						},
+					},
+				}
+			},
+			testCases: []testCase{
+				{value: "", valid: false},
+			},
+		},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			for _, testCase := range s.testCases {
+				config := GetDefaultConfig()
+				s.setup(config, testCase.value)
+				err := config.Validate()
+
+				if testCase.valid {
+					assert.NoError(t, err)
+				} else {
+					assert.Error(t, err)
+				}
+			}
+		})
+	}
+}
+
+func TestUserConfigValidate_spinnerFrames(t *testing.T) {
+	scenarios := []struct {
+		name   string
+		frames []string
+		valid  bool
+	}{
+		{name: "empty", frames: []string{}, valid: false},
+		{name: "single frame", frames: []string{"|"}, valid: true},
+		{name: "all same width", frames: []string{"|", "/", "-", "\\"}, valid: true},
+		{name: "all same width, multi-char", frames: []string{".  ", ".. ", "..."}, valid: true},
+		{name: "all same width, wide runes", frames: []string{"⠋", "⠙", "⠹"}, valid: true},
+		{name: "differing widths", frames: []string{"|", "//"}, valid: false},
+		{name: "first differs from rest", frames: []string{"||", "/", "-"}, valid: false},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			config := GetDefaultConfig()
+			config.Gui.Spinner.Frames = s.frames
+			err := config.Validate()
+
+			if s.valid {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestUserConfigValidate_sidePanels(t *testing.T) {
+	scenarios := []struct {
+		name   string
+		panels []SidePanel
+		valid  bool
+	}{
+		{name: "default layout", panels: []SidePanel{{"status"}, {"files", "worktrees", "submodules"}, {"branches", "remotes", "tags"}, {"commits", "reflog"}, {"stash"}}, valid: true},
+		{name: "reordered", panels: []SidePanel{{"status"}, {"files"}, {"commits"}, {"branches"}, {"stash"}}, valid: true},
+		{name: "hidden stash panel", panels: []SidePanel{{"status"}, {"files"}, {"branches"}, {"commits"}}, valid: true},
+		{name: "promoted tab", panels: []SidePanel{{"files", "submodules"}, {"worktrees"}, {"branches"}, {"commits"}}, valid: true},
+		{name: "core panels only", panels: []SidePanel{{"files"}, {"branches"}, {"commits"}}, valid: true},
+		{name: "empty", panels: []SidePanel{}, valid: false},
+		{name: "empty panel", panels: []SidePanel{{"files"}, {"branches"}, {"commits"}, {}}, valid: false},
+		{name: "unknown name", panels: []SidePanel{{"files"}, {"branches"}, {"commits"}, {"bogus"}}, valid: false},
+		{name: "duplicate within panel", panels: []SidePanel{{"files", "files"}, {"branches"}, {"commits"}}, valid: false},
+		{name: "duplicate across panels", panels: []SidePanel{{"files"}, {"branches", "files"}, {"commits"}}, valid: false},
+		{name: "missing files", panels: []SidePanel{{"branches"}, {"commits"}}, valid: false},
+		{name: "missing branches", panels: []SidePanel{{"files"}, {"commits"}}, valid: false},
+		{name: "missing commits", panels: []SidePanel{{"files"}, {"branches"}}, valid: false},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			config := GetDefaultConfig()
+			config.Gui.SidePanels = s.panels
+			err := config.Validate()
+
+			if s.valid {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestUserConfigValidate_diffRenderers(t *testing.T) {
+	scenarios := []struct {
+		name         string
+		diffRenderer DiffRendererConfig
+		valid        bool
+	}{
+		{name: "stdinFilter with type default", diffRenderer: DiffRendererConfig{Command: "delta"}, valid: true},
+		{name: "stdinFilter with explicit type", diffRenderer: DiffRendererConfig{Type: "stdinFilter", Command: "delta"}, valid: true},
+		{name: "stdinFilter with explicit type", diffRenderer: DiffRendererConfig{Type: "stdinFilter"}, valid: false},
+		{name: "stdinFilter with type default without command", diffRenderer: DiffRendererConfig{}, valid: false},
+		{name: "stdinFilter with args", diffRenderer: DiffRendererConfig{Type: "stdinFilter", Command: "delta", Args: []string{"-x"}}, valid: false},
+		{name: "stdinFilter with a template", diffRenderer: DiffRendererConfig{Command: "delta --width={{width}}{{if gt .width 100}} --side-by-side{{end}}"}, valid: true},
+		{name: "stdinFilter with an unknown template variable", diffRenderer: DiffRendererConfig{Command: "delta --width={{.widht}}"}, valid: false},
+		{name: "stdinFilter with a broken template", diffRenderer: DiffRendererConfig{Command: "delta {{if .width}}"}, valid: false},
+		{name: "external diff", diffRenderer: DiffRendererConfig{Type: "extDiff", Command: "difft"}, valid: true},
+		{name: "external diff without command", diffRenderer: DiffRendererConfig{Type: "extDiff"}, valid: true},
+		{name: "external diff with args", diffRenderer: DiffRendererConfig{Type: "extDiff", Command: "difft", Args: []string{"-x"}}, valid: false},
+		{name: "external diff with a template", diffRenderer: DiffRendererConfig{Type: "extDiff", Command: "difft --context={{diffContext}}"}, valid: true},
+		{name: "external diff with a variable of stdin filters", diffRenderer: DiffRendererConfig{Type: "extDiff", Command: "difft --width={{columnWidth}}"}, valid: false},
+		{name: "raw git", diffRenderer: DiffRendererConfig{Type: "rawGit"}, valid: true},
+		{name: "raw git with args", diffRenderer: DiffRendererConfig{Type: "rawGit", Args: []string{"-x"}}, valid: true},
+		{name: "raw git with command", diffRenderer: DiffRendererConfig{Type: "rawGit", Command: "delta"}, valid: false},
+		{name: "unknown type", diffRenderer: DiffRendererConfig{Type: "unknown"}, valid: false},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			config := GetDefaultConfig()
+			config.Git.DiffRenderers = []DiffRendererConfig{s.diffRenderer}
+			err := config.Validate()
+
+			if s.valid {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
+}

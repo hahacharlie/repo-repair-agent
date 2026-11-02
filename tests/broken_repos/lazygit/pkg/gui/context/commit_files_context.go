@@ -1,0 +1,131 @@
+package context
+
+import (
+	"fmt"
+
+	"github.com/jesseduffield/lazygit/pkg/commands/models"
+	"github.com/jesseduffield/lazygit/pkg/gui/filetree"
+	"github.com/jesseduffield/lazygit/pkg/gui/presentation"
+	"github.com/jesseduffield/lazygit/pkg/gui/presentation/icons"
+	"github.com/jesseduffield/lazygit/pkg/gui/style"
+	"github.com/jesseduffield/lazygit/pkg/gui/types"
+	"github.com/samber/lo"
+)
+
+type CommitFilesContext struct {
+	*filetree.CommitFileTreeViewModel
+	*ListContextTrait
+	*DynamicTitleBuilder
+}
+
+var (
+	_ types.IListContext           = (*CommitFilesContext)(nil)
+	_ types.DiffableContext        = (*CommitFilesContext)(nil)
+	_ types.IFilterableContext     = (*CommitFilesContext)(nil)
+	_ types.DiffMainViewContext    = (*CommitFilesContext)(nil)
+	_ types.PullRequestDiffContext = (*CommitFilesContext)(nil)
+	_ types.BranchDiffContext      = (*CommitFilesContext)(nil)
+)
+
+func (self *CommitFilesContext) GetDiffMainViewType() types.DiffMainViewType {
+	return types.DiffMainViewTypePatchBuilding
+}
+
+// PullRequestDiff asks the panel this one was entered from. The files listed here are
+// those of the commits selected there, and that panel knows which branch's pull request
+// those commits are in.
+func (self *CommitFilesContext) PullRequestDiff() types.PullRequestDiff {
+	if parent, ok := self.GetParentContext().(types.PullRequestDiffContext); ok {
+		return parent.PullRequestDiff()
+	}
+	return types.PullRequestDiff{}
+}
+
+// BranchOfDiff asks the panel this one was entered from, since the files listed here
+// are those of the commits selected there.
+func (self *CommitFilesContext) BranchOfDiff() *models.Branch {
+	if parent, ok := self.GetParentContext().(types.BranchDiffContext); ok {
+		return parent.BranchOfDiff()
+	}
+	return nil
+}
+
+func NewCommitFilesContext(c *ContextCommon) *CommitFilesContext {
+	viewModel := filetree.NewCommitFileTreeViewModel(
+		func() []*models.CommitFile { return c.Model().CommitFiles },
+		c.Common,
+		c.UserConfig().Gui.ShowFileTree,
+	)
+
+	getDisplayStrings := func(_ int, _ int) [][]string {
+		if viewModel.Len() == 0 {
+			return [][]string{{style.FgRed.Sprint("(none)")}}
+		}
+
+		showFileIcons := icons.IsIconEnabled() && c.UserConfig().Gui.ShowFileIcons
+		lines := presentation.RenderCommitFileTree(viewModel, c.Git().Patch.PatchBuilder, showFileIcons, &c.UserConfig().Gui.CustomIcons)
+		return lo.Map(lines, func(line string, _ int) []string {
+			return []string{line}
+		})
+	}
+
+	ctx := &CommitFilesContext{
+		CommitFileTreeViewModel: viewModel,
+		DynamicTitleBuilder:     NewDynamicTitleBuilder(c.Tr.CommitFilesDynamicTitle),
+		ListContextTrait: &ListContextTrait{
+			Context: NewSimpleContext(
+				NewBaseContext(NewBaseContextOpts{
+					View:       c.Views().CommitFiles,
+					WindowName: "commits",
+					Key:        COMMIT_FILES_CONTEXT_KEY,
+					Kind:       types.SIDE_CONTEXT,
+					Focusable:  true,
+					Transient:  true,
+				}),
+			),
+			ListRenderer: ListRenderer{
+				list:              viewModel,
+				getDisplayStrings: getDisplayStrings,
+			},
+			c: c,
+		},
+	}
+
+	return ctx
+}
+
+func (self *CommitFilesContext) GetDiffTerminals() []string {
+	return []string{self.GetRef().RefName()}
+}
+
+func (self *CommitFilesContext) RefForAdjustingLineNumberInDiff() string {
+	if refs := self.GetRefRange(); refs != nil {
+		return refs.To.RefName()
+	}
+	return self.GetRef().RefName()
+}
+
+func (self *CommitFilesContext) GetFromAndToForDiff() (string, string) {
+	return FromAndToForDiff(self.GetRef(), self.GetRefRange())
+}
+
+// FromAndToForDiff gives the two ends to diff for a ref, or for a range of them: a
+// range runs from the parent of its first ref to its last, a single ref from its own
+// parent to itself.
+func FromAndToForDiff(ref models.Ref, refRange *types.RefRange) (string, string) {
+	if refRange != nil {
+		return refRange.From.ParentRefName(), refRange.To.RefName()
+	}
+	return ref.ParentRefName(), ref.RefName()
+}
+
+func (self *CommitFilesContext) ReInit(ref models.Ref, refRange *types.RefRange) {
+	self.SetRef(ref)
+	self.SetRefRange(refRange)
+	if refRange != nil {
+		self.SetTitleRef(fmt.Sprintf("%s-%s", refRange.From.ShortRefName(), refRange.To.ShortRefName()))
+	} else {
+		self.SetTitleRef(ref.Description())
+	}
+	self.GetView().Title = self.Title()
+}

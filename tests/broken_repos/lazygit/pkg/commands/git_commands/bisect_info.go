@@ -1,0 +1,130 @@
+package git_commands
+
+import (
+	"github.com/jesseduffield/generics/maps"
+	"github.com/jesseduffield/generics/set"
+	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
+)
+
+// although the typical terms in a git bisect are 'bad' and 'good', they're more
+// generally known as 'new' and 'old'. Semi-recently git allowed the user to define
+// their own terms e.g. when you want to used 'fixed', 'unfixed' in the event
+// that you're looking for a commit that fixed a bug.
+
+// Git bisect only keeps track of a single 'bad' commit. Once you pick a commit
+// that's older than the current bad one, it forgets about the previous one. On
+// the other hand, it does keep track of all the good and skipped commits.
+
+type BisectInfo struct {
+	log *logrus.Entry
+
+	// tells us whether all our git bisect files are there meaning we're in bisect mode.
+	// Doesn't necessarily mean that we've actually picked a good/bad commit yet.
+	started bool
+
+	// this is the ref you started the commit from
+	start string // this will always be defined
+
+	// these will be defined if we've started
+	newTerm string // 'bad' by default
+	oldTerm string // 'good' by default
+
+	// map of commit hashes to their status
+	statusMap map[string]BisectStatus
+
+	// the hash of the commit that's under test
+	current string
+
+	// the commits that the bisect hasn't ruled out yet, among those that the
+	// commits view has loaded. Nil until BisectCommands.LoadCandidates is
+	// called.
+	candidates *set.Set[string]
+}
+
+type BisectStatus int
+
+const (
+	BisectStatusOld BisectStatus = iota
+	BisectStatusNew
+	BisectStatusSkipped
+)
+
+// null object pattern
+func NewNullBisectInfo() *BisectInfo {
+	return &BisectInfo{started: false}
+}
+
+func (self *BisectInfo) GetNewHash() string {
+	for hash, status := range self.statusMap {
+		if status == BisectStatusNew {
+			return hash
+		}
+	}
+
+	return ""
+}
+
+func (self *BisectInfo) GetCurrentHash() string {
+	return self.current
+}
+
+// Whether git has checked out a commit for the user to test, and the user
+// hasn't marked it yet. After the user marks it, git checks out the next one,
+// unless there's nothing left to test. This is the case if git has found the
+// first new commit, or if only skipped commits are left. Git checks out the
+// first commit to test once it knows both a new and an old commit, unless the
+// old commit is a parent of the new one.
+func (self *BisectInfo) HasCommitToTest() bool {
+	if self.current == "" {
+		return false
+	}
+
+	_, marked := self.statusMap[self.current]
+	return !marked
+}
+
+// Whether the bisect hasn't ruled out the commit yet. This is the case if the
+// new commit can reach it, but no old one can, so it includes the new commit
+// and the skipped ones. Only known for the commits that the commits view has
+// loaded.
+func (self *BisectInfo) IsCandidate(commitHash string) bool {
+	return self.candidates != nil && self.candidates.Includes(commitHash)
+}
+
+func (self *BisectInfo) GetStartHash() string {
+	return self.start
+}
+
+func (self *BisectInfo) Status(commitHash string) (BisectStatus, bool) {
+	status, ok := self.statusMap[commitHash]
+	return status, ok
+}
+
+func (self *BisectInfo) NewTerm() string {
+	return self.newTerm
+}
+
+func (self *BisectInfo) OldTerm() string {
+	return self.oldTerm
+}
+
+// this is for when we have called `git bisect start`. It does not
+// mean that we have actually started narrowing things down or selecting good/bad commits
+func (self *BisectInfo) Started() bool {
+	return self.started
+}
+
+// this is where we have both a good and bad revision and we're actually
+// starting to narrow things down
+func (self *BisectInfo) Bisecting() bool {
+	if !self.Started() {
+		return false
+	}
+
+	if self.GetNewHash() == "" {
+		return false
+	}
+
+	return lo.Contains(maps.Values(self.statusMap), BisectStatusOld)
+}

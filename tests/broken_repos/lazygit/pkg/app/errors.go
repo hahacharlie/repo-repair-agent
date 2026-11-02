@@ -1,0 +1,50 @@
+package app
+
+import (
+	"strings"
+
+	"github.com/go-errors/errors"
+	"github.com/jesseduffield/lazygit/pkg/gui/types"
+	"github.com/jesseduffield/lazygit/pkg/i18n"
+	"github.com/samber/lo"
+)
+
+type errorMapping struct {
+	originalError string
+	newError      string
+}
+
+// knownError takes an error and tells us whether it's an error that we know about where we can print a nicely formatted version of it rather than panicking with a stack trace
+func knownError(tr *i18n.TranslationSet, err error) (string, bool) {
+	var quitWithMessage types.ErrQuitWithMessage
+	if errors.As(err, &quitWithMessage) {
+		return quitWithMessage.Message, true
+	}
+
+	errorMessage := err.Error()
+
+	knownErrorMessages := []string{minGitVersionErrorMessage(tr), tr.BareRepoNotSupported}
+
+	if lo.Contains(knownErrorMessages, errorMessage) {
+		return errorMessage, true
+	}
+
+	mappings := []errorMapping{
+		{
+			originalError: "fatal: not a git repository",
+			newError:      tr.NotARepository,
+		},
+		{
+			originalError: "getwd: no such file or directory",
+			newError:      tr.WorkingDirectoryDoesNotExist,
+		},
+	}
+
+	if mapping, ok := lo.Find(mappings, func(mapping errorMapping) bool {
+		return strings.Contains(errorMessage, mapping.originalError)
+	}); ok {
+		return mapping.newError, true
+	}
+
+	return "", false
+}

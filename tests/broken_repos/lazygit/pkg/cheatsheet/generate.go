@@ -1,0 +1,235 @@
+//go:generate go run generator.go
+
+// This "script" generates files called Keybindings_{{.LANG}}.md
+// in the docs-master/keybindings directory.
+//
+// The content of these generated files is a keybindings cheatsheet.
+//
+// To generate the cheatsheets, run:
+//   go generate pkg/cheatsheet/generate.go
+
+package cheatsheet
+
+import (
+	"cmp"
+	"fmt"
+	"log"
+	"os"
+	"slices"
+	"strings"
+
+	"github.com/jesseduffield/generics/maps"
+	"github.com/jesseduffield/lazygit/pkg/app"
+	"github.com/jesseduffield/lazygit/pkg/config"
+	"github.com/jesseduffield/lazygit/pkg/gocui"
+	"github.com/jesseduffield/lazygit/pkg/gui/types"
+	"github.com/jesseduffield/lazygit/pkg/i18n"
+	"github.com/jesseduffield/lazygit/pkg/utils"
+	"github.com/samber/lo"
+)
+
+type bindingSection struct {
+	title    string
+	bindings []*types.Binding
+}
+
+type header struct {
+	// priority decides the order of the headers in the cheatsheet (lower means higher)
+	priority int
+	title    string
+}
+
+type headerWithBindings struct {
+	header   header
+	bindings []*types.Binding
+}
+
+func CommandToRun() string {
+	return "go generate ./..."
+}
+
+func GetKeybindingsDir() string {
+	return utils.MustFindLazygitRootDirectory() + "/docs-master/keybindings"
+}
+
+func generateAtDir(cheatsheetDir string) {
+	translationSetsByLang, err := i18n.GetTranslationSets()
+	if err != nil {
+		log.Fatal(err)
+	}
+	mConfig := config.NewDummyAppConfig()
+	logger := app.NewLogger(mConfig.GetDebug())
+
+	for lang := range translationSetsByLang {
+		mConfig.GetUserConfig().Gui.Language = lang
+		common, err := app.NewCommon(mConfig, logger)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tr, err := i18n.NewTranslationSetFromConfig(common.Log, lang)
+		if err != nil {
+			log.Fatal(err)
+		}
+		common.Tr = tr
+		mApp, _ := app.NewApp(mConfig, nil, common)
+		path := cheatsheetDir + "/Keybindings_" + lang + ".md"
+		file, err := os.Create(path)
+		if err != nil {
+			panic(err)
+		}
+
+		bindings := mApp.Gui.GetCheatsheetKeybindings()
+		bindingSections := getBindingSections(bindings, mApp.Tr)
+		content := formatSections(mApp.Tr, bindingSections)
+		content = fmt.Sprintf("_This file is auto-generated. To update, make the changes in the "+
+			"pkg/i18n directory and then run `%s` from the project root._\n\n%s", CommandToRun(), content)
+		writeString(file, content)
+	}
+}
+
+func Generate() {
+	generateAtDir(GetKeybindingsDir())
+}
+
+func writeString(file *os.File, str string) {
+	_, err := file.WriteString(str)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func localisedTitle(tr *i18n.TranslationSet, str string) string {
+	contextTitleMap := map[string]string{
+		"global":            tr.GlobalTitle,
+		"navigation":        tr.NavigationTitle,
+		"branches":          tr.BranchesTitle,
+		"localBranches":     tr.LocalBranchesTitle,
+		"files":             tr.FilesTitle,
+		"status":            tr.StatusTitle,
+		"submodules":        tr.SubmodulesTitle,
+		"subCommits":        tr.SubCommitsTitle,
+		"remoteBranches":    tr.RemoteBranchesTitle,
+		"remotes":           tr.RemotesTitle,
+		"reflogCommits":     tr.ReflogCommitsTitle,
+		"tags":              tr.TagsTitle,
+		"commitFiles":       tr.CommitFilesTitle,
+		"commitMessage":     tr.CommitSummaryTitle,
+		"commitDescription": tr.CommitDescriptionTitle,
+		"commits":           tr.CommitsTitle,
+		"confirmation":      tr.ConfirmationTitle,
+		"prompt":            tr.PromptTitle,
+		"information":       tr.InformationTitle,
+		"main":              tr.NormalTitle,
+		"mergeConflicts":    tr.MergingTitle,
+		"menu":              tr.MenuTitle,
+		"search":            tr.SearchTitle,
+		"secondary":         tr.SecondaryTitle,
+		"stash":             tr.StashTitle,
+		"suggestions":       tr.SuggestionsCheatsheetTitle,
+		"extras":            tr.ExtrasTitle,
+		"worktrees":         tr.WorktreesTitle,
+	}
+
+	title, ok := contextTitleMap[str]
+	if !ok {
+		panic(fmt.Sprintf("title not found for %s", str))
+	}
+
+	return title
+}
+
+func getBindingSections(bindings []*types.Binding, tr *i18n.TranslationSet) []*bindingSection {
+	bindingsToDisplay := lo.Filter(bindings, func(binding *types.Binding, _ int) bool {
+		return (binding.Description != "" || binding.Alternative != "") && len(binding.Keys) > 0
+	})
+
+	bindingsByHeader := lo.GroupBy(bindingsToDisplay, func(binding *types.Binding) header {
+		return getHeader(binding, tr)
+	})
+
+	bindingGroups := maps.MapToSlice(
+		bindingsByHeader,
+		func(header header, hBindings []*types.Binding) headerWithBindings {
+			uniqBindings := lo.UniqBy(hBindings, func(binding *types.Binding) string {
+				return binding.Description + keyLabels(binding.Keys)
+			})
+
+			return headerWithBindings{
+				header:   header,
+				bindings: uniqBindings,
+			}
+		},
+	)
+
+	slices.SortFunc(bindingGroups, func(a, b headerWithBindings) int {
+		if a.header.priority != b.header.priority {
+			return cmp.Compare(b.header.priority, a.header.priority)
+		}
+		return strings.Compare(a.header.title, b.header.title)
+	})
+
+	return lo.Map(bindingGroups, func(hb headerWithBindings, _ int) *bindingSection {
+		return &bindingSection{
+			title:    hb.header.title,
+			bindings: hb.bindings,
+		}
+	})
+}
+
+func getHeader(binding *types.Binding, tr *i18n.TranslationSet) header {
+	if binding.Tag == "navigation" {
+		return header{priority: 2, title: localisedTitle(tr, "navigation")}
+	}
+
+	if binding.ViewName == "" {
+		return header{priority: 3, title: localisedTitle(tr, "global")}
+	}
+
+	return header{priority: 1, title: localisedTitle(tr, binding.ViewName)}
+}
+
+func formatSections(tr *i18n.TranslationSet, bindingSections []*bindingSection) string {
+	var content strings.Builder
+	fmt.Fprintf(&content, "# Lazygit %s\n", tr.Keybindings)
+
+	for _, section := range bindingSections {
+		content.WriteString(formatTitle(section.title))
+		content.WriteString("| Key | Action | Info |\n")
+		content.WriteString("|-----|--------|-------------|\n")
+		for _, binding := range section.bindings {
+			content.WriteString(formatBinding(binding))
+		}
+	}
+
+	return content.String()
+}
+
+func formatTitle(title string) string {
+	return fmt.Sprintf("\n## %s\n\n", title)
+}
+
+func keyLabels(keys []gocui.Key) string {
+	return strings.Join(lo.Map(keys, func(k gocui.Key, _ int) string {
+		return config.LabelForKey(k)
+	}), ", ")
+}
+
+func formatBinding(binding *types.Binding) string {
+	action := keyLabels(binding.Keys)
+	description := binding.Description
+	if binding.Alternative != "" {
+		action += fmt.Sprintf(" (%s)", binding.Alternative)
+	}
+
+	// Replace newlines with <br> tags for proper markdown table formatting
+	tooltip := strings.ReplaceAll(binding.Tooltip, "\n", "<br>")
+
+	// Escape pipe characters to avoid breaking the table format
+	action = strings.ReplaceAll(action, `|`, `\|`)
+	description = strings.ReplaceAll(description, `|`, `\|`)
+	tooltip = strings.ReplaceAll(tooltip, `|`, `\|`)
+
+	// Use backticks for keyboard keys. Two backticks are needed with an inner space
+	//  to escape a key that is itself a backtick.
+	return fmt.Sprintf("| `` %s `` | %s | %s |\n", action, description, tooltip)
+}

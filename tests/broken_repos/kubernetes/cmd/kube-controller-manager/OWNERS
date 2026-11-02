@@ -1,0 +1,37 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+approvers:
+  - cheftako
+  - deads2k
+  - soltysh
+  - sttts
+  - jpbetz
+reviewers:
+  - caesarxuchao
+  - cheftako
+  - cjcullen
+  - deads2k
+  - derekwaynecarr
+  - feiskyer
+  - humblec
+  - ingvagabund
+  - janetkuo
+  - jayunit100
+  - jsafrane
+  - justinsb
+  - liggitt
+  - luxas
+  - mwielgus
+  - ping035627
+  - saad-ali
+  - sjenning
+  - soltysh
+  - sttts
+  - thockin
+  - wojtek-t
+  - jpbetz
+  - jefftree
+labels:
+  - sig/api-machinery
+emeritus_approvers:
+  - lavalamp

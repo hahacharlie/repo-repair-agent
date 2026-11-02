@@ -1,0 +1,310 @@
+package git_commands
+
+import (
+	"fmt"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/jesseduffield/lazygit/pkg/commands/models"
+	"github.com/jesseduffield/lazygit/pkg/commands/oscommands"
+	"github.com/samber/lo"
+)
+
+type FileLoaderConfig interface {
+	GetShowUntrackedFiles() string
+}
+
+type FileLoader struct {
+	*GitCommon
+	cmd              oscommands.ICmdObjBuilder
+	config           FileLoaderConfig
+	getFileType      func(string) string
+	getDirectoryKind func(dirPath string, worktreeGitDirPath string) models.DirectoryKind
+}
+
+func NewFileLoader(gitCommon *GitCommon, cmd oscommands.ICmdObjBuilder, config FileLoaderConfig) *FileLoader {
+	return &FileLoader{
+		GitCommon:        gitCommon,
+		cmd:              cmd,
+		getFileType:      oscommands.FileType,
+		getDirectoryKind: directoryKind,
+		config:           config,
+	}
+}
+
+type GetStatusFileOptions struct {
+	NoRenames bool
+	// If true, we'll show untracked files even if the user has set the config to hide them.
+	// This is useful for users with bare repos for dotfiles who default to hiding untracked files,
+	// but want to occasionally see them to `git add` a new file.
+	ForceShowUntracked bool
+	// When true, this status is part of an unattended background refresh, so it
+	// keeps the default suppression of optional locks (avoiding index.lock
+	// contention with git commands the user runs in a terminal, at the cost of
+	// not persisting git's refreshed stat-cache). A foreground status opts back
+	// in; see gitStatus.
+	Background bool
+}
+
+func (self *FileLoader) GetStatusFiles(opts GetStatusFileOptions) []*models.File {
+	// check if config wants us ignoring untracked files
+	untrackedFilesSetting := self.config.GetShowUntrackedFiles()
+
+	if opts.ForceShowUntracked || untrackedFilesSetting == "" {
+		untrackedFilesSetting = "all"
+	}
+	untrackedFilesArg := fmt.Sprintf("--untracked-files=%s", untrackedFilesSetting)
+
+	statuses, err := self.gitStatus(GitStatusOptions{NoRenames: opts.NoRenames, UntrackedFilesArg: untrackedFilesArg, Background: opts.Background})
+	if err != nil {
+		self.Log.Error(err)
+	}
+	files := []*models.File{}
+
+	fileDiffs := map[string]FileDiff{}
+	if self.GitCommon.Common.UserConfig().Gui.ShowNumstatInFilesView {
+		fileDiffs, err = self.getFileDiffs()
+		if err != nil {
+			self.Log.Error(err)
+		}
+	}
+
+	for _, status := range statuses {
+		if strings.HasPrefix(status.StatusString, "warning") {
+			self.Log.Warningf("warning when calling git status: %s", status.StatusString)
+			continue
+		}
+
+		// git status reports a directory that it doesn't descend into with a
+		// trailing slash. This is the case for a nested repository, and for
+		// any untracked directory if status.showUntrackedFiles is "normal". We
+		// take the slash off so that the file tree shows the directory as a
+		// single entry; it would otherwise split the path into a directory and
+		// a file without a name.
+		path, isDirectory := strings.CutSuffix(status.Path, "/")
+
+		file := &models.File{
+			Path:          path,
+			PreviousPath:  status.PreviousPath,
+			DisplayString: status.StatusString,
+		}
+
+		if isDirectory {
+			file.DirectoryKind = self.getDirectoryKind(
+				filepath.Join(self.repoPaths.WorktreePath(), path),
+				self.repoPaths.WorktreeGitDirPath(),
+			)
+		}
+
+		if diff, ok := fileDiffs[status.Path]; ok {
+			file.LinesAdded = diff.LinesAdded
+			file.LinesDeleted = diff.LinesDeleted
+		}
+
+		models.SetStatusFields(file, status.Change)
+		files = append(files, file)
+	}
+
+	self.setConflictMarkerSizes(files)
+
+	return files
+}
+
+// directoryKind tells what kind of directory git status reported as a whole.
+// dirPath is the directory's absolute path, and worktreeGitDirPath is the git
+// dir of the worktree that we're in.
+func directoryKind(dirPath string, worktreeGitDirPath string) models.DirectoryKind {
+	gitDir, ok := GitDirOfRepo(dirPath)
+	if !ok {
+		return models.PlainDirectory
+	}
+
+	// git keeps the git dir of a submodule in the "modules" directory of the
+	// git dir of the worktree that it is checked out in, and puts a .git file
+	// into the submodule's directory that points there. That .git file stays
+	// when a commit removes the submodule.
+	relPath, err := filepath.Rel(filepath.Join(worktreeGitDirPath, "modules"), gitDir)
+	if err == nil && relPath != "." && !strings.HasPrefix(relPath, "..") {
+		return models.RemovedSubmodule
+	}
+
+	return models.NestedRepository
+}
+
+// Looks up how long the conflict markers in the conflicted files are. We ask
+// git for all of them at once, because spawning a process per file would be
+// painfully slow when hundreds of files are conflicted (especially on Windows).
+func (self *FileLoader) setConflictMarkerSizes(files []*models.File) {
+	conflictedFiles := lo.Filter(files, func(file *models.File, _ int) bool {
+		return file.HasInlineMergeConflicts
+	})
+	if len(conflictedFiles) == 0 {
+		return
+	}
+
+	paths := lo.Map(conflictedFiles, func(file *models.File, _ int) string {
+		return file.Path
+	})
+
+	markerSizes, err := self.getConflictMarkerSizes(paths)
+	if err != nil {
+		self.Log.Error(err)
+		return
+	}
+
+	for _, file := range conflictedFiles {
+		file.ConflictMarkerSize = markerSizes[file.Path]
+	}
+}
+
+func (self *FileLoader) getConflictMarkerSizes(paths []string) (map[string]int, error) {
+	cmdArgs := NewGitCmd("check-attr").
+		Arg("-z").
+		Arg("--stdin").
+		Arg("conflict-marker-size").
+		ToArgv()
+
+	// -z makes git both read the paths and write its output NUL-separated, so
+	// that paths containing newlines don't throw us off.
+	output, _, err := self.cmd.New(cmdArgs).
+		SetStdin(strings.Join(paths, "\x00")).
+		DontLog().
+		RunWithOutputs()
+	if err != nil {
+		return nil, err
+	}
+
+	markerSizes := map[string]int{}
+	fields := strings.Split(output, "\x00")
+	// Each path yields a path/attribute/value triple; the value is either a
+	// number or something like "unspecified", in which case we leave the marker
+	// size at 0 to say that git's default applies.
+	for i := 0; i+2 < len(fields); i += 3 {
+		if markerSize, err := strconv.Atoi(fields[i+2]); err == nil && markerSize > 0 {
+			markerSizes[fields[i]] = markerSize
+		}
+	}
+
+	return markerSizes, nil
+}
+
+type FileDiff struct {
+	LinesAdded   int
+	LinesDeleted int
+}
+
+func (self *FileLoader) getFileDiffs() (map[string]FileDiff, error) {
+	diffs, err := self.gitDiffNumStat()
+	if err != nil {
+		return nil, err
+	}
+
+	splitLines := strings.Split(diffs, "\x00")
+
+	fileDiffs := map[string]FileDiff{}
+	for _, line := range splitLines {
+		splitLine := strings.Split(line, "\t")
+		if len(splitLine) != 3 {
+			continue
+		}
+
+		linesAdded, err := strconv.Atoi(splitLine[0])
+		if err != nil {
+			continue
+		}
+		linesDeleted, err := strconv.Atoi(splitLine[1])
+		if err != nil {
+			continue
+		}
+
+		fileName := splitLine[2]
+		fileDiffs[fileName] = FileDiff{
+			LinesAdded:   linesAdded,
+			LinesDeleted: linesDeleted,
+		}
+	}
+
+	return fileDiffs, nil
+}
+
+// GitStatus returns the file status of the repo
+type GitStatusOptions struct {
+	NoRenames         bool
+	UntrackedFilesArg string
+	Background        bool
+}
+
+type FileStatus struct {
+	StatusString string
+	Change       string // ??, MM, AM, ...
+	Path         string
+	PreviousPath string
+}
+
+func (self *FileLoader) gitDiffNumStat() (string, error) {
+	return self.cmd.New(
+		NewGitCmd("diff").
+			Arg("--numstat").
+			Arg("-z").
+			Arg("HEAD").
+			ToArgv(),
+	).DontLog().RunWithOutput()
+}
+
+func (self *FileLoader) gitStatus(opts GitStatusOptions) ([]FileStatus, error) {
+	cmdArgs := NewGitCmd("status").
+		Arg(opts.UntrackedFilesArg).
+		Arg("--porcelain").
+		Arg("-z").
+		ArgIfElse(
+			opts.NoRenames,
+			"--no-renames",
+			fmt.Sprintf("--find-renames=%d%%", self.UserConfig().Git.RenameSimilarityThreshold),
+		).
+		ToArgv()
+
+	cmdObj := self.cmd.New(cmdArgs).DontLog()
+	if !opts.Background {
+		// Every git command suppresses optional locks by default (see
+		// OptionalLocksEnvVar). A foreground refresh is the one exception: we let
+		// it take the lock so it persists git's refreshed stat-cache, which keeps
+		// subsequent status calls fast. Background refreshes leave it suppressed so
+		// they can't contend for index.lock.
+		cmdObj.RemoveEnvVar(OptionalLocksEnvVar)
+	}
+
+	statusLines, _, err := cmdObj.RunWithOutputs()
+	if err != nil {
+		return []FileStatus{}, err
+	}
+
+	splitLines := strings.Split(statusLines, "\x00")
+	response := []FileStatus{}
+
+	for i := 0; i < len(splitLines); i++ {
+		original := splitLines[i]
+
+		if len(original) < 3 {
+			continue
+		}
+
+		status := FileStatus{
+			StatusString: original,
+			Change:       original[:2],
+			Path:         original[3:],
+			PreviousPath: "",
+		}
+
+		if strings.HasPrefix(status.Change, "R") || strings.HasPrefix(status.Change, "C") {
+			// if a line starts with 'R' (rename) or 'C' (copy) then the next line is the original file.
+			status.PreviousPath = splitLines[i+1]
+			status.StatusString = fmt.Sprintf("%s %s -> %s", status.Change, status.PreviousPath, status.Path)
+			i++
+		}
+
+		response = append(response, status)
+	}
+
+	return response, nil
+}
