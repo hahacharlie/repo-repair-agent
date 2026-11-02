@@ -1,0 +1,11 @@
+--- a/rotor.py
++++ b/rotor.py
+@@ -32,7 +32,7 @@
+             positions.remove(random_position)
+ 
+     def rotate(self):
+-        self.current_position = (self.current_postion + 1) % 26
++        self.current_position = (self.current_position + 1) % 26
+         logger.debug(f"Rotor rotated to position {self.current_position}")
+         return self.current_position
+ 

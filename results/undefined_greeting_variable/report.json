@@ -17,7 +17,7 @@
       "observation": {
         "app": {
           "command": [
-            "C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env\\Scripts\\python.exe",
+            "<python>",
             "main.py"
           ],
           "exit_code": 0,
@@ -27,7 +27,7 @@
         },
         "tests": {
           "command": [
-            "C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env\\Scripts\\python.exe",
+            "<python>",
             "-m",
             "unittest",
             "discover",
@@ -67,29 +67,29 @@
       "venv",
       "--no-project",
       "--python",
-      "C:\\Users\\cmratnap\\Documents\\CSE_598_Agentic_AI\\project\\repo-repair-agent\\.venv\\Scripts\\python.exe",
+      "<python>",
       "--no-python-downloads",
-      "C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env"
+      "<environment>"
     ],
     "exit_code": 0,
     "stdout": "",
-    "stderr": "Using CPython 3.10.22 interpreter at: C:\\Users\\cmratnap\\Documents\\CSE_598_Agentic_AI\\project\\repo-repair-agent\\.venv\\Scripts\\python.exe\nCreating virtual environment at: C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env\nActivate with: C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env\\Scripts\\activate\n",
+    "stderr": "Using CPython 3.10.22 interpreter at: <python>\nCreating virtual environment at: <environment>\nActivate with: <environment>\\Scripts\\activate\n",
     "timeout": false
   },
   "initial": {
     "app": {
       "command": [
-        "C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env\\Scripts\\python.exe",
+        "<python>",
         "main.py"
       ],
       "exit_code": 1,
       "stdout": "",
-      "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\repo\\main.py\", line 3, in <module>\n    print(greet(\"Ada\"))\n  File \"C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\repo\\greeting.py\", line 2, in greet\n    return \"Hello, \" + person\nNameError: name 'person' is not defined\n",
+      "stderr": "Traceback (most recent call last):\n  File \"<repo>\\main.py\", line 3, in <module>\n    print(greet(\"Ada\"))\n  File \"<repo>\\greeting.py\", line 2, in greet\n    return \"Hello, \" + person\nNameError: name 'person' is not defined\n",
       "timeout": false
     },
     "tests": {
       "command": [
-        "C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env\\Scripts\\python.exe",
+        "<python>",
         "-m",
         "unittest",
         "discover",
@@ -98,14 +98,14 @@
       ],
       "exit_code": 1,
       "stdout": "",
-      "stderr": "E\n======================================================================\nERROR: test_greeting_preserves_name (test_greeting.GreetingTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\repo\\tests\\test_greeting.py\", line 8, in test_greeting_preserves_name\n    self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n  File \"C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\repo\\greeting.py\", line 2, in greet\n    return \"Hello, \" + person\nNameError: name 'person' is not defined\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (errors=1)\n",
+      "stderr": "E\n======================================================================\nERROR: test_greeting_preserves_name (test_greeting.GreetingTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\tests\\test_greeting.py\", line 8, in test_greeting_preserves_name\n    self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n  File \"<repo>\\greeting.py\", line 2, in greet\n    return \"Hello, \" + person\nNameError: name 'person' is not defined\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (errors=1)\n",
       "timeout": false
     }
   },
   "final": {
     "app": {
       "command": [
-        "C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env\\Scripts\\python.exe",
+        "<python>",
         "main.py"
       ],
       "exit_code": 0,
@@ -115,7 +115,7 @@
     },
     "tests": {
       "command": [
-        "C:\\Users\\cmratnap\\AppData\\Local\\Temp\\repo-repair-23sxeabd\\env\\Scripts\\python.exe",
+        "<python>",
         "-m",
         "unittest",
         "discover",

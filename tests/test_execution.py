@@ -1,5 +1,6 @@
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,6 +19,28 @@ FIX = 'def greet(name):\n    return "Hello, " + name\n'
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_command_reads_unicode_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = run_command(
+                [
+                    sys.executable,
+                    "-c",
+                    "import os, sys; "
+                    "print('A → B'); "
+                    "print(sys.executable); "
+                    "print(os.getcwd())",
+                ],
+                directory,
+                10,
+            )
+
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["command"][0], "<python>")
+        self.assertIn("A → B", result["stdout"])
+        self.assertIn("<python>", result["stdout"])
+        self.assertIn("<repo>", result["stdout"])
+        self.assertNotIn(str(Path.home()), str(result))
+
     def test_uv_installs_into_target_environment(self):
         installations = []
 
