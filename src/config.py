@@ -34,7 +34,7 @@ def load_env(path):
 def load_config(path):
     # Read the JSON settings from the given file.
     config = json.loads(path.read_text())
-    fields = {"endpoint", "api_key_env", "fixer_model", "judge_model"}
+    fields = {"endpoint", "fixer_model", "judge_model"}
     optional_fields = {"api_timeout_seconds"}
 
     # Check that all needed fields are present.
@@ -58,8 +58,4 @@ def load_config(path):
             or endpoint.username or endpoint.password):
         raise ValueError(
             "Config endpoint must be an HTTPS URL without embedded credentials")
-    # The file stores the key name, not the real key.
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", config["api_key_env"]):
-        raise ValueError(
-            "api_key_env must name an environment variable, not contain a key")
     return config

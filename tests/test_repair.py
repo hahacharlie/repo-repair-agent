@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from agents import ModelAgents, ScriptedAgents
+from agents import API_KEY_ENV, ModelAgents, ScriptedAgents
 from cli import resolve_repository, resolve_script, write_results
 from config import load_config
 from repair import repair
@@ -66,7 +66,7 @@ class RepairTests(unittest.TestCase):
     def test_timeout_is_reported_without_exposing_provider_message(self):
         config = load_config(ROOT / "config.json")
         with patch.dict(
-                "os.environ", {config["api_key_env"]: "test-token"}), patch(
+                "os.environ", {API_KEY_ENV: "test-token"}), patch(
                 "agents.urllib.request.urlopen",
                 side_effect=TimeoutError("private provider detail")):
             report = repair(BROKEN_REPO, ModelAgents(config))

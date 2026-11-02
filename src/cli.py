@@ -6,7 +6,7 @@ import os
 from pathlib import Path, PurePosixPath
 import shutil
 
-from agents import ModelAgents, ScriptedAgents
+from agents import API_KEY_ENV, ModelAgents, ScriptedAgents
 from config import load_config, load_env
 from repair import repair
 
@@ -106,9 +106,9 @@ def main():
         except (ValueError, OSError):
             parser.error(
                 "Cannot load model config; check --config path and fields")
-        if not os.environ.get(config["api_key_env"]):
+        if not os.environ.get(API_KEY_ENV):
             parser.error(
-                "Set " + config["api_key_env"] + " or use --script for offline operation")
+                "Set " + API_KEY_ENV + " or use --script for offline operation")
 
     try:
         # Script mode is used for tests and does not call a model.
@@ -125,6 +125,7 @@ def main():
             args.allow_install,
         )
     except Exception as error:
+        raise
         parser.exit(2, "Repair setup failed: " + type(error).__name__ + "\n")
 
     # Save the report, patch, and changed files.

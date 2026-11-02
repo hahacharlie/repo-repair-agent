@@ -34,7 +34,6 @@ class ConfigTests(unittest.TestCase):
             dict(config, unexpected="typo"),
             dict(config, endpoint="http://example.test"),
             dict(config, endpoint="https://user:secret@example.test"),
-            dict(config, api_key_env="invalid-key-name"),
             *[
                 dict(config, api_timeout_seconds=value)
                 for value in (0, -1, True, "300", 3601)

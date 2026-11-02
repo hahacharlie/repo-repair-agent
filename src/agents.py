@@ -8,6 +8,9 @@ import time
 import urllib.request
 
 
+API_KEY_ENV = "ASU_AIR_API_KEY"
+
+
 class ModelResponseError(ValueError):
     """An error that does not show the model reply."""
 
@@ -85,13 +88,13 @@ def read_model_stream(response, metrics, start):
 
 class ModelAgents:
     def __init__(self, config):
-        # Read the key from the named system setting.
+        # Read the key from the local environment.
         self.config = config
         self.requests = []
-        self.key = os.environ.get(config["api_key_env"])
+        self.key = os.environ.get(API_KEY_ENV)
         if not self.key:
             raise ValueError(
-                "Set " + config["api_key_env"] + " or use --script for offline operation")
+                "Set " + API_KEY_ENV + " or use --script for offline operation")
         # Add the chat path when the base URL is given.
         self.endpoint = config["endpoint"].rstrip("/")
         if not self.endpoint.endswith("/chat/completions"):

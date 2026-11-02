@@ -65,14 +65,13 @@ Edit `config.json` to select the Fixer and Judge models:
 ```json
 {
   "endpoint": "https://openai.rc.asu.edu/v1",
-  "api_key_env": "ASU_AIR_API_KEY",
   "fixer_model": "qwen3-coder-30b-a3b-instruct",
   "judge_model": "qwen3-235b-a22b",
   "api_timeout_seconds": 300
 }
 ```
 
-`endpoint` is an HTTPS API base URL (such as `https://openai.rc.asu.edu/v1`) or a complete chat-completions URL, shared by both agents. The client appends `/chat/completions` to base URLs. `api_key_env` names the environment variable containing its bearer token; never put the token itself in this file. Model names must be available through the selected endpoint. Use different Fixer and Judge models for independent review. The Main Orchestrator is not yet model-driven and has no model setting.
+`endpoint` is an HTTPS API base URL (such as `https://openai.rc.asu.edu/v1`) or a complete chat-completions URL, shared by both agents. The client appends `/chat/completions` to base URLs. The API key is always read from `ASU_AIR_API_KEY` in `.env`; never put the key in this file. Model names must be available through the selected endpoint. Use different Fixer and Judge models for independent review. The Main Orchestrator is not yet model-driven and has no model setting.
 
 Use a separate configuration with:
 
