@@ -1,0 +1,186 @@
+// Copyright 2017 The Hugo Authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package i18n
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/gohugoio/hugo/common/paths"
+	"github.com/gohugoio/hugo/config"
+	"github.com/gohugoio/hugo/langs"
+	"github.com/gohugoio/hugo/parser/metadecoders"
+
+	"github.com/gohugoio/hugo/common/herrors"
+	"golang.org/x/text/language"
+
+	"github.com/gohugoio/go-i18n/v2/i18n"
+	toml "github.com/pelletier/go-toml/v2"
+
+	"github.com/gohugoio/hugo/deps"
+	"github.com/gohugoio/hugo/hugofs"
+	"github.com/gohugoio/hugo/source"
+)
+
+// TranslationProvider provides translation handling, i.e. loading
+// of bundles etc.
+type TranslationProvider struct {
+	t Translator
+}
+
+// NewTranslationProvider creates a new translation provider.
+func NewTranslationProvider() *TranslationProvider {
+	return &TranslationProvider{}
+}
+
+// Update updates the i18n func in the provided Deps.
+func (tp *TranslationProvider) NewResource(dst *deps.Deps) error {
+	defaultLangTag, err := language.Parse(dst.Conf.DefaultContentLanguage())
+	if err != nil {
+		defaultLangTag = language.English
+	}
+	bundle := i18n.NewBundle(defaultLangTag)
+
+	bundle.RegisterUnmarshalFunc("toml", toml.Unmarshal)
+	bundle.RegisterUnmarshalFunc("yaml", metadecoders.UnmarshalYaml)
+	bundle.RegisterUnmarshalFunc("yml", metadecoders.UnmarshalYaml)
+	bundle.RegisterUnmarshalFunc("json", json.Unmarshal)
+
+	var files []hugofs.FileMetaInfo
+	w := hugofs.NewWalkway(
+		hugofs.WalkwayConfig{
+			Fs:         dst.BaseFs.I18n.Fs,
+			IgnoreFile: dst.SourceSpec.IgnoreFile,
+			PathParser: dst.SourceSpec.Cfg.PathParser(),
+			WalkFn: func(ctx context.Context, path string, info hugofs.FileMetaInfo) error {
+				if info.IsDir() {
+					return nil
+				}
+				files = append(files, info)
+				return nil
+			},
+		},
+	)
+
+	if err := w.Walk(); err != nil {
+		return err
+	}
+
+	// Sort translation files so that base tags (e.g. "de") are always registered
+	// before their subtag variants (e.g. "de-DE"); without this ordering the
+	// fallback chain breaks. See https://github.com/gohugoio/hugo/issues/7982.
+	sort.Slice(files, func(i, j int) bool {
+		si := files[i].Meta().PathInfo.NameNoExt()
+		sj := files[j].Meta().PathInfo.NameNoExt()
+		return strings.Count(si, "-") < strings.Count(sj, "-")
+	})
+
+	for _, info := range files {
+		if err := addTranslationFile(bundle, source.NewFileInfo(info)); err != nil {
+			return err
+		}
+	}
+
+	tp.t = NewTranslator(bundle, dst.Conf, dst.Log)
+
+	defaultLang := defaultLanguage(dst.Conf)
+	for _, l := range dst.Conf.Languages().(langs.Languages) {
+		langs.SetTranslateFunc(l, tp.getTranslateFunc(l, defaultLang))
+	}
+
+	return nil
+}
+
+const artificialLangTagPrefix = "art-x-"
+
+func addTranslationFile(bundle *i18n.Bundle, r *source.File) error {
+	b, err := r.FileInfo().Meta().ReadAll()
+	if err != nil {
+		return fmt.Errorf("failed to read translations file %q:: %w", r.LogicalName(), err)
+	}
+
+	name := r.LogicalName()
+	lang := paths.Filename(name)
+	tag := language.Make(lang)
+	if tag == language.Und {
+		try := artificialLangTagPrefix + lang
+		_, err = language.Parse(try)
+		if err != nil {
+			return fmt.Errorf("%q: %s", try, err)
+		}
+		name = artificialLangTagPrefix + name
+	}
+
+	_, err = bundle.ParseMessageFileBytes(b, name)
+	if err != nil {
+		if strings.Contains(err.Error(), "no plural rule") {
+			// https://github.com/gohugoio/hugo/issues/7798
+			name = artificialLangTagPrefix + name
+			_, err = bundle.ParseMessageFileBytes(b, name)
+			if err == nil {
+				return nil
+			}
+		}
+		var guidance string
+		if strings.Contains(err.Error(), "mixed with unreserved keys") {
+			guidance = ": see the lang.Translate documentation for a list of reserved keys"
+		}
+		return errWithFileContext(fmt.Errorf("failed to load translations: %w%s", err, guidance), r)
+	}
+
+	return nil
+}
+
+// CloneResource is a no-op, the translate funcs are shared between sites.
+func (tp *TranslationProvider) CloneResource(dst, src *deps.Deps) error {
+	return nil
+}
+
+func defaultLanguage(conf config.AllProvider) *langs.Language {
+	key := conf.DefaultContentLanguage()
+	for _, l := range conf.Languages().(langs.Languages) {
+		if l.Lang == key {
+			return l
+		}
+	}
+	return conf.Language().(*langs.Language)
+}
+
+// getTranslateFunc returns the translation function for the given language.
+// The lookup order is: current locale, current key, default locale, default key.
+func (tp *TranslationProvider) getTranslateFunc(current, defaultLang *langs.Language) langs.TranslateFunc {
+	for _, l := range []*langs.Language{current, defaultLang} {
+		for _, key := range []string{strings.ToLower(l.Locale()), l.Lang} {
+			if fn, ok := tp.t.Lookup(key); ok {
+				return fn
+			}
+		}
+	}
+	return tp.t.Func("en")
+}
+
+func errWithFileContext(inerr error, r *source.File) error {
+	meta := r.FileInfo().Meta()
+	realFilename := meta.Filename
+	f, err := meta.Open()
+	if err != nil {
+		return inerr
+	}
+	defer f.Close()
+
+	return herrors.NewFileErrorFromName(inerr, realFilename).UpdateContent(f, nil)
+}

@@ -1,0 +1,118 @@
+// Copyright 2019 The Hugo Authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package pandoc converts content to HTML using Pandoc as an external helper.
+package pandoc
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"sync"
+
+	"github.com/gohugoio/hugo/common/hexec"
+	"github.com/gohugoio/hugo/htesting"
+	"github.com/gohugoio/hugo/identity"
+
+	"github.com/gohugoio/hugo/markup/converter"
+	"github.com/gohugoio/hugo/markup/internal"
+)
+
+// Provider is the package entry point.
+var Provider converter.ProviderProvider = provider{}
+
+type provider struct{}
+
+func (p provider) New(cfg converter.ProviderConfig) (converter.Provider, error) {
+	return converter.NewProvider("pandoc", func(ctx converter.DocumentContext) (converter.Converter, error) {
+		return &pandocConverter{
+			ctx: ctx,
+			cfg: cfg,
+		}, nil
+	}), nil
+}
+
+type pandocConverter struct {
+	ctx converter.DocumentContext
+	cfg converter.ProviderConfig
+
+	mathMethodSupportedOnce sync.Once
+	mathMethodSupported     bool
+}
+
+func (c *pandocConverter) Convert(ctx converter.RenderContext) (converter.ResultRender, error) {
+	b, err := c.getPandocContent(ctx.Src, c.ctx)
+	if err != nil {
+		return nil, err
+	}
+	return converter.Bytes(b), nil
+}
+
+func (c *pandocConverter) Supports(feature identity.Identity) bool {
+	return false
+}
+
+// getPandocContent calls pandoc as an external helper to convert pandoc markdown to HTML.
+func (c *pandocConverter) getPandocContent(src []byte, ctx converter.DocumentContext) ([]byte, error) {
+	binaryName := getPandocBinaryName()
+	if binaryName == "" {
+		return nil, fmt.Errorf("pandoc not found in $PATH, cannot render %q", ctx.DocumentName)
+	}
+	mathFlag := "--mathjax"
+	if c.pandocSupportsMathMethod() {
+		mathFlag = mathMethodFlag
+	}
+	args := []string{mathFlag, "--citeproc"}
+	return internal.ExternallyRenderContent(c.cfg, ctx, src, binaryName, args)
+}
+
+const pandocBinary = "pandoc"
+
+func getPandocBinaryName() string {
+	if hexec.InPath(pandocBinary) {
+		return pandocBinary
+	}
+	return ""
+}
+
+// mathMethodFlag replaces the deprecated --mathjax flag in pandoc 3.11 and later.
+const mathMethodFlag = "--math-method=mathjax"
+
+// pandocSupportsMathMethod reports whether the installed pandoc binary
+// supports the --math-method flag.
+func (c *pandocConverter) pandocSupportsMathMethod() bool {
+	c.mathMethodSupportedOnce.Do(func() {
+		cmd, err := c.cfg.Exec.New(
+			pandocBinary, mathMethodFlag, "--dump-args",
+			hexec.WithStdout(io.Discard),
+			hexec.WithStderr(io.Discard),
+			hexec.WithStdin(bytes.NewReader(nil)),
+		)
+		if err == nil {
+			c.mathMethodSupported = cmd.Run() == nil
+		}
+	})
+	return c.mathMethodSupported
+}
+
+// Supports returns whether Pandoc is installed on this computer.
+func Supports() bool {
+	hasBin := getPandocBinaryName() != ""
+	if htesting.SupportsAll() {
+		if !hasBin {
+			panic("pandoc not installed")
+		}
+		return true
+	}
+	return hasBin
+}

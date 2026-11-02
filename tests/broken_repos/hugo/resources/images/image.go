@@ -1,0 +1,553 @@
+// Copyright 2019 The Hugo Authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package images
+
+import (
+	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"io"
+	"sync"
+
+	"github.com/bep/imagemeta"
+	"github.com/bep/logg"
+	"github.com/gohugoio/hugo/config"
+	"github.com/gohugoio/hugo/internal/warpc"
+
+	"github.com/gohugoio/hugo/media"
+	"github.com/gohugoio/hugo/resources/images/meta"
+
+	"github.com/gohugoio/gift"
+
+	"github.com/gohugoio/hugo/common/himage"
+	"github.com/gohugoio/hugo/common/hugio"
+)
+
+func NewImage(f Format, proc *ImageProcessor, img image.Image, s Spec) *Image {
+	if img != nil {
+		return &Image{
+			Format:      f,
+			Proc:        proc,
+			Spec:        s,
+			imageConfig: imageConfigFromImage(img),
+		}
+	}
+	return &Image{Format: f, Proc: proc, Spec: s, imageConfig: &imageConfig{}}
+}
+
+type Image struct {
+	Format Format
+	Proc   *ImageProcessor
+	Spec   Spec
+	*imageConfig
+}
+
+func (i *Image) EncodeTo(conf ImageConfig, img image.Image, w io.Writer) error {
+	return i.Proc.Codec.EncodeTo(conf, w, img)
+}
+
+// Height returns i's height.
+func (i *Image) Height() int {
+	i.initConfig()
+	return i.config.Height
+}
+
+// Width returns i's width.
+func (i *Image) Width() int {
+	i.initConfig()
+	return i.config.Width
+}
+
+// FrameCount returns the number of frames in i, 1 for still images.
+func (i *Image) FrameCount() int {
+	i.initConfig()
+	return i.frameCount
+}
+
+func (i Image) WithImage(img image.Image) *Image {
+	i.Spec = nil
+	i.imageConfig = imageConfigFromImage(img)
+
+	return &i
+}
+
+func (i Image) WithSpec(s Spec) *Image {
+	i.Spec = s
+	i.imageConfig = &imageConfig{}
+	return &i
+}
+
+// InitConfig reads the image config from the given reader.
+func (i *Image) InitConfig(r io.Reader) error {
+	var err error
+	i.configInit.Do(func() {
+		i.config, i.frameCount, _, err = i.Proc.Codec.decodeConfig(i.Format, r, true)
+	})
+	return err
+}
+
+func (i *Image) initConfig() {
+	var err error
+	i.configInit.Do(func() {
+		if i.configLoaded {
+			return
+		}
+
+		var f hugio.ReadSeekCloser
+
+		f, err = i.Spec.ReadSeekCloser()
+		if err != nil {
+			return
+		}
+		defer f.Close()
+
+		i.config, i.frameCount, _, err = i.Proc.Codec.decodeConfig(i.Format, f, true)
+	})
+
+	if err != nil {
+		panic(fmt.Errorf("failed to load image config: %w", err))
+	}
+}
+
+func NewImageProcessor(debugl, warnl logg.LevelLogger, wasmDispatchers *warpc.Dispatchers, cfg *config.ConfigNamespace[ImagingConfig, ImagingConfigInternal]) (*ImageProcessor, error) {
+	e := cfg.Config.Imaging.Exif
+	exifDecoder, err := meta.NewDecoder(
+		meta.WithDateDisabled(e.DisableDate),
+		meta.WithLatLongDisabled(e.DisableLatLong),
+		meta.ExcludeFields(e.ExcludeFields),
+		meta.IncludeFields(e.IncludeFields),
+		meta.WithWarnLogger(warnl),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	m := cfg.Config.Imaging.Meta
+	metaDecoder, err := meta.NewDecoder(
+		meta.WithFields(m.Fields),
+		meta.WithSources(m.Sources...),
+		meta.WithWarnLogger(warnl),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	webpCodec, err := wasmDispatchers.NewWepCodec()
+	if err != nil {
+		return nil, err
+	}
+	if webpCodec == nil {
+		return nil, errors.New("webp codec is not available")
+	}
+	avifCodec, err := wasmDispatchers.NewAvifCodec()
+	if err != nil {
+		return nil, err
+	}
+	imageCodec := newCodec(webpCodec, avifCodec, debugl)
+
+	return &ImageProcessor{
+		Cfg:         cfg,
+		exifDecoder: exifDecoder,
+		metaDecoder: metaDecoder,
+		Codec:       imageCodec,
+	}, nil
+}
+
+type ImageProcessor struct {
+	Cfg         *config.ConfigNamespace[ImagingConfig, ImagingConfigInternal]
+	exifDecoder *meta.Decoder
+	metaDecoder *meta.Decoder
+	Codec       *Codec
+}
+
+// Filename is only used for logging.
+func (p *ImageProcessor) DecodeExif(filename string, format imagemeta.ImageFormat, r io.Reader) (*meta.ExifInfo, error) {
+	return p.exifDecoder.Decode(filename, format, r)
+}
+
+// DecodeMeta decodes metadata from configured sources.
+// Filename is only used for logging.
+func (p *ImageProcessor) DecodeMeta(filename string, format imagemeta.ImageFormat, r io.Reader) (*meta.MetaInfo, error) {
+	return p.metaDecoder.DecodeMeta(filename, format, r)
+}
+
+func (p *ImageProcessor) FiltersFromConfig(src image.Image, conf ImageConfig) ([]gift.Filter, error) {
+	var filters []gift.Filter
+
+	if conf.Rotate != 0 {
+		// Apply any rotation before any resize.
+		rotate := gift.Rotate(float32(conf.Rotate), color.Transparent, gift.NearestNeighborInterpolation)
+		filters = append(filters, rotate)
+		if conf.usesSmartCrop() {
+			// Smart crop must analyze the image in the orientation the crop is applied to.
+			rotated := image.NewNRGBA(rotate.Bounds(src.Bounds()))
+			gift.New(rotate).Draw(rotated, src)
+			src = rotated
+		}
+	}
+
+	switch conf.Action {
+	case "resize":
+		filters = append(filters, gift.Resize(conf.Width, conf.Height, conf.Filter))
+	case "crop":
+		if conf.Anchor == SmartCropAnchor {
+			bounds, err := p.smartCrop(src, conf.Width, conf.Height, conf.Filter)
+			if err != nil {
+				return nil, err
+			}
+
+			// First crop using the bounds returned by smartCrop.
+			filters = append(filters, gift.Crop(bounds))
+			// Then center crop the image to get an image the desired size without resizing.
+			filters = append(filters, gift.CropToSize(conf.Width, conf.Height, gift.CenterAnchor))
+
+		} else {
+			filters = append(filters, gift.CropToSize(conf.Width, conf.Height, conf.Anchor))
+		}
+	case "fill":
+		if conf.Anchor == SmartCropAnchor {
+			bounds, err := p.smartCrop(src, conf.Width, conf.Height, conf.Filter)
+			if err != nil {
+				return nil, err
+			}
+
+			// First crop it, then resize it.
+			filters = append(filters, gift.Crop(bounds))
+			filters = append(filters, gift.Resize(conf.Width, conf.Height, conf.Filter))
+
+		} else {
+			filters = append(filters, gift.ResizeToFill(conf.Width, conf.Height, conf.Filter, conf.Anchor))
+		}
+	case "fit":
+		filters = append(filters, gift.ResizeToFit(conf.Width, conf.Height, conf.Filter))
+	default:
+
+	}
+	return filters, nil
+}
+
+func (p *ImageProcessor) ApplyFiltersFromConfig(src image.Image, conf ImageConfig) (image.Image, error) {
+	filters, err := p.FiltersFromConfig(src, conf)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(filters) == 0 {
+		return p.resolveSrc(src, conf.TargetFormat), nil
+	}
+
+	img, err := p.doFilter(src, conf.TargetFormat, filters...)
+	if err != nil {
+		return nil, err
+	}
+
+	return img, nil
+}
+
+func (p *ImageProcessor) Filter(src image.Image, filters ...gift.Filter) (image.Image, error) {
+	return p.doFilter(src, 0, filters...)
+}
+
+func (p *ImageProcessor) resolveSrc(src image.Image, targetFormat Format) image.Image {
+	if animatedImage, ok := src.(himage.AnimatedImage); ok {
+		frames := animatedImage.GetFrames()
+		// If e.g. converting an animated GIF to JPEG, we only want the first frame.
+		// Preserve the AnimatedImage wrapper for color properties only when there is
+		// no actual animation to preserve. Multi-frame animated sources must still be
+		// collapsed unless the target format supports animation output.
+		shouldExtractFirstFrame := len(frames) < 2 || !targetFormat.SupportsAnimation()
+		colorPropsNeedPreserving := himage.HasColorProperties(src) && len(frames) < 2
+		if shouldExtractFirstFrame && !colorPropsNeedPreserving {
+			src = frames[0]
+		}
+	}
+	return src
+}
+
+func (p *ImageProcessor) doFilter(src image.Image, targetFormat Format, filters ...gift.Filter) (image.Image, error) {
+	filter := gift.New(filters...)
+
+	if anim, ok := src.(himage.AnimatedImage); ok {
+		frames := anim.GetFrames()
+		// Check if we should extract first frame or preserve AnimatedImage wrapper.
+		// Preserve AnimatedImage if color properties need to be maintained.
+		shouldExtractFirstFrame := len(frames) < 2 || !targetFormat.SupportsAnimation()
+		colorPropsNeedPreserving := himage.HasColorProperties(src) && len(frames) < 2
+		if shouldExtractFirstFrame && !colorPropsNeedPreserving {
+			src = frames[0]
+		} else {
+			var bounds image.Rectangle
+			firstFrame := frames[0]
+			// Preserve bit depth for HDR images.
+			var tmp draw.Image
+			switch firstFrame.(type) {
+			case *image.RGBA64, *image.NRGBA64:
+				tmp = image.NewNRGBA64(firstFrame.Bounds())
+			default:
+				tmp = image.NewNRGBA(firstFrame.Bounds())
+			}
+			for i, frame := range frames {
+				gift.New().DrawAt(tmp, frame, frame.Bounds().Min, gift.OverOperator)
+				bounds = filter.Bounds(tmp.Bounds())
+				var dst draw.Image
+				switch f := frame.(type) {
+				case *image.Paletted:
+					// Gif.
+					dst = image.NewPaletted(bounds, f.Palette)
+				case *image.RGBA64:
+					dst = image.NewRGBA64(bounds)
+				case *image.NRGBA64:
+					dst = image.NewNRGBA64(bounds)
+				default:
+					dst = image.NewNRGBA(bounds)
+				}
+				filter.Draw(dst, tmp)
+				frames[i] = dst
+			}
+			anim.SetWidthHeight(bounds.Dx(), bounds.Dy())
+			anim.SetFrames(frames)
+
+			return anim, nil
+		}
+
+	}
+
+	bounds := filter.Bounds(src.Bounds())
+
+	var dst draw.Image
+	switch src.(type) {
+	case *image.RGBA:
+		dst = image.NewRGBA(bounds)
+	case *image.NRGBA:
+		dst = image.NewNRGBA(bounds)
+	case *image.Gray:
+		dst = image.NewGray(bounds)
+	case *image.RGBA64:
+		dst = image.NewRGBA64(bounds)
+	case *image.NRGBA64:
+		dst = image.NewNRGBA64(bounds)
+	case *image.Gray16:
+		dst = image.NewGray16(bounds)
+	default:
+		dst = image.NewNRGBA(bounds)
+	}
+	filter.Draw(dst, src)
+
+	return dst, nil
+}
+
+func newImageConfig() ImageConfig {
+	return ImageConfig{
+		Anchor:                -1, // The real values start at 0.
+		PreserveSourcePalette: true,
+	}
+}
+
+type Spec interface {
+	// Loads the image source.
+	ReadSeekCloser() (hugio.ReadSeekCloser, error)
+}
+
+// Format is an image file format.
+type Format int
+
+const (
+	JPEG Format = iota + 1
+	PNG
+	GIF
+	TIFF
+	BMP
+	WEBP
+	AVIF
+
+	// Below: We have no encoder/decoder for these, but we can provide metadata support for them (including width/height).
+	HEIF
+	HEIC
+)
+
+// toImageMetaConfigFormat returns the imagemeta format to use to decode
+// the image config (width, height and frame count), or -1 if none.
+func (f Format) toImageMetaConfigFormat(withFrameCount bool) imagemeta.ImageFormat {
+	switch f {
+	case GIF:
+		if withFrameCount {
+			return imagemeta.GIF
+		}
+	case PNG:
+		if withFrameCount {
+			return imagemeta.PNG
+		}
+	case WEBP, AVIF, HEIF, HEIC:
+		return f.ToImageMetaImageFormatFormat()
+	}
+	return -1
+}
+
+func (f Format) ToImageMetaImageFormatFormat() imagemeta.ImageFormat {
+	switch f {
+	case JPEG:
+		return imagemeta.JPEG
+	case PNG:
+		return imagemeta.PNG
+	case TIFF:
+		return imagemeta.TIFF
+	case WEBP:
+		return imagemeta.WebP
+	case AVIF:
+		return imagemeta.AVIF
+	case HEIF:
+		return imagemeta.HEIF
+	case HEIC:
+		return imagemeta.HEIF
+	default:
+		return -1
+	}
+}
+
+// SupportsTransparency reports whether it supports transparency in any form.
+func (f Format) SupportsTransparency() bool {
+	return f != JPEG
+}
+
+// SupportsAnimation reports whether the format supports animation.
+// AVIF supports animation in the spec, but Hugo's AVIF encoder is single-frame
+// only — including AVIF here would make the pipeline preserve frames just to
+// drop them at encode time.
+func (f Format) SupportsAnimation() bool {
+	return f == GIF || f == WEBP
+}
+
+// DefaultExtension returns the default file extension of this format, starting with a dot.
+// For example: .jpg for JPEG
+func (f Format) DefaultExtension() string {
+	return f.MediaType().FirstSuffix.FullSuffix
+}
+
+// MediaType returns the media type of this image, e.g. image/jpeg for JPEG
+func (f Format) MediaType() media.Type {
+	switch f {
+	case JPEG:
+		return media.Builtin.JPEGType
+	case PNG:
+		return media.Builtin.PNGType
+	case GIF:
+		return media.Builtin.GIFType
+	case TIFF:
+		return media.Builtin.TIFFType
+	case BMP:
+		return media.Builtin.BMPType
+	case WEBP:
+		return media.Builtin.WEBPType
+	case AVIF:
+		return media.Builtin.AVIFType
+	case HEIF:
+		return media.Builtin.HEIFType
+	case HEIC:
+		return media.Builtin.HEICType
+	default:
+		panic(fmt.Sprintf("%d is not a valid image format", f))
+	}
+}
+
+func (f Format) String() string {
+	switch f {
+	case JPEG:
+		return "JPEG"
+	case PNG:
+		return "PNG"
+	case GIF:
+		return "GIF"
+	case TIFF:
+		return "TIFF"
+	case BMP:
+		return "BMP"
+	case WEBP:
+		return "WEBP"
+	case AVIF:
+		return "AVIF"
+	case HEIF:
+		return "HEIF"
+	case HEIC:
+		return "HEIC"
+	default:
+		return "Unknown"
+	}
+}
+
+type imageConfig struct {
+	config       image.Config
+	frameCount   int
+	configInit   sync.Once
+	configLoaded bool
+}
+
+func imageConfigFromImage(img image.Image) *imageConfig {
+	c := &imageConfig{frameCount: 1, configLoaded: true}
+	if anim, ok := img.(himage.AnimatedImage); ok {
+		c.frameCount = max(1, len(anim.GetFrames()))
+	}
+	if cp, ok := img.(himage.ImageConfigProvider); ok {
+		c.config = cp.GetImageConfig()
+	} else {
+		b := img.Bounds()
+		c.config = image.Config{Width: b.Max.X, Height: b.Max.Y}
+	}
+	return c
+}
+
+// UnwrapFilter unwraps the given filter if it is a filter wrapper.
+func UnwrapFilter(in gift.Filter) gift.Filter {
+	if f, ok := in.(filter); ok {
+		return f.Filter
+	}
+	return in
+}
+
+// ToFilters converts the given input to a slice of gift.Filter.
+func ToFilters(in any) []gift.Filter {
+	switch v := in.(type) {
+	case []gift.Filter:
+		return v
+	case []filter:
+		vv := make([]gift.Filter, len(v))
+		for i, f := range v {
+			vv[i] = f
+		}
+		return vv
+	case gift.Filter:
+		return []gift.Filter{v}
+	default:
+		panic(fmt.Sprintf("%T is not an image filter", in))
+	}
+}
+
+// IsOpaque returns false if the image has alpha channel and there is at least 1
+// pixel that is not (fully) opaque.
+func IsOpaque(img image.Image) bool {
+	if oim, ok := img.(interface {
+		Opaque() bool
+	}); ok {
+		return oim.Opaque()
+	}
+
+	return false
+}
+
+// ImageSource identifies and decodes an image.
+type ImageSource interface {
+	DecodeImage() (image.Image, error)
+	Key() string
+}

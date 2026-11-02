@@ -1,0 +1,181 @@
+// Copyright 2024 The Hugo Authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package helpers_test
+
+import (
+	"testing"
+
+	qt "github.com/frankban/quicktest"
+	"github.com/gohugoio/hugo/helpers"
+)
+
+func TestResolveMarkup(t *testing.T) {
+	spec := newTestContentSpec(nil)
+
+	for i, this := range []struct {
+		in     string
+		expect string
+	}{
+		{"md", "markdown"},
+		{"markdown", "markdown"},
+		{"mdown", "markdown"},
+		{"asciidocext", "asciidoc"},
+		{"adoc", "asciidoc"},
+		{"ad", "asciidoc"},
+		{"rst", "rst"},
+		{"pandoc", "pandoc"},
+		{"pdc", "pandoc"},
+		{"html", "html"},
+		{"htm", "html"},
+		{"org", "org"},
+		{"excel", ""},
+	} {
+		result := spec.ResolveMarkup(this.in)
+		if result != this.expect {
+			t.Errorf("[%d] got %s but expected %s", i, result, this.expect)
+		}
+	}
+}
+
+func TestFirstUpper(t *testing.T) {
+	for i, this := range []struct {
+		in     string
+		expect string
+	}{
+		{"foo", "Foo"},
+		{"foo bar", "Foo bar"},
+		{"Foo Bar", "Foo Bar"},
+		{"", ""},
+		{"å", "Å"},
+	} {
+		result := helpers.FirstUpper(this.in)
+		if result != this.expect {
+			t.Errorf("[%d] got %s but expected %s", i, result, this.expect)
+		}
+	}
+}
+
+func TestFirstLower(t *testing.T) {
+	c := qt.New(t)
+	for _, this := range []struct {
+		in     string
+		expect string
+	}{
+		{"Foo", "foo"},
+		{"Foo Bar", "foo Bar"},
+		{"foo bar", "foo bar"},
+		{"", ""},
+		{"Å", "å"},
+	} {
+		c.Assert(helpers.FirstLower(this.in), qt.Equals, this.expect)
+	}
+}
+
+func TestHasStringsPrefix(t *testing.T) {
+	for i, this := range []struct {
+		s      []string
+		prefix []string
+		expect bool
+	}{
+		{[]string{"a"}, []string{"a"}, true},
+		{[]string{}, []string{}, true},
+		{[]string{"a", "b", "c"}, []string{"a", "b"}, true},
+		{[]string{"d", "a", "b", "c"}, []string{"a", "b"}, false},
+		{[]string{"abra", "ca", "dabra"}, []string{"abra", "ca"}, true},
+		{[]string{"abra", "ca"}, []string{"abra", "ca", "dabra"}, false},
+	} {
+		result := helpers.HasStringsPrefix(this.s, this.prefix)
+		if result != this.expect {
+			t.Fatalf("[%d] got %t but expected %t", i, result, this.expect)
+		}
+	}
+}
+
+func TestHasStringsSuffix(t *testing.T) {
+	for i, this := range []struct {
+		s      []string
+		suffix []string
+		expect bool
+	}{
+		{[]string{"a"}, []string{"a"}, true},
+		{[]string{}, []string{}, true},
+		{[]string{"a", "b", "c"}, []string{"b", "c"}, true},
+		{[]string{"abra", "ca", "dabra"}, []string{"abra", "ca"}, false},
+		{[]string{"abra", "ca", "dabra"}, []string{"ca", "dabra"}, true},
+	} {
+		result := helpers.HasStringsSuffix(this.s, this.suffix)
+		if result != this.expect {
+			t.Fatalf("[%d] got %t but expected %t", i, result, this.expect)
+		}
+	}
+}
+
+func TestSliceToLower(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		value    []string
+		expected []string
+	}{
+		{[]string{"a", "b", "c"}, []string{"a", "b", "c"}},
+		{[]string{"a", "B", "c"}, []string{"a", "b", "c"}},
+		{[]string{"A", "B", "C"}, []string{"a", "b", "c"}},
+	}
+
+	for _, test := range tests {
+		res := helpers.SliceToLower(test.value)
+		for i, val := range res {
+			if val != test.expected[i] {
+				t.Errorf("Case mismatch. Expected %s, got %s", test.expected[i], res[i])
+			}
+		}
+	}
+}
+
+func TestGetTitleFunc(t *testing.T) {
+	title := "somewhere over the Rainbow"
+	c := qt.New(t)
+
+	c.Assert(helpers.GetTitleFunc("go")(title), qt.Equals, "Somewhere Over The Rainbow")
+	c.Assert(helpers.GetTitleFunc("chicago")(title), qt.Equals, "Somewhere over the Rainbow")
+	c.Assert(helpers.GetTitleFunc("Chicago")(title), qt.Equals, "Somewhere over the Rainbow")
+	c.Assert(helpers.GetTitleFunc("ap")(title), qt.Equals, "Somewhere Over the Rainbow")
+	c.Assert(helpers.GetTitleFunc("ap")(title), qt.Equals, "Somewhere Over the Rainbow")
+	c.Assert(helpers.GetTitleFunc("")(title), qt.Equals, "Somewhere Over the Rainbow")
+	c.Assert(helpers.GetTitleFunc("unknown")(title), qt.Equals, "Somewhere Over the Rainbow")
+	c.Assert(helpers.GetTitleFunc("none")(title), qt.Equals, title)
+	c.Assert(helpers.GetTitleFunc("firstupper")(title), qt.Equals, "Somewhere over the Rainbow")
+}
+
+func TestStringSliceToList(t *testing.T) {
+	for _, tt := range []struct {
+		slice       []string
+		conjunction string
+		want        string
+	}{
+		{[]string{}, "", ""},
+		{[]string{"foo"}, "", "foo"},
+		{[]string{"foo"}, "and", "foo"},
+		{[]string{"foo", "bar"}, "", "foo and bar"},
+		{[]string{"foo", "bar"}, "and", "foo and bar"},
+		{[]string{"foo", "bar"}, "or", "foo or bar"},
+		{[]string{"foo", "bar", "baz"}, "", "foo, bar, and baz"},
+		{[]string{"foo", "bar", "baz"}, "and", "foo, bar, and baz"},
+		{[]string{"foo", "bar", "baz"}, "or", "foo, bar, or baz"},
+	} {
+		got := helpers.StringSliceToList(tt.slice, tt.conjunction)
+		if got != tt.want {
+			t.Errorf("StringSliceToList() got: %q, want: %q", got, tt.want)
+		}
+	}
+}

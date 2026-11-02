@@ -1,0 +1,305 @@
+// Copyright 2019 The Hugo Authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package hugolib
+
+import (
+	"testing"
+)
+
+func TestLanguageContentRoot(t *testing.T) {
+	files := `
+-- hugo.toml --
+baseURL = "https://example.org/"
+defaultContentLanguage = "en"
+defaultContentLanguageInSubdir = true
+[languages]
+[languages.en]
+weight = 10
+contentDir = "content/en"
+[languages.nn]
+weight = 20
+contentDir = "content/nn"
+-- content/en/_index.md --
+---
+title: "Home"
+---
+-- content/nn/_index.md --
+---
+title: "Heim"
+---
+-- content/en/myfiles/file1.txt --
+file 1 en
+-- content/en/myfiles/file2.txt --
+file 2 en
+-- content/nn/myfiles/file1.txt --
+file 1 nn
+-- layouts/home.html --
+Title: {{ .Title }}|
+Len Resources: {{ len .Resources }}|
+{{ range $i, $e := .Resources }}
+{{ $i }}|{{ .RelPermalink }}|{{ .Content }}|
+{{ end }}
+
+`
+	b := Test(t, files)
+	b.AssertFileContent("public/en/index.html", "Home", "0|/en/myfiles/file1.txt|file 1 en|\n\n1|/en/myfiles/file2.txt|file 2 en|")
+	b.AssertFileContent("public/nn/index.html", "Heim", "0|/nn/myfiles/file1.txt|file 1 nn|\n\n1|/en/myfiles/file2.txt|file 2 en|")
+}
+
+func TestContentMountMerge(t *testing.T) {
+	t.Parallel()
+
+	files := `
+-- hugo.toml --
+baseURL = 'https://example.org/'
+locale = 'en-us'
+title = 'Hugo Forum Topic #37225'
+theme = 'mytheme'
+
+disableKinds = ['sitemap','RSS','taxonomy','term']
+defaultContentLanguage = 'en'
+defaultContentLanguageInSubdir = true
+
+[languages.en]
+label = 'English'
+weight = 1
+[languages.de]
+label = 'Deutsch'
+weight = 2
+[languages.nl]
+label = 'Nederlands'
+weight = 3
+
+# EN content
+[[module.mounts]]
+source = 'content/en'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = 'en'
+
+# DE content
+[[module.mounts]]
+source = 'content/de'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = 'de'
+
+# This fills in the gaps in DE content with EN content
+[[module.mounts]]
+source = 'content/en'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = 'de'
+
+# NL content
+[[module.mounts]]
+source = 'content/nl'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = 'nl'
+
+# This should fill in the gaps in NL content with EN content
+[[module.mounts]]
+source = 'content/en'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = 'nl'
+
+-- content/de/_index.md --
+---
+title: "home (de)"
+---
+-- content/de/p1.md --
+---
+title: "p1 (de)"
+---
+-- content/en/_index.md --
+---
+title: "home (en)"
+---
+-- content/en/p1.md --
+---
+title: "p1 (en)"
+---
+-- content/en/p2.md --
+---
+title: "p2 (en)"
+---
+-- content/en/p3.md --
+---
+title: "p3 (en)"
+---
+-- content/nl/_index.md --
+---
+title: "home (nl)"
+---
+-- content/nl/p1.md --
+---
+title: "p1 (nl)"
+---
+-- content/nl/p3.md --
+---
+title: "p3 (nl)"
+---
+-- layouts/home.html --
+{{ .Title }}: {{ site.Language.Lang }}: {{ range site.RegularPages }}{{ .Title }}|{{ end }}:END
+-- themes/mytheme/config.toml --
+[[module.mounts]]
+source = 'content/nlt'
+target = 'content'
+[module.mounts.sites.matrix]
+languages = 'nl'
+-- themes/mytheme/content/nlt/p3.md --
+---
+title: "p3 theme (nl)"
+---
+-- themes/mytheme/content/nlt/p4.md --
+---
+title: "p4 theme (nl)"
+---
+`
+
+	b := Test(t, files)
+
+	b.AssertFileContent("public/nl/index.html", `home (nl): nl: p1 (nl)|p2 (en)|p3 (nl)|p4 theme (nl)|:END`)
+	b.AssertFileContent("public/de/index.html", `home (de): de: p1 (de)|p2 (en)|p3 (en)|:END`)
+	b.AssertFileContent("public/en/index.html", `home (en): en: p1 (en)|p2 (en)|p3 (en)|:END`)
+}
+
+// Issue 14681
+func TestPublishMultilingualSectionCreation(t *testing.T) {
+	t.Parallel()
+
+	files := `
+-- hugo.toml --
+capitalizeListTitles = false
+pluralizeListTitles = false
+disableKinds = ['rss','sitemap','taxonomy','term']
+
+defaultContentLanguage = "fr"
+defaultContentLanguageInSubdir = true
+
+[languages.fr]
+contentDir = "content/fr"
+weight = 1
+
+[languages.en]
+contentDir = "content/en"
+weight = 2
+
+[languages.de]
+contentDir = "content/de"
+weight = 3
+-- layouts/home.html --
+HOME {{ .Language.Name }}
+-- layouts/page.html --
+{{ .Title }} {{ .Language.Name }}
+-- layouts/section.html --
+{{ .Title }} {{ .Language.Name }}
+-- content/de/s1/p1.md --
+---
+title: p1
+---
+-- content/en/s1/p2.md --
+---
+title: p2
+---
+-- content/fr/s1/p3.md --
+---
+title: p3
+---
+`
+
+	b := Test(t, files)
+
+	b.AssertFileContent("public/de/index.html", "HOME de")
+	b.AssertFileContent("public/de/s1/index.html", "s1 de")
+	b.AssertFileContent("public/de/s1/p1/index.html", "p1 de")
+
+	b.AssertFileContent("public/en/index.html", "HOME en")
+	b.AssertFileContent("public/en/s1/index.html", "s1 en") // fail (file does not exist)
+	b.AssertFileContent("public/en/s1/p2/index.html", "p2 en")
+
+	b.AssertFileContent("public/fr/index.html", "HOME fr")
+	b.AssertFileContent("public/fr/s1/index.html", "s1 fr") // fail (file does not exist)
+	b.AssertFileContent("public/fr/s1/p3/index.html", "p3 fr")
+}
+
+// Issue 13993
+func TestIssue13993(t *testing.T) {
+	t.Parallel()
+
+	files := `
+-- hugo.toml --
+disableKinds = ['home','rss','section','sitemap','taxonomy','term']
+printPathWarnings = true
+
+defaultContentLanguage = 'en'
+defaultContentLanguageInSubdir = true
+
+[languages.en]
+contentDir = "content/en"
+weight = 1
+
+[languages.es]
+contentDir = "content/es"
+weight = 2
+
+# Default content mounts
+
+[[module.mounts]]
+source = "content/en"
+target = "content"
+[module.mounts.sites.matrix]
+languages = "en"
+
+[[module.mounts]]
+source = "content/es"
+target = "content"
+[module.mounts.sites.matrix]
+languages = "es"
+
+# Populate the missing es content with en content
+
+[[module.mounts]]
+source = "content/en"
+target = "content"
+[module.mounts.sites.matrix]
+languages = "es"
+-- layouts/all.html --
+{{ .Title }}
+-- content/en/p1.md --
+---
+title: p1 (en)
+---
+-- content/en/p2.md --
+---
+title: p2 (en)
+---
+-- content/es/p1.md --
+---
+title: p1 (es)
+---
+`
+
+	b := Test(t, files, TestOptInfo())
+
+	b.AssertFileExists("public/en/p1/index.html", true)
+	b.AssertFileExists("public/en/p2/index.html", true)
+	b.AssertFileExists("public/es/p1/index.html", true)
+	b.AssertFileExists("public/es/p2/index.html", true)
+
+	// This assertion was changed for 0.152.0. It was no longer possible/practical to warn about duplicate content paths.
+	b.AssertLogContains("! Duplicate")
+}
