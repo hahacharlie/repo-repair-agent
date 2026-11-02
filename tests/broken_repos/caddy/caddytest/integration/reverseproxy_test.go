@@ -1,0 +1,1290 @@
+package integration
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/rand"
+	"crypto/sha1"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/textproto"
+	"runtime"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/caddyserver/caddy/v2/caddytest"
+)
+
+func TestSRVReverseProxy(t *testing.T) {
+	tester := caddytest.NewTester(t)
+	tester.InitServer(`
+	{
+		"admin": {
+			"listen": "localhost:2999"
+		},
+		"apps": {
+			"pki": {
+				"certificate_authorities": {
+					"local": {
+						"install_trust": false
+					}
+				}
+			},
+			"http": {
+				"grace_period": 1,
+				"servers": {
+					"srv0": {
+						"listen": [
+							":18080"
+						],
+						"routes": [
+							{
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"dynamic_upstreams": {
+											"source": "srv",
+											"name": "srv.host.service.consul"
+										}
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}
+	`, "json")
+}
+
+func TestDialWithPlaceholderUnix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.SkipNow()
+	}
+
+	socketName := tempSocketName(t)
+
+	server := http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.Write([]byte("Hello, World!"))
+		}),
+	}
+
+	unixListener, err := net.Listen("unix", socketName)
+	if err != nil {
+		t.Errorf("failed to listen on the socket: %s", err)
+		return
+	}
+	go server.Serve(unixListener)
+	t.Cleanup(func() {
+		server.Close()
+	})
+	runtime.Gosched() // Allow other goroutines to run
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(`
+	{
+		"admin": {
+			"listen": "localhost:2999"
+		},
+		"apps": {
+			"pki": {
+				"certificate_authorities": {
+					"local": {
+						"install_trust": false
+					}
+				}
+			},
+			"http": {
+				"grace_period": 1,
+				"servers": {
+					"srv0": {
+						"listen": [
+							":18080"
+						],
+						"routes": [
+							{
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"upstreams": [
+											{
+												"dial": "unix/{http.request.header.X-Caddy-Upstream-Dial}"
+											}
+										]
+									}
+								]
+							}
+						]
+					}
+				}
+		  	}
+		}
+	}
+	`, "json")
+
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:18080", nil)
+	if err != nil {
+		t.Fail()
+		return
+	}
+	req.Header.Set("X-Caddy-Upstream-Dial", socketName)
+	tester.AssertResponse(req, 200, "Hello, World!")
+}
+
+func TestReverseProxyWithPlaceholderDialAddress(t *testing.T) {
+	tester := caddytest.NewTester(t)
+	tester.InitServer(`
+	{
+		"admin": {
+			"listen": "localhost:2999"
+		},
+		"apps": {
+			"pki": {
+				"certificate_authorities": {
+					"local": {
+						"install_trust": false
+					}
+				}
+			},
+			"http": {
+				"grace_period": 1,
+				"servers": {
+					"srv0": {
+						"listen": [
+							":18080"
+						],
+						"routes": [
+							{
+								"match": [
+									{
+										"host": [
+											"localhost"
+										]
+									}
+								],
+								"handle": [
+									{
+										"handler": "static_response",
+										"body": "Hello, World!"
+									}
+								],
+								"terminal": true
+							}
+						],
+						"automatic_https": {
+							"skip": [
+								"localhost"
+							]
+						}
+					},
+					"srv1": {
+						"listen": [
+							":9080"
+						],
+						"routes": [
+							{
+								"match": [
+									{
+										"host": [
+											"localhost"
+										]
+									}
+								],
+								"handle": [
+									{
+
+										"handler": "reverse_proxy",
+										"upstreams": [
+											{
+												"dial": "{http.request.header.X-Caddy-Upstream-Dial}"
+											}
+										]
+									}
+								],
+								"terminal": true
+							}
+						],
+						"automatic_https": {
+							"skip": [
+								"localhost"
+							]
+						}
+					}
+				}
+			}
+		}
+	}
+	`, "json")
+
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:9080", nil)
+	if err != nil {
+		t.Fail()
+		return
+	}
+	req.Header.Set("X-Caddy-Upstream-Dial", "localhost:18080")
+	tester.AssertResponse(req, 200, "Hello, World!")
+}
+
+func TestReverseProxyWithPlaceholderTCPDialAddress(t *testing.T) {
+	tester := caddytest.NewTester(t)
+	tester.InitServer(`
+	{
+		"admin": {
+			"listen": "localhost:2999"
+		},
+		"apps": {
+			"pki": {
+				"certificate_authorities": {
+					"local": {
+						"install_trust": false
+					}
+				}
+			},
+			"http": {
+				"grace_period": 1,
+				"servers": {
+					"srv0": {
+						"listen": [
+							":18080"
+						],
+						"routes": [
+							{
+								"match": [
+									{
+										"host": [
+											"localhost"
+										]
+									}
+								],
+								"handle": [
+									{
+										"handler": "static_response",
+										"body": "Hello, World!"
+									}
+								],
+								"terminal": true
+							}
+						],
+						"automatic_https": {
+							"skip": [
+								"localhost"
+							]
+						}
+					},
+					"srv1": {
+						"listen": [
+							":9080"
+						],
+						"routes": [
+							{
+								"match": [
+									{
+										"host": [
+											"localhost"
+										]
+									}
+								],
+								"handle": [
+									{
+
+										"handler": "reverse_proxy",
+										"upstreams": [
+											{
+												"dial": "tcp/{http.request.header.X-Caddy-Upstream-Dial}:18080"
+											}
+										]
+									}
+								],
+								"terminal": true
+							}
+						],
+						"automatic_https": {
+							"skip": [
+								"localhost"
+							]
+						}
+					}
+				}
+			}
+		}
+	}
+	`, "json")
+
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:9080", nil)
+	if err != nil {
+		t.Fail()
+		return
+	}
+	req.Header.Set("X-Caddy-Upstream-Dial", "localhost")
+	tester.AssertResponse(req, 200, "Hello, World!")
+}
+
+func TestReverseProxyHealthCheck(t *testing.T) {
+	// Start lightweight backend servers so they're ready before Caddy's
+	// active health checker runs; this avoids a startup race where the
+	// health checker probes backends that haven't yet begun accepting
+	// connections and marks them unhealthy.
+	//
+	// This mirrors how health checks are typically used in practice (to a separate
+	// backend service) and avoids probing the same Caddy instance while it's still
+	// provisioning and not ready to accept connections.
+
+	// backend server that responds to proxied requests
+	helloSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, _ = w.Write([]byte("Hello, World!"))
+		}),
+	}
+	ln0, err := net.Listen("tcp", "127.0.0.1:2020")
+	if err != nil {
+		t.Fatalf("failed to listen on 127.0.0.1:2020: %v", err)
+	}
+	go helloSrv.Serve(ln0)
+	t.Cleanup(func() { helloSrv.Close(); ln0.Close() })
+
+	// backend server that serves health checks
+	healthSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, _ = w.Write([]byte("ok"))
+		}),
+	}
+	ln1, err := net.Listen("tcp", "127.0.0.1:2021")
+	if err != nil {
+		t.Fatalf("failed to listen on 127.0.0.1:2021: %v", err)
+	}
+	go healthSrv.Serve(ln1)
+	t.Cleanup(func() { healthSrv.Close(); ln1.Close() })
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port     9080
+		https_port    9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy {
+			to localhost:2020
+
+			health_uri /health
+			health_port 2021
+			health_interval 10ms
+			health_timeout 100ms
+			health_passes 1
+			health_fails 1
+		}
+	}
+	`, "caddyfile")
+	tester.AssertGetResponse("http://localhost:9080/", 200, "Hello, World!")
+}
+
+// TestReverseProxyHealthCheckPortUsed verifies that health_port is actually
+// used for active health checks and not the upstream's main port. This is a
+// regression test for https://github.com/caddyserver/caddy/issues/7524.
+func TestReverseProxyHealthCheckPortUsed(t *testing.T) {
+	// upstream server: serves proxied requests normally, but returns 503 for
+	// /health so that if health checks mistakenly hit this port the upstream
+	// gets marked unhealthy and the proxy returns 503.
+	upstreamSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/health" {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write([]byte("Hello, World!"))
+		}),
+	}
+	ln0, err := net.Listen("tcp", "127.0.0.1:2022")
+	if err != nil {
+		t.Fatalf("failed to listen on 127.0.0.1:2022: %v", err)
+	}
+	go upstreamSrv.Serve(ln0)
+	t.Cleanup(func() { upstreamSrv.Close(); ln0.Close() })
+
+	// separate health check server on the configured health_port: returns 200
+	// so the upstream is marked healthy only if health checks go to this port.
+	healthSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, _ = w.Write([]byte("ok"))
+		}),
+	}
+	ln1, err := net.Listen("tcp", "127.0.0.1:2023")
+	if err != nil {
+		t.Fatalf("failed to listen on 127.0.0.1:2023: %v", err)
+	}
+	go healthSrv.Serve(ln1)
+	t.Cleanup(func() { healthSrv.Close(); ln1.Close() })
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port     9080
+		https_port    9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy {
+			to localhost:2022
+
+			health_uri /health
+			health_port 2023
+			health_interval 10ms
+			health_timeout 100ms
+			health_passes 1
+			health_fails 1
+		}
+	}
+	`, "caddyfile")
+	tester.AssertGetResponse("http://localhost:9080/", 200, "Hello, World!")
+}
+
+func TestReverseProxyHealthCheckUnixSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.SkipNow()
+	}
+	tester := caddytest.NewTester(t)
+	socketName := tempSocketName(t)
+
+	server := http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if strings.HasPrefix(req.URL.Path, "/health") {
+				w.Write([]byte("ok"))
+				return
+			}
+			w.Write([]byte("Hello, World!"))
+		}),
+	}
+
+	unixListener, err := net.Listen("unix", socketName)
+	if err != nil {
+		t.Errorf("failed to listen on the socket: %s", err)
+		return
+	}
+	go server.Serve(unixListener)
+	t.Cleanup(func() {
+		server.Close()
+	})
+	runtime.Gosched() // Allow other goroutines to run
+
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port     9080
+		https_port    9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy {
+			to unix/%s
+
+			health_uri /health
+			health_port 2021
+			health_interval 2s
+			health_timeout 5s
+		}
+	}
+	`, socketName), "caddyfile")
+
+	tester.AssertGetResponse("http://localhost:9080/", 200, "Hello, World!")
+}
+
+func TestReverseProxyHealthCheckUnixSocketWithoutPort(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.SkipNow()
+	}
+	tester := caddytest.NewTester(t)
+	socketName := tempSocketName(t)
+
+	server := http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if strings.HasPrefix(req.URL.Path, "/health") {
+				w.Write([]byte("ok"))
+				return
+			}
+			w.Write([]byte("Hello, World!"))
+		}),
+	}
+
+	unixListener, err := net.Listen("unix", socketName)
+	if err != nil {
+		t.Errorf("failed to listen on the socket: %s", err)
+		return
+	}
+	go server.Serve(unixListener)
+	t.Cleanup(func() {
+		server.Close()
+	})
+	runtime.Gosched() // Allow other goroutines to run
+
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port     9080
+		https_port    9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy {
+			to unix/%s
+
+			health_uri /health
+			health_interval 2s
+			health_timeout 5s
+		}
+	}
+	`, socketName), "caddyfile")
+
+	tester.AssertGetResponse("http://localhost:9080/", 200, "Hello, World!")
+}
+
+// TestReverseProxyRetryMatchStatusCode verifies that lb_retry_match with a
+// CEL expression matching on {rp.status_code} causes the request to be
+// retried on the next upstream when the first upstream returns a matching
+// status code
+func TestReverseProxyRetryMatchStatusCode(t *testing.T) {
+	// Bad upstream: returns 502
+	badSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+		}),
+	}
+	badLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go badSrv.Serve(badLn)
+	t.Cleanup(func() { badSrv.Close(); badLn.Close() })
+
+	// Good upstream: returns 200
+	goodSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("ok"))
+		}),
+	}
+	goodLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go goodSrv.Serve(goodLn)
+	t.Cleanup(func() { goodSrv.Close(); goodLn.Close() })
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port 9080
+		https_port 9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy %s %s {
+			lb_policy round_robin
+			lb_retries 1
+			lb_retry_match {
+				expression `+"`{rp.status_code} in [502, 503]`"+`
+			}
+		}
+	}
+	`, goodLn.Addr().String(), badLn.Addr().String()), "caddyfile")
+
+	tester.AssertGetResponse("http://localhost:9080/", 200, "ok")
+}
+
+// TestReverseProxyRetryMatchHeader verifies that lb_retry_match with a CEL
+// expression matching on {rp.header.*} causes the request to be retried when
+// the upstream sets a matching response header
+func TestReverseProxyRetryMatchHeader(t *testing.T) {
+	var badHits atomic.Int32
+
+	// Bad upstream: returns 200 but signals retry via header
+	badSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			badHits.Add(1)
+			w.Header().Set("X-Upstream-Retry", "true")
+			w.Write([]byte("bad"))
+		}),
+	}
+	badLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go badSrv.Serve(badLn)
+	t.Cleanup(func() { badSrv.Close(); badLn.Close() })
+
+	// Good upstream: returns 200 without retry header
+	goodSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("good"))
+		}),
+	}
+	goodLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go goodSrv.Serve(goodLn)
+	t.Cleanup(func() { goodSrv.Close(); goodLn.Close() })
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port 9080
+		https_port 9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy %s %s {
+			lb_policy round_robin
+			lb_retries 1
+			lb_retry_match {
+				expression `+"`{rp.header.X-Upstream-Retry} == \"true\"`"+`
+			}
+		}
+	}
+	`, goodLn.Addr().String(), badLn.Addr().String()), "caddyfile")
+
+	tester.AssertGetResponse("http://localhost:9080/", 200, "good")
+
+	if badHits.Load() != 1 {
+		t.Errorf("bad upstream hits: got %d, want 1", badHits.Load())
+	}
+}
+
+// TestReverseProxyRetryMatchCombined verifies that a CEL expression combining
+// request path matching with response status code matching works correctly -
+// only retrying when both conditions are met
+func TestReverseProxyRetryMatchCombined(t *testing.T) {
+	// Upstream: returns 502 for all requests
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+		}),
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close(); ln.Close() })
+
+	// Good upstream
+	goodSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("ok"))
+		}),
+	}
+	goodLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go goodSrv.Serve(goodLn)
+	t.Cleanup(func() { goodSrv.Close(); goodLn.Close() })
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port 9080
+		https_port 9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy %s %s {
+			lb_policy round_robin
+			lb_retries 1
+			lb_retry_match {
+				expression `+"`path('/retry*') && {rp.status_code} in [502, 503]`"+`
+			}
+		}
+	}
+	`, goodLn.Addr().String(), ln.Addr().String()), "caddyfile")
+
+	// /retry path matches the expression - should retry to good upstream
+	tester.AssertGetResponse("http://localhost:9080/retry", 200, "ok")
+
+	// /other path does NOT match - should return the 502
+	req, _ := http.NewRequest(http.MethodGet, "http://localhost:9080/other", nil)
+	tester.AssertResponse(req, 502, "")
+}
+
+// TestReverseProxyRetryMatchIsTransportError verifies that the
+// {rp.is_transport_error} == true CEL function correctly identifies transport errors
+// and allows retrying them alongside response-based matching
+func TestReverseProxyRetryMatchIsTransportError(t *testing.T) {
+	// Good upstream: returns 200
+	goodSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("ok"))
+		}),
+	}
+	goodLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go goodSrv.Serve(goodLn)
+	t.Cleanup(func() { goodSrv.Close(); goodLn.Close() })
+
+	// Broken upstream: accepts connections but closes immediately
+	brokenLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { brokenLn.Close() })
+	go func() {
+		for {
+			conn, err := brokenLn.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port 9080
+		https_port 9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy %s %s {
+			lb_policy round_robin
+			lb_retries 1
+			lb_retry_match {
+				expression `+"`{rp.is_transport_error} || {rp.status_code} in [502, 503]`"+`
+			}
+		}
+	}
+	`, goodLn.Addr().String(), brokenLn.Addr().String()), "caddyfile")
+
+	// Transport error on broken upstream should be retried to good upstream
+	tester.AssertGetResponse("http://localhost:9080/", 200, "ok")
+}
+
+func TestReverseProxySNIPlaceHolder(t *testing.T) {
+	configTemplate := `
+	{
+        skip_install_trust
+        local_certs
+        admin localhost:2999
+        http_port 9080
+        https_port 9443
+        grace_period 1ns
+	}
+	localhost example.com {
+		@proxied header X-Transport caddy
+		respond @proxied {http.request.tls.server_name}
+		reverse_proxy 127.0.0.1:9443 {
+			header_up X-Transport caddy
+			header_up Host {host}
+			transport http {
+				versions %s
+				tls_server_name {header.X-SNI}
+				tls_insecure_skip_verify
+			}
+		}
+	}
+	`
+	for _, versions := range []string{"1.1 2", "3"} {
+		tester := caddytest.NewTester(t)
+		tester.InitServer(fmt.Sprintf(configTemplate, versions), "caddyfile")
+		req, err := http.NewRequest("GET", "https://localhost:9443", nil)
+		if err != nil {
+			t.Errorf("failed to create request %s", err)
+			return
+		}
+
+		req.Header.Set("X-SNI", "example.com")
+		tester.AssertResponse(req, 200, "example.com")
+	}
+}
+
+func TestReverseProxyNormalizeWebSocketHeaders(t *testing.T) {
+	// 503s if it doesn't see "WebSocket" in a request
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	// http.Server would canonicalize these headers, so plain tcp:
+	errc := make(chan error, 1)
+	defer func() {
+		for range errc {
+		}
+	}()
+	defer ln.Close()
+	handleConn := func(conn net.Conn) error {
+		defer conn.Close()
+		rd := textproto.NewReader(bufio.NewReader(io.LimitReader(conn, 4096)))
+		status := 503
+		for {
+			line, err := rd.ReadLine()
+			if err != nil {
+				return fmt.Errorf("failed to read line: %v", err)
+			}
+			if len(line) == 0 {
+				break
+			}
+			if strings.Contains(line, "WebSocket") {
+				status = 200
+			}
+		}
+		res := fmt.Sprintf("HTTP/1.1 %d %s\r\nConnection: close\r\n\r\n", status, http.StatusText(status))
+		if _, err = conn.Write([]byte(res)); err != nil {
+			return fmt.Errorf("failed to write: %v", err)
+		}
+		return nil
+	}
+	go func() {
+		defer close(errc)
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				if !errors.Is(err, net.ErrClosed) {
+					errc <- fmt.Errorf("failed to accept: %v", err)
+				}
+				return
+			}
+			if err := handleConn(conn); err != nil {
+				errc <- fmt.Errorf("failed to handle: %v", err)
+			}
+		}
+	}()
+	checkServer := func() {
+		select {
+		case err := <-errc:
+			t.Fatalf("failed to serve test request: %v", err)
+		default:
+		}
+	}
+	tester := caddytest.NewTester(t)
+	tester.InitServer(fmt.Sprintf(`
+	{
+        skip_install_trust
+        local_certs
+        admin localhost:2999
+        http_port 9080
+        https_port 9443
+        grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy http://%s {
+			# test compatibility with header manipulations
+			header_up X-Add-Header "1"
+		}
+	}`, ln.Addr()), "caddyfile")
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:9080/", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	// Only the first WebSocket header needs the manual assignment,
+	// but mixing in .Set is likely to be more confusing.
+	req.Header["Connection"] = []string{"Upgrade"}
+	req.Header["Upgrade"] = []string{"websocket"}
+	// 1. resembling a browser via http/1.1
+	req.Header["Sec-WebSocket-Version"] = []string{"13"}
+	tester.AssertResponse(req, 200, "")
+	checkServer()
+	delete(req.Header, "Sec-WebSocket-Version")
+	// 2. canonicalized is okay
+	req.Header["Sec-Websocket-Version"] = []string{"13"}
+	tester.AssertResponse(req, 200, "")
+	checkServer()
+	delete(req.Header, "Sec-Websocket-Version")
+	// 3. unknown header doesn't receive special handling
+	req.Header["Sec-Websocket-Unnormalizedkey"] = []string{"13"}
+	tester.AssertResponse(req, 503, "")
+	checkServer()
+}
+
+func TestWeightedRoundRobinSelectionValidation(t *testing.T) {
+	configTemplate := `
+	{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"listen": [":18080"],
+						"routes": [
+							{
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"load_balancing": {
+											"selection_policy": {
+												"policy": "weighted_round_robin",
+												"weights": %s
+											}
+										},
+										"upstreams": [
+											{"dial": "localhost:18081"},
+											{"dial": "localhost:18082"}
+										]
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`
+
+	tests := []struct {
+		name    string
+		weights string
+		errMsg  string
+	}{
+		{
+			name:    "negative weight",
+			weights: "[-1, 2]",
+			errMsg:  "weight of an upstream cannot be negative",
+		},
+		{
+			name:    "zero total weight",
+			weights: "[0, 0]",
+			errMsg:  "requires at least one upstream with a positive weight",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			caddytest.AssertLoadError(
+				t,
+				fmt.Sprintf(configTemplate, tc.weights),
+				"json",
+				tc.errMsg,
+			)
+		})
+	}
+}
+
+func TestReverseProxyResponseHandling(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/header", func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Length", "500")
+		writer.WriteHeader(500)
+		_ = http.NewResponseController(writer).Flush()
+		panic(http.ErrAbortHandler)
+	})
+	mux.HandleFunc("/partial", func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Length", "500")
+		writer.WriteHeader(500)
+		_, _ = io.WriteString(writer, "partial")
+		_ = http.NewResponseController(writer).Flush()
+		panic(http.ErrAbortHandler)
+	})
+	mux.HandleFunc("/full", func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Length", "500")
+		writer.WriteHeader(500)
+		for range 125 {
+			_, _ = io.WriteString(writer, "full")
+		}
+		_ = http.NewResponseController(writer).Flush()
+	})
+	mux.HandleFunc("/empty", func(writer http.ResponseWriter, request *http.Request) {
+		panic(http.ErrAbortHandler)
+	})
+	ts := httptest.NewUnstartedServer(mux)
+	ts.Start()
+	t.Cleanup(func() {
+		ts.Close()
+	})
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port 9080
+		https_port 9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy %s
+	}
+	`, ts.URL), "caddyfile")
+
+	for _, tc := range []struct {
+		endpoint string
+		status   int
+		bodyType int // 0 = no body, 1 = partial, 2 = full
+		body     string
+	}{
+		{
+			endpoint: "/header",
+			status:   500,
+			bodyType: 0,
+			body:     "",
+		},
+		{
+			endpoint: "/partial",
+			status:   500,
+			bodyType: 1,
+			body:     "partial",
+		},
+		{
+			endpoint: "/full",
+			status:   500,
+			bodyType: 2,
+			body:     strings.Repeat("full", 125),
+		},
+		{
+			endpoint: "/empty",
+			status:   502,
+			bodyType: 2,
+			body:     "",
+		},
+	} {
+		req, err := http.NewRequest("GET", "http://localhost:9080"+tc.endpoint, nil)
+		if err != nil {
+			t.Fatalf("unable to create request %s for endpoint %s", err, tc.endpoint)
+		}
+
+		resp, err := tester.Client.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %s for endpoint %s", err, tc.endpoint)
+		}
+		if resp.StatusCode != tc.status {
+			t.Fatalf("unexpected status code for %s: got %d, want %d", tc.endpoint, resp.StatusCode, tc.status)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		switch tc.bodyType {
+		case 0, 1:
+			if err == nil {
+				t.Fatalf("expected error reading body for %s, got none", tc.endpoint)
+			}
+		case 2:
+			if err != nil {
+				t.Fatalf("error reading body for %s: %s", tc.endpoint, err)
+			}
+		}
+		if string(body) != tc.body {
+			t.Fatalf("unexpected body for %s: got %q, want %q", tc.endpoint, string(body), tc.body)
+		}
+	}
+}
+
+// TestReverseProxyUnlimitedRequestBuffersRespectMaxSize verifies that a request
+// body cut short by request_body max_size is rejected with 413 instead of being
+// forwarded to the upstream as if it were complete.
+func TestReverseProxyUnlimitedRequestBuffersRespectMaxSize(t *testing.T) {
+	var forwarded atomic.Int32
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, err := io.ReadAll(r.Body); err == nil {
+				forwarded.Add(1)
+			}
+		}),
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close(); ln.Close() })
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port 9080
+		https_port 9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		request_body {
+			max_size 10
+		}
+		reverse_proxy %s {
+			request_buffers unlimited
+		}
+	}
+	`, ln.Addr().String()), "caddyfile")
+
+	req, err := http.NewRequest(http.MethodPost, "http://localhost:9080/", strings.NewReader("abcdefghijklm"))
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	res := tester.AssertResponseCode(req, http.StatusRequestEntityTooLarge)
+	res.Body.Close()
+
+	if n := forwarded.Load(); n != 0 {
+		t.Errorf("upstream received %d complete request bodies, want 0", n)
+	}
+}
+
+// TestReverseProxyWebSocketUpgradeUnixSocket verifies that a WebSocket
+// upgrade is proxied to a unix socket upstream, that the upgraded
+// connection carries data in both directions, and that closing the
+// client side tears down the upstream connection
+func TestReverseProxyWebSocketUpgradeUnixSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.SkipNow()
+	}
+
+	socketName := tempSocketName(t)
+
+	// sent in the same write as the 101 response, so it may arrive in the
+	// same read as the response headers and must not be dropped by the proxy
+	const greeting = "hello from upstream"
+
+	// closed once the upstream's echo loop ends, i.e. when the proxy
+	// closes the upstream connection
+	upstreamDone := make(chan struct{})
+
+	// upstream completes the handshake, then echoes everything it reads
+	backend := http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if !strings.EqualFold(req.Header.Get("Upgrade"), "websocket") {
+				http.Error(w, "missing websocket upgrade headers", http.StatusBadRequest)
+				return
+			}
+			wsKey := req.Header.Get("Sec-WebSocket-Key")
+			if wsKey == "" {
+				http.Error(w, "missing Sec-WebSocket-Key", http.StatusBadRequest)
+				return
+			}
+
+			conn, brw, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				return
+			}
+			defer close(upstreamDone)
+			defer conn.Close()
+
+			_, _ = brw.WriteString("HTTP/1.1 101 Switching Protocols\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n" +
+				"Sec-WebSocket-Accept: " + computeWebSocketAccept(wsKey) + "\r\n" +
+				"\r\n" +
+				greeting)
+			if brw.Flush() != nil {
+				return
+			}
+			_, _ = io.Copy(conn, brw)
+		}),
+	}
+
+	unixListener, err := net.Listen("unix", socketName)
+	if err != nil {
+		t.Fatalf("failed to listen on unix socket: %v", err)
+	}
+	go backend.Serve(unixListener)
+	t.Cleanup(func() {
+		_ = backend.Close()
+		_ = unixListener.Close()
+	})
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(fmt.Sprintf(`
+	{
+		skip_install_trust
+		admin localhost:2999
+		http_port     9080
+		https_port    9443
+		grace_period 1ns
+	}
+	http://localhost:9080 {
+		reverse_proxy unix/%s
+	}
+	`, socketName), "caddyfile")
+
+	conn, err := net.Dial("tcp", "127.0.0.1:9080")
+	if err != nil {
+		t.Fatalf("failed to dial caddy listener: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	const wsKey = "dGhlIHNhbXBsZSBub25jZQ=="
+	if _, err := io.WriteString(conn, "GET /ws HTTP/1.1\r\n"+
+		"Host: localhost:9080\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Sec-WebSocket-Version: 13\r\n"+
+		"Sec-WebSocket-Key: "+wsKey+"\r\n"+
+		"\r\n"); err != nil {
+		t.Fatalf("failed to send websocket handshake request: %v", err)
+	}
+
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("failed to read handshake response: %v", err)
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("unexpected status: got %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
+	}
+	if got := resp.Header.Get("Upgrade"); !strings.EqualFold(got, "websocket") {
+		t.Fatalf("unexpected Upgrade header: %q", got)
+	}
+	if got, want := resp.Header.Get("Sec-WebSocket-Accept"), computeWebSocketAccept(wsKey); got != want {
+		t.Fatalf("unexpected Sec-WebSocket-Accept header: got %q, want %q", got, want)
+	}
+
+	gotGreeting := make([]byte, len(greeting))
+	if _, err := io.ReadFull(br, gotGreeting); err != nil {
+		t.Fatalf("failed to read upstream greeting: %v", err)
+	}
+	if string(gotGreeting) != greeting {
+		t.Fatalf("unexpected greeting: got %q, want %q", gotGreeting, greeting)
+	}
+
+	// the payload doesn't need to be framed since the proxy just tunnels
+	// bytes; make it much larger than any single read or write buffer, and
+	// write it concurrently so the echo can't back up and deadlock
+	payload := make([]byte, 256*1024)
+	_, _ = rand.Read(payload)
+	writeErr := make(chan error, 1)
+	go func() {
+		_, err := conn.Write(payload)
+		writeErr <- err
+	}()
+	echo := make([]byte, len(payload))
+	if _, err := io.ReadFull(br, echo); err != nil {
+		t.Fatalf("failed to read echo from upgraded connection: %v", err)
+	}
+	if err := <-writeErr; err != nil {
+		t.Fatalf("failed to write to upgraded connection: %v", err)
+	}
+	if !bytes.Equal(echo, payload) {
+		t.Fatal("echoed payload does not match what was sent")
+	}
+
+	// closing the client should make the proxy close the upstream connection
+	_ = conn.Close()
+	select {
+	case <-upstreamDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream connection was not closed after the client disconnected")
+	}
+}
+
+func computeWebSocketAccept(wsKey string) string {
+	h := sha1.Sum([]byte(wsKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+	return base64.StdEncoding.EncodeToString(h[:])
+}

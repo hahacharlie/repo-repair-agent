@@ -1,0 +1,273 @@
+use chrono::{TimeDelta, Utc};
+use data_encoding::BASE32;
+use num_traits::FromPrimitive;
+use rocket::{Route, serde::json::Json};
+use serde::Deserialize;
+use serde_json::Value;
+
+use crate::{
+    CONFIG,
+    api::{EmptyResult, JsonResult, PasswordOrOtpData, core::log_event},
+    auth::Headers,
+    crypto,
+    db::{
+        DbConn, DbPool,
+        models::{
+            Device, DeviceType, EventType, Membership, MembershipType, OrgPolicyType, Organization, OrganizationId,
+            TwoFactor, TwoFactorIncomplete, TwoFactorType, User, UserId,
+        },
+    },
+    mail,
+};
+
+pub mod authenticator;
+pub mod duo;
+pub mod duo_oidc;
+pub mod email;
+pub mod protected_actions;
+pub mod webauthn;
+pub mod yubikey;
+
+fn has_global_duo_credentials() -> bool {
+    CONFIG._enable_duo() && CONFIG.duo_host().is_some() && CONFIG.duo_ikey().is_some() && CONFIG.duo_skey().is_some()
+}
+
+pub fn is_twofactor_provider_usable(provider_type: &TwoFactorType, provider_data: Option<&str>) -> bool {
+    #[derive(Deserialize)]
+    struct DuoProviderData {
+        host: String,
+        ik: String,
+        sk: String,
+    }
+
+    match provider_type {
+        TwoFactorType::Authenticator | TwoFactorType::RecoveryCode => true,
+        TwoFactorType::Email => CONFIG._enable_email_2fa(),
+        TwoFactorType::Duo | TwoFactorType::OrganizationDuo => {
+            provider_data
+                .and_then(|raw| serde_json::from_str::<DuoProviderData>(raw).ok())
+                .is_some_and(|duo| !duo.host.is_empty() && !duo.ik.is_empty() && !duo.sk.is_empty())
+                || has_global_duo_credentials()
+        }
+        TwoFactorType::YubiKey => {
+            CONFIG._enable_yubico() && CONFIG.yubico_client_id().is_some() && CONFIG.yubico_secret_key().is_some()
+        }
+        TwoFactorType::Webauthn => CONFIG.is_webauthn_2fa_supported(),
+        TwoFactorType::Remember => !CONFIG.disable_2fa_remember(),
+        TwoFactorType::U2f
+        | TwoFactorType::U2fRegisterChallenge
+        | TwoFactorType::U2fLoginChallenge
+        | TwoFactorType::EmailVerificationChallenge
+        | TwoFactorType::WebauthnRegisterChallenge
+        | TwoFactorType::WebauthnLoginChallenge
+        | TwoFactorType::ProtectedActions => false,
+    }
+}
+
+pub fn routes() -> Vec<Route> {
+    let mut routes = routes![get_twofactor, get_recover, get_device_verification_settings];
+
+    routes.append(&mut authenticator::routes());
+    routes.append(&mut duo::routes());
+    routes.append(&mut email::routes());
+    routes.append(&mut webauthn::routes());
+    routes.append(&mut yubikey::routes());
+    routes.append(&mut protected_actions::routes());
+
+    routes
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VerificationTokenData {
+    user_verification_token: String,
+}
+
+#[get("/two-factor")]
+async fn get_twofactor(headers: Headers, conn: DbConn) -> Json<Value> {
+    let twofactors = TwoFactor::find_by_user(&headers.user.uuid, &conn).await;
+    let twofactors_json: Vec<Value> = twofactors
+        .iter()
+        .filter_map(|tf| {
+            let provider_type = TwoFactorType::from_i32(tf.atype)?;
+            is_twofactor_provider_usable(&provider_type, Some(&tf.data)).then(|| TwoFactor::to_json_provider(tf))
+        })
+        .collect();
+
+    Json(json!({
+        "data": twofactors_json,
+        "object": "list",
+        "continuationToken": null,
+    }))
+}
+
+#[post("/two-factor/get-recover", data = "<data>")]
+async fn get_recover(data: Json<PasswordOrOtpData>, headers: Headers, conn: DbConn) -> JsonResult {
+    let data: PasswordOrOtpData = data.into_inner();
+    let user = headers.user;
+
+    data.validate(&user, true, &conn).await?;
+
+    Ok(Json(json!({
+        "code": user.totp_recover,
+        "object": "twoFactorRecover"
+    })))
+}
+
+async fn generate_recover_code(user: &mut User, conn: &DbConn) {
+    if user.totp_recover.is_none() {
+        let totp_recover = crypto::encode_random_bytes::<20>(&BASE32);
+        user.totp_recover = Some(totp_recover);
+        user.save(conn).await.ok();
+    }
+}
+
+/// Call after a 2FA provider, or one of its keys, was removed. No remembered device may keep skipping
+/// the providers that are left, and once every provider is gone the 2FA policy applies.
+pub async fn check_2fa_state(user: &User, device_type: i32, ip: &std::net::IpAddr, conn: &DbConn) -> EmptyResult {
+    Device::clear_twofactor_remember_by_user(&user.uuid, conn).await?;
+    if TwoFactor::find_by_user(&user.uuid, conn).await.is_empty() {
+        enforce_2fa_policy(user, &user.uuid, device_type, ip, conn).await?;
+    }
+    Ok(())
+}
+
+pub async fn enforce_2fa_policy(
+    user: &User,
+    act_user_id: &UserId,
+    device_type: i32,
+    ip: &std::net::IpAddr,
+    conn: &DbConn,
+) -> EmptyResult {
+    for member in Membership::find_by_user_and_policy(&user.uuid, OrgPolicyType::TwoFactorAuthentication, conn).await {
+        // Policy only applies to non-Owner/non-Admin members who have accepted joining the org
+        if member.atype < MembershipType::Admin {
+            if CONFIG.mail_enabled() {
+                let org = Organization::find_by_uuid(&member.org_uuid, conn).await.unwrap();
+                mail::send_2fa_removed_from_org(&user.email, &org.name).await?;
+            }
+            let mut member = member;
+            member.revoke();
+            member.save(conn).await?;
+
+            log_event(
+                EventType::OrganizationUserRevokedTwoFactorNonCompliance,
+                &member.uuid,
+                &member.org_uuid,
+                act_user_id,
+                device_type,
+                ip,
+                conn,
+            )
+            .await;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn enforce_2fa_policy_for_org(
+    org_id: &OrganizationId,
+    act_user_id: &UserId,
+    device_type: i32,
+    ip: &std::net::IpAddr,
+    conn: &DbConn,
+) -> EmptyResult {
+    let org = Organization::find_by_uuid(org_id, conn).await.unwrap();
+    for member in Membership::find_confirmed_by_org(org_id, conn).await {
+        // Don't enforce the policy for Admins and Owners.
+        if member.atype < MembershipType::Admin && TwoFactor::find_by_user(&member.user_uuid, conn).await.is_empty() {
+            if CONFIG.mail_enabled() {
+                let user = User::find_by_uuid(&member.user_uuid, conn).await.unwrap();
+                mail::send_2fa_removed_from_org(&user.email, &org.name).await?;
+            }
+            let mut member = member;
+            member.revoke();
+            member.save(conn).await?;
+
+            log_event(
+                EventType::OrganizationUserRevokedTwoFactorNonCompliance,
+                &member.uuid,
+                org_id,
+                act_user_id,
+                device_type,
+                ip,
+                conn,
+            )
+            .await;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn send_incomplete_2fa_notifications(pool: DbPool) {
+    debug!("Sending notifications for incomplete 2FA logins");
+
+    if CONFIG.incomplete_2fa_time_limit() == 0 || !CONFIG.mail_enabled() {
+        return;
+    }
+
+    let Ok(conn) = pool.get().await else {
+        error!("Failed to get DB connection in send_incomplete_2fa_notifications()");
+        return;
+    };
+
+    let now = Utc::now().naive_utc();
+    let Some(time_limit) = TimeDelta::try_minutes(i64::from(CONFIG.incomplete_2fa_time_limit())) else {
+        error!("Failed to calculate the time limit for sending incomplete 2fa attempts");
+        return;
+    };
+    let Some(time_before) = now.checked_sub_signed(time_limit) else {
+        error!("Failed to calculate the timestamp for sending incomplete 2fa attempts");
+        return;
+    };
+
+    let incomplete_logins = TwoFactorIncomplete::find_logins_before(&time_before, &conn).await;
+    for login in incomplete_logins {
+        let Some(user) = User::find_by_uuid(&login.user_uuid, &conn).await else {
+            error!("User '{}', not found!", login.user_uuid);
+            continue;
+        };
+        info!(
+            "User {} did not complete a 2FA login within the configured time limit. IP: {}",
+            user.email, login.ip_address
+        );
+        match mail::send_incomplete_2fa_login(
+            &user.email,
+            &login.ip_address,
+            &login.login_time,
+            &login.device_name,
+            &DeviceType::from_i32(login.device_type).to_string(),
+        )
+        .await
+        {
+            Ok(()) => {
+                if let Err(e) = login.delete(&conn).await {
+                    error!("Error deleting incomplete 2FA record: {e:#?}");
+                }
+            }
+            Err(e) => {
+                error!("Error sending incomplete 2FA email: {e:#?}");
+            }
+        }
+    }
+}
+
+// This function currently is just a dummy and the actual part is not implemented yet.
+// This also prevents 404 errors.
+//
+// See the following Bitwarden PR's regarding this feature.
+// https://github.com/bitwarden/clients/pull/2843
+// https://github.com/bitwarden/clients/pull/2839
+// https://github.com/bitwarden/server/pull/2016
+//
+// The HTML part is hidden via the CSS patches done via the bw_web_build repo
+#[get("/two-factor/get-device-verification-settings")]
+fn get_device_verification_settings(_headers: Headers, _conn: DbConn) -> Json<Value> {
+    Json(json!({
+        "isDeviceVerificationSectionEnabled":false,
+        "unknownDeviceVerificationEnabled":false,
+        "object":"deviceVerificationSettings"
+    }))
+}
