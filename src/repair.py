@@ -4,11 +4,12 @@ import difflib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
 
-from agents import ModelAgents, ModelResponseError
+from agents import ModelAgents, ModelResponseError, basic_run_steps
 from execution import run_command
 from repository import IGNORED, inspect_repository, snapshot
 from validation import validate_action
@@ -18,20 +19,37 @@ def diff_files(before, after):
     # Show the lines changed between the old and new files.
     return "".join(
         "".join(difflib.unified_diff(
-            before[name].splitlines(keepends=True),
+            before.get(name, "").splitlines(keepends=True),
             after[name].splitlines(keepends=True),
-            fromfile="a/" + name,
+            fromfile="a/" + name if name in before else "/dev/null",
             tofile="b/" + name,
         ))
         for name in sorted(after)
-        if before[name] != after[name]
+        if before.get(name) != after[name]
     )
 
 
-def repair(source, agents, rounds=5, timeout=30, allow_install=False):
+def add_requirement(text, package):
+    # Do not add a package that is already listed.
+    wanted = re.sub(r"[-_.]+", "-", package).lower()
+    for line in text.splitlines():
+        match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9_.-]*)", line)
+        if match:
+            found = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+            if found == wanted:
+                return text
+
+    # Keep old text and add one direct dependency per line.
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text + package + "\n"
+
+
+def repair(source, agents, rounds=5, timeout=30, allow_install=True):
     # Stop bad limits before any work starts.
     if rounds < 1 or timeout <= 0:
         raise ValueError("Rounds and timeout must be positive")
+    source = Path(source).resolve()
     report = {
         "status": "failed",
         "reason": "Round limit reached",
@@ -56,24 +74,67 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=False):
         metadata = inspect_repository(root)
         report["repository"] = metadata
 
-        # Make a clean Python setup for this repair run.
-        env = Path(temporary) / "env"
+        # This runner currently creates environments only for Python repos.
+        if metadata["language"] != "python":
+            report["reason"] = "Python environment required"
+            return report
+
+        installed_packages = []
+        has_requirements = (root / "requirements.txt").is_file()
+
+        def add_run_steps():
+            # Save AI instructions, with a simple backup if that call fails.
+            steps_context = {
+                "repository": metadata,
+                "has_requirements": has_requirements,
+                "installed_packages": sorted(set(installed_packages)),
+                "fixed_files": sorted(report["fixed_files"]),
+                "status": report["status"],
+            }
+            try:
+                steps = agents.generate_run_steps(steps_context)
+                lower_steps = steps.lower()
+                if has_requirements and "requirements.txt" not in lower_steps:
+                    raise ValueError("Run steps omit requirements.txt")
+                if report["fixed_files"]:
+                    copy_at = lower_steps.find("fixed_files")
+                    install_at = lower_steps.find("install")
+                    if copy_at < 0 or (install_at >= 0 and copy_at > install_at):
+                        raise ValueError("Run steps copy repaired files too late")
+                if any(
+                        package.lower() not in lower_steps
+                        for package in installed_packages):
+                    raise ValueError("Run steps omit an installed package")
+                report["steps_to_run"] = steps
+                report["steps_source"] = (
+                    "fixer_model"
+                    if isinstance(agents, ModelAgents)
+                    else "offline")
+            except Exception:
+                # A documentation failure must not undo a working repair.
+                report["steps_to_run"] = basic_run_steps(steps_context)
+                report["steps_source"] = "fallback"
+
+        # Start clean so old packages cannot hide missing dependencies.
+        env = source / ".venv"
+        env_python = env / (
+            "Scripts/python.exe" if os.name == "nt" else "bin/python")
         setup = run_command(
             [
                 "uv", "--no-cache", "venv", "--no-project",
-                "--python", sys.executable, "--no-python-downloads", str(env),
+                "--python", sys.executable, "--no-python-downloads",
+                "--clear", str(env),
             ],
-            root,
+            source,
             timeout,
         )
         report["environment_setup"] = setup
         if setup["exit_code"] != 0 or setup["timeout"]:
-            report["reason"] = "uv environment creation failed"
+            report["reason"] = "Python environment setup failed"
+            add_run_steps()
             return report
 
-        python = str(
-            env / ("Scripts/python.exe" if os.name == "nt" else "bin/python"))
-
+        python = str(env_python)
         def verify():
             # Run the app first, then run tests when they exist.
             app = run_command([python, metadata["entry"]], root, timeout)
@@ -92,7 +153,7 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=False):
             )
 
         # Install listed packages only when the user allows it.
-        if allow_install and (root / "requirements.txt").is_file():
+        if allow_install and has_requirements:
             setup = run_command(
                 [
                     "uv", "pip", "install", "--python", python,
@@ -104,6 +165,7 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=False):
             report["setup"] = setup
             if setup["exit_code"] != 0 or setup["timeout"]:
                 report["reason"] = "Declared dependency installation failed"
+                add_run_steps()
                 return report
 
         # Save the first app and test result before asking for a fix.
@@ -146,10 +208,18 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=False):
                 # Package installs do not change source files.
                 if action["action"] == "install":
                     if not allow_install:
-                        record["error"] = (
-                            "Dependency installation disabled; use --allow-install")
+                        record["error"] = "Dependency installation disabled"
                         continue
-                    record["installation"] = run_command(
+                    review = agents.review_install({
+                        "package": action["package"],
+                        "reason": action["reason"],
+                        "repository": metadata,
+                        "observation": observation,
+                    })
+                    record["judge"] = review
+                    if not review["approved"]:
+                        continue
+                    installation = run_command(
                         [
                             "uv", "pip", "install", "--python", python,
                             action["package"],
@@ -157,6 +227,23 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=False):
                         root,
                         timeout,
                     )
+                    record["installation"] = installation
+                    if (installation["exit_code"] == 0
+                            and not installation["timeout"]):
+                        installed_packages.append(action["package"])
+                        requirements = root / "requirements.txt"
+                        old_requirements = (
+                            requirements.read_text()
+                            if requirements.is_file()
+                            else "")
+                        new_requirements = add_requirement(
+                            old_requirements, action["package"])
+                        if new_requirements != old_requirements:
+                            originals.setdefault(
+                                "requirements.txt", old_requirements)
+                            requirements.write_text(new_requirements)
+                            has_requirements = True
+                            record["requirements_updated"] = True
                 else:
                     # Send every code edit to the Judge before writing it.
                     before = {
@@ -230,4 +317,6 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=False):
                 for name, text in final_files.items()
                 if originals[name] != text
             }
+
+        add_run_steps()
     return report

@@ -56,6 +56,8 @@ class AgentTests(unittest.TestCase):
             for value in (
                 {"action": "give_up", "reason": "Done"},
                 {"approved": False, "reason": "Unsafe patch"},
+                {"approved": True, "reason": "Needed package"},
+                {"steps": "1. Create .venv\n2. Run the app"},
             )
         ]
         with patch.dict(
@@ -65,8 +67,11 @@ class AgentTests(unittest.TestCase):
             agents = ModelAgents(loaded)
             self.assertEqual(agents.propose({})["action"], "give_up")
             self.assertFalse(agents.review({})["approved"])
+            self.assertTrue(agents.review_install({})["approved"])
+            self.assertIn("Create .venv", agents.generate_run_steps({}))
         for call, model in zip(
-                request.call_args_list, ("custom-fixer", "custom-judge")):
+                request.call_args_list,
+                ("custom-fixer", "custom-judge", "custom-judge", "custom-fixer")):
             outbound = call.args[0]
             self.assertEqual(outbound.full_url, config["endpoint"])
             self.assertEqual(json.loads(outbound.data)["model"], model)
@@ -74,6 +79,12 @@ class AgentTests(unittest.TestCase):
                 outbound.get_header("Authorization"), "Bearer test-token")
             self.assertTrue(json.loads(outbound.data)["stream"])
             self.assertEqual(call.kwargs["timeout"], 300)
+        prompts = [
+            json.loads(call.args[0].data)["messages"][0]["content"]
+            for call in request.call_args_list
+        ]
+        self.assertIn("automatically added to requirements.txt", prompts[0])
+        self.assertIn("copying fixed_files the first step", prompts[3])
         self.assertEqual(agents.requests[0]["request_id"], "test-request")
         self.assertNotIn("private reasoning", json.dumps(agents.requests))
 

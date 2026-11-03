@@ -65,6 +65,12 @@ def write_results(results_root, repo_name, report):
     (result_dir / "report.json").write_text(
         json.dumps(saved_report, indent=2) + "\n")
     (result_dir / "repair.patch").write_text(report["diff"])
+    steps_path = result_dir / "steps_to_run.txt"
+    steps = report.get("steps_to_run")
+    if steps:
+        steps_path.write_text(steps.rstrip() + "\n")
+    elif steps_path.exists():
+        steps_path.unlink()
     return result_dir
 
 
@@ -86,7 +92,20 @@ def main():
     )
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--timeout", type=int, default=30)
-    parser.add_argument("--allow-install", action="store_true")
+    installs = parser.add_mutually_exclusive_group()
+    installs.add_argument(
+        "--allow-install",
+        dest="allow_install",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    installs.add_argument(
+        "--no-install",
+        dest="allow_install",
+        action="store_false",
+        help="Do not install target repository dependencies",
+    )
+    parser.set_defaults(allow_install=True)
     parser.add_argument(
         "--output", type=Path, default=Path("results"),
         help="Folder used to save repair results")
@@ -157,4 +176,6 @@ def main():
     print("Fixed files: " + (", ".join(fixed_files) if fixed_files else "none"))
     saved_to = result_dir / "fixed_files" if fixed_files else result_dir
     print("Results saved to: " + str(saved_to))
+    if (result_dir / "steps_to_run.txt").is_file():
+        print("Run instructions: " + str(result_dir / "steps_to_run.txt"))
     return 0 if report["status"] in {"passed", "execution_only"} else 1

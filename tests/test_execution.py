@@ -43,8 +43,11 @@ class ExecutionTests(unittest.TestCase):
 
     def test_uv_installs_into_target_environment(self):
         installations = []
+        environments = []
 
         def execute(command, cwd, timeout):
+            if command[:3] == ["uv", "--no-cache", "venv"]:
+                environments.append(command)
             if command[:3] == ["uv", "pip", "install"]:
                 installations.append(command)
                 return {
@@ -65,6 +68,7 @@ class ExecutionTests(unittest.TestCase):
                     "package": "another-package",
                     "reason": "Exercise target installation",
                 },
+                "approved": True,
             }
             edit = {
                 "action": {
@@ -83,13 +87,62 @@ class ExecutionTests(unittest.TestCase):
                     allow_install=True,
                 )
             self.assertEqual(report["status"], "passed")
+            self.assertEqual(len(environments), 1)
+            self.assertIn("--clear", environments[0])
+            self.assertEqual(Path(environments[0][-1]), root / ".venv")
             self.assertEqual(len(installations), 2)
             self.assertEqual(installations[0][3], "--python")
             self.assertEqual(installations[0][4], installations[1][4])
-            self.assertIn("env", Path(installations[0][4]).parts)
+            python_file = (
+                "Scripts/python.exe"
+                if sys.platform == "win32"
+                else "bin/python"
+            )
+            self.assertEqual(
+                Path(installations[0][4]),
+                root / ".venv" / python_file,
+            )
             self.assertEqual(
                 installations[0][5:], ["-r", "requirements.txt"])
             self.assertEqual(installations[1][5:], ["another-package"])
+            self.assertTrue(report["history"][0]["judge"]["approved"])
+            self.assertTrue(
+                report["history"][0]["requirements_updated"])
+            self.assertEqual(
+                report["fixed_files"]["requirements.txt"],
+                "example-package\nanother-package\n",
+            )
+            self.assertIn("another-package", report["steps_to_run"])
+            self.assertLess(
+                report["steps_to_run"].find("fixed_files"),
+                report["steps_to_run"].find("Install"),
+            )
+
+    def test_judge_rejection_blocks_dependency_download(self):
+        installations = []
+
+        def execute(command, cwd, timeout):
+            if command[:3] == ["uv", "pip", "install"]:
+                installations.append(command)
+            return run_command(command, cwd, timeout)
+
+        action = {
+            "action": {
+                "action": "install",
+                "package": "unneeded-package",
+                "reason": "Try an unrelated dependency",
+            },
+            "approved": False,
+        }
+        with patch("repair.run_command", side_effect=execute):
+            report = repair(
+                BROKEN_REPO,
+                ScriptedAgents([action]),
+                rounds=1,
+            )
+
+        self.assertEqual(installations, [])
+        self.assertFalse(report["history"][0]["judge"]["approved"])
 
 
 if __name__ == "__main__":

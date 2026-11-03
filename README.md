@@ -1,6 +1,6 @@
 # Repository Repair Agent
 
-An initial Python implementation of the repository-repair capstone design. It finds a Python start file, copies the repository into a temporary folder, creates a clean Python environment, runs the app and its unittest tests, and works through Fixer proposals and Judge reviews. The original repository stays unchanged.
+An initial Python implementation of the repository-repair capstone design. It finds a Python start file, copies the repository into a temporary folder, creates a Python environment inside the selected broken repository, runs the app and its unittest tests, and works through Fixer proposals and Judge reviews. The original source files stay unchanged.
 
 ## Requirements and quick start
 
@@ -49,7 +49,8 @@ results/
 └── repo-name/
     ├── fixed_files/
     ├── repair.patch
-    └── report.json
+    ├── report.json
+    └── steps_to_run.txt
 ```
 
 Run the repair-agent tests with:
@@ -79,13 +80,13 @@ Use a separate configuration with:
 uv run repo-repair-agent "<repo-path>" --config "<config-path>"
 ```
 
-By default, the runner loads `config.json` from the project root, regardless of the current working directory. The four endpoint/model/key fields are required. `api_timeout_seconds` is optional and defaults to 300 (integer, 1–3600). It controls socket waits, including the wait for initial response headers; it is not a total wall-clock deadline for an active stream. The CLI `--timeout` separately limits each target execution or installation command. Unknown fields are rejected. Offline `--script` mode does not load model configuration or require a key.
+By default, the runner loads `config.json` from the project root, regardless of the current working directory. The endpoint and two model fields are required. `api_timeout_seconds` is optional and defaults to 300 (integer, 1–3600). It controls socket waits, including the wait for initial response headers; it is not a total wall-clock deadline for an active stream. The CLI `--timeout` separately limits each target execution or installation command. Unknown fields are rejected. Offline `--script` mode does not load model configuration or require a key.
 
 The configuration selects ASU Voyager. Requests enable SSE streaming with usage reporting. Progress goes to stderr every 15 seconds while waiting and when reasoning or answer generation begins; model reasoning and answer text are not printed. The run report records per-request timing, request IDs, finish reasons, and token usage when provided. A server that returns a regular JSON completion instead is also accepted.
 
 Answers must contain a JSON object, either plain or wrapped in a single Markdown code fence. Prose surrounding JSON, malformed JSON, truncated replies, and streams missing `[DONE]` stop the run without applying that response. Code edits require Judge approval and may change multiple existing Python source files. Test edits, path traversal, and repeated actions are rejected. Regressions in previously passing execution or tests trigger rollback.
 
-Temporary target environments are created with `uv venv` using the runner's Python interpreter. Dependency installation is disabled by default. `--allow-install` enables declared `requirements.txt` installation and Fixer-requested plain package names through `uv pip install --python <target-python>` inside the temporary environment. Installation does not require Judge approval. Use `uv add <package>` for runner dependencies; target dependencies remain isolated from the runner.
+Each Python repository gets a clean `.venv` inside its own folder for every repair run. Starting clean prevents packages from an earlier run from hiding missing dependencies. Git ignores `.venv/`, so the environment and downloaded packages are not pushed. Declared `requirements.txt` dependencies are installed there automatically. Extra plain package names proposed by the Fixer are downloaded only after Judge approval. After a successful installation, the package is added to a repaired `requirements.txt` and saved under `fixed_files`. Use `--no-install` when dependency downloads must be disabled. Target dependencies remain isolated from the repair agent. Every result folder includes `steps_to_run.txt` with instructions for copying repaired files first, using `.venv`, installing dependencies, running the application, and running detected tests.
 
 ## Current boundaries
 
@@ -99,7 +100,7 @@ Next milestones: Docker isolation and image selection; model-driven orchestratio
 
 - `src/`: production code containing the CLI, agents, repository inspection, execution, validation, and repair loop.
 - `.env`: local API key file; ignored by Git.
-- `config.json`: model names, shared API endpoint, and credential environment-variable name.
+- `config.json`: model names and the shared API endpoint.
 - `pyproject.toml`, `requirements.txt`, `uv.lock`, `.python-version`: project metadata, dependency declarations, lock file, and development Python version.
 - `tests/broken_repos/`: deliberately broken sample repositories and offline repair scripts.
 - `tests/`: unit and integration checks for the repair agent.

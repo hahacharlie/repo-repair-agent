@@ -7,7 +7,7 @@ from unittest.mock import patch
 from agents import API_KEY_ENV, ModelAgents, ScriptedAgents
 from cli import resolve_repository, resolve_script, write_results
 from config import load_config
-from repair import repair
+from repair import add_requirement, repair
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +31,13 @@ def step(approved=True):
 
 
 class RepairTests(unittest.TestCase):
+    def test_requirement_is_created_without_duplicate_names(self):
+        self.assertEqual(add_requirement("", "requests"), "requests\n")
+        self.assertEqual(
+            add_requirement("PyYAML==6.0.3\n", "pyyaml"),
+            "PyYAML==6.0.3\n",
+        )
+
     def test_saved_repo_can_be_selected_by_folder_name(self):
         selected = resolve_repository(Path("undefined_greeting_variable"))
         self.assertEqual(selected, BROKEN_REPO.resolve())
@@ -43,6 +50,7 @@ class RepairTests(unittest.TestCase):
             "reason": "Done",
             "diff": "sample patch",
             "fixed_files": {"package/tool.py": "print('fixed')\n"},
+            "steps_to_run": "1. Create .venv\n2. Run the app",
         }
         with tempfile.TemporaryDirectory() as directory:
             results = Path(directory)
@@ -59,6 +67,10 @@ class RepairTests(unittest.TestCase):
             )
             self.assertEqual(
                 (result_dir / "repair.patch").read_text(), "sample patch")
+            self.assertEqual(
+                (result_dir / "steps_to_run.txt").read_text(),
+                "1. Create .venv\n2. Run the app\n",
+            )
             saved_report = json.loads(
                 (result_dir / "report.json").read_text())
             self.assertEqual(saved_report["fixed_files"], ["package/tool.py"])

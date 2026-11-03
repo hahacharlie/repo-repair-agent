@@ -1,0 +1,8 @@
+Run these commands from the repository root.
+
+1. Copy the files from fixed_files into the same paths in your repository.
+2. Create a virtual environment: python -m venv .venv
+3. Activate it with .venv\Scripts\Activate.ps1 on Windows PowerShell, or source .venv/bin/activate on macOS and Linux
+4. Install declared dependencies: python -m pip install -r requirements.txt
+5. Approved packages recorded in requirements.txt: PyYAML requests
+6. Run the application: python main.py
