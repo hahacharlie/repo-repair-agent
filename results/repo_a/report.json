@@ -1,0 +1,169 @@
+{
+  "status": "failed",
+  "reason": "Invalid action or infrastructure failure (ValueError)",
+  "history": [
+    {
+      "action": {
+        "action": "install",
+        "package": "PyYAML",
+        "reason": "Missing dependency for YAML support"
+      },
+      "error": "Dependency installation disabled; use --allow-install"
+    },
+    {
+      "action": {
+        "action": "install",
+        "package": "PyYAML",
+        "reason": "Missing dependency for YAML support"
+      },
+      "error": "Repeated action rejected"
+    },
+    {
+      "action": {
+        "action": "install",
+        "package": "PyYAML",
+        "reason": "Missing dependency for YAML support"
+      },
+      "error": "Repeated action rejected"
+    },
+    {
+      "error": "ValueError"
+    }
+  ],
+  "diff": "",
+  "fixed_files": [],
+  "model_requests": [
+    {
+      "model": "qwen3-coder-30b-a3b-instruct",
+      "request_bytes": 2217,
+      "headers_seconds": 0.11,
+      "request_id": "146fb45d-0287-4cd8-a2b2-086ca83f95e3",
+      "first_content_seconds": 0.22,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 0.032278,
+        "completion_tokens": 20,
+        "energy_wh": 0.09578,
+        "prompt_tokens": 490,
+        "prompt_tokens_details": {
+          "cached_tokens": 384,
+          "created_cache_tokens": 0
+        },
+        "total_tokens": 510
+      },
+      "content_chars": 86,
+      "elapsed_seconds": 0.38
+    },
+    {
+      "model": "qwen3-coder-30b-a3b-instruct",
+      "request_bytes": 2404,
+      "headers_seconds": 0.14,
+      "request_id": "9b3e8bf4-c1b6-4d94-beb6-76fac0336943",
+      "first_content_seconds": 0.14,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 0.030779,
+        "completion_tokens": 20,
+        "energy_wh": 0.091332,
+        "prompt_tokens": 529,
+        "prompt_tokens_details": {
+          "cached_tokens": 512,
+          "created_cache_tokens": 0
+        },
+        "total_tokens": 549
+      },
+      "content_chars": 86,
+      "elapsed_seconds": 0.3
+    },
+    {
+      "model": "qwen3-coder-30b-a3b-instruct",
+      "request_bytes": 2564,
+      "headers_seconds": 0.06,
+      "request_id": "b1a0916e-6642-42ee-9fc4-7da5e7da0c1b",
+      "first_content_seconds": 0.72,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 0.10033,
+        "completion_tokens": 20,
+        "energy_wh": 0.297715,
+        "prompt_tokens": 564,
+        "prompt_tokens_details": {
+          "cached_tokens": 512,
+          "created_cache_tokens": 0
+        },
+        "total_tokens": 584
+      },
+      "content_chars": 86,
+      "elapsed_seconds": 0.86
+    },
+    {
+      "model": "qwen3-coder-30b-a3b-instruct",
+      "request_bytes": 2724,
+      "headers_seconds": 0.06,
+      "request_id": "882766a9-4386-46c5-879e-135259300e78",
+      "first_content_seconds": 0.14,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 0.060488,
+        "completion_tokens": 45,
+        "energy_wh": 0.179488,
+        "prompt_tokens": 599,
+        "prompt_tokens_details": {
+          "cached_tokens": 512,
+          "created_cache_tokens": 0
+        },
+        "total_tokens": 644
+      },
+      "content_chars": 188,
+      "elapsed_seconds": 0.56
+    }
+  ],
+  "repository": {
+    "language": "python",
+    "entry": "main.py",
+    "tests": [],
+    "test_command": null
+  },
+  "environment_setup": {
+    "command": [
+      "uv",
+      "--no-cache",
+      "venv",
+      "--no-project",
+      "--python",
+      "<python>",
+      "--no-python-downloads",
+      "<environment>"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "Using CPython 3.10.22 interpreter at: <python>\nCreating virtual environment at: <environment>\nActivate with: <environment>\\Scripts\\activate\n",
+    "timeout": false
+  },
+  "initial": {
+    "app": {
+      "command": [
+        "<python>",
+        "main.py"
+      ],
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"<repo>\\main.py\", line 1, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'\n",
+      "timeout": false
+    },
+    "tests": null
+  },
+  "final": {
+    "app": {
+      "command": [
+        "<python>",
+        "main.py"
+      ],
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"<repo>\\main.py\", line 1, in <module>\n    import yaml\nModuleNotFoundError: No module named 'yaml'\n",
+      "timeout": false
+    },
+    "tests": null
+  }
+}
