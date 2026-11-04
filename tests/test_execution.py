@@ -89,7 +89,8 @@ class ExecutionTests(unittest.TestCase):
             self.assertEqual(report["status"], "passed")
             self.assertEqual(len(environments), 1)
             self.assertIn("--clear", environments[0])
-            self.assertEqual(Path(environments[0][-1]), root / ".venv")
+            self.assertEqual(
+                Path(environments[0][-1]), (root / ".venv").resolve())
             self.assertEqual(len(installations), 2)
             self.assertEqual(installations[0][3], "--python")
             self.assertEqual(installations[0][4], installations[1][4])
@@ -100,7 +101,7 @@ class ExecutionTests(unittest.TestCase):
             )
             self.assertEqual(
                 Path(installations[0][4]),
-                root / ".venv" / python_file,
+                Path(environments[0][-1]) / python_file,
             )
             self.assertEqual(
                 installations[0][5:], ["-r", "requirements.txt"])
