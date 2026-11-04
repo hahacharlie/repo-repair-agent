@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from agents import API_KEY_ENV, ModelAgents, ScriptedAgents
+from backends import DockerBackend
 from cli import resolve_repository, resolve_script, write_results
 from config import load_config
 from repair import add_requirement, repair
@@ -17,6 +18,16 @@ BROKEN_REPO = (
     / "undefined_greeting_variable"
 )
 FIX = 'def greet(name):\n    return "Hello, " + name\n'
+
+
+def command_result(exit_code=0):
+    return {
+        "command": ["docker"],
+        "exit_code": exit_code,
+        "stdout": "",
+        "stderr": "",
+        "timeout": False,
+    }
 
 
 def step(approved=True):
@@ -129,6 +140,53 @@ class RepairTests(unittest.TestCase):
                 root, ScriptedAgents([action]), rounds=1)
             self.assertTrue(report["history"][0]["rolled_back"])
             self.assertEqual(report["diff"], "")
+
+    def test_docker_unavailable_stops_before_repair_loop(self):
+        backend = DockerBackend("python:test")
+        with patch.object(
+                backend, "availability_status", return_value=command_result(1)), patch(
+                "repair.make_backend", return_value=backend):
+            report = repair(
+                BROKEN_REPO, ScriptedAgents([]), backend="docker")
+
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("Docker is unavailable", report["reason"])
+        self.assertEqual(report["execution_backend"], "docker")
+
+    def test_missing_docker_image_requires_explicit_approval(self):
+        backend = DockerBackend("python:test")
+        with patch.object(
+                backend, "availability_status", return_value=command_result()), patch.object(
+                backend, "image_status", return_value=command_result(1)), patch(
+                "repair.make_backend", return_value=backend):
+            report = repair(
+                BROKEN_REPO, ScriptedAgents([]), backend="docker")
+
+        self.assertTrue(report["docker"]["pull_required"])
+        self.assertIn("--allow-docker-pull", report["reason"])
+
+    def test_docker_runs_only_the_temporary_copy(self):
+        backend = DockerBackend("python:test")
+        calls = []
+
+        def run_in_container(command, cwd, timeout, network=False):
+            calls.append((command, Path(cwd), network))
+            return command_result()
+
+        with patch.object(
+                backend, "availability_status", return_value=command_result()), patch.object(
+                backend, "image_status", return_value=command_result()), patch.object(
+                backend, "run", side_effect=run_in_container), patch(
+                "repair.make_backend", return_value=backend):
+            report = repair(
+                BROKEN_REPO, ScriptedAgents([]), backend="docker")
+
+        self.assertEqual(report["status"], "passed")
+        self.assertTrue(calls)
+        self.assertTrue(all(cwd != BROKEN_REPO for _, cwd, _ in calls))
+        self.assertEqual(calls[0][0], ["test", "-f", "main.py"])
+        self.assertEqual(calls[1][0], ["python", "-m", "venv", ".venv"])
+        self.assertTrue(all(not network for _, _, network in calls))
 
 
 if __name__ == "__main__":

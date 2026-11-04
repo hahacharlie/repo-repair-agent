@@ -107,6 +107,23 @@ def main():
     )
     parser.set_defaults(allow_install=True)
     parser.add_argument(
+        "--backend",
+        choices=("auto", "local", "docker"),
+        default="auto",
+        help=(
+            "Where to run the temporary work copy (default: auto; use Docker "
+            "when the repository supplies a Dockerfile)"),
+    )
+    parser.add_argument(
+        "--docker-image",
+        help="Override the Docker image selected from repository markers",
+    )
+    parser.add_argument(
+        "--allow-docker-pull",
+        action="store_true",
+        help="Approve downloading a missing selected Docker image",
+    )
+    parser.add_argument(
         "--output", type=Path, default=Path("results"),
         help="Folder used to save repair results")
     args = parser.parse_args()
@@ -142,6 +159,9 @@ def main():
             args.rounds,
             args.timeout,
             args.allow_install,
+            args.backend,
+            args.docker_image,
+            args.allow_docker_pull,
         )
     except Exception as error:
         raise

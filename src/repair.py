@@ -10,6 +10,7 @@ import sys
 import tempfile
 
 from agents import ModelAgents, ModelResponseError, basic_run_steps
+from backends import DockerBackend, make_backend
 from execution import run_command
 from repository import IGNORED, inspect_repository, snapshot
 from validation import validate_action
@@ -45,7 +46,30 @@ def add_requirement(text, package):
     return text + package + "\n"
 
 
-def repair(source, agents, rounds=5, timeout=30, allow_install=True):
+def command_passed(result):
+    """Return whether one recorded command completed successfully."""
+    return result["exit_code"] == 0 and not result["timeout"]
+
+
+def select_backend(metadata, requested, docker_image=None):
+    """Choose local execution unless Docker is requested or required."""
+    if requested not in {"auto", "local", "docker"}:
+        raise ValueError("Unsupported execution backend: " + str(requested))
+    if requested == "auto":
+        requested = "docker" if metadata["requires_linux"] else "local"
+    image = docker_image or metadata["docker_image"]
+    return make_backend(requested, image)
+
+
+def repair(
+        source,
+        agents,
+        rounds=5,
+        timeout=30,
+        allow_install=True,
+        backend="auto",
+        docker_image=None,
+        allow_docker_pull=False):
     # Stop bad limits before any work starts.
     if rounds < 1 or timeout <= 0:
         raise ValueError("Rounds and timeout must be positive")
@@ -61,8 +85,10 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=True):
     if isinstance(agents, ModelAgents):
         report["model_requests"] = agents.requests
 
-    # All repair work happens in a short-lived folder.
-    with tempfile.TemporaryDirectory(prefix="repo-repair-") as temporary:
+    # Keep the disposable work copy beside the selected repo. Docker Desktop
+    # shares project folders but does not expose macOS system temp folders.
+    with tempfile.TemporaryDirectory(
+            prefix=".repo-repair-", dir=source.parent) as temporary:
         root = Path(temporary) / "repo"
 
         # Links may point outside the work copy, so do not allow them.
@@ -74,10 +100,65 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=True):
         metadata = inspect_repository(root)
         report["repository"] = metadata
 
-        # This runner currently creates environments only for Python repos.
+        execution_backend = select_backend(metadata, backend, docker_image)
+        report["execution_backend"] = execution_backend.name
+        if isinstance(execution_backend, DockerBackend):
+            report["docker"] = {"image": execution_backend.image}
+            availability = execution_backend.availability_status(root, timeout)
+            report["docker"]["availability"] = availability
+            if not command_passed(availability):
+                report["reason"] = (
+                    "Docker is unavailable. Install and start Docker, then retry.")
+                return report
+
+            image_status = execution_backend.image_status(root, timeout)
+            report["docker"]["image_status"] = image_status
+            if not command_passed(image_status):
+                if not allow_docker_pull:
+                    report["docker"]["pull_required"] = True
+                    report["reason"] = (
+                        "Docker image '" + execution_backend.image
+                        + "' is not available locally. Re-run with "
+                        "--allow-docker-pull to approve downloading it.")
+                    return report
+                pulled = execution_backend.pull(root, timeout)
+                report["docker"]["pull"] = pulled
+                if not command_passed(pulled):
+                    report["reason"] = (
+                        "Docker image '" + execution_backend.image
+                        + "' could not be downloaded.")
+                    return report
+
+        # The repair agents currently support Python source edits only.
         if metadata["language"] != "python":
-            report["reason"] = "Python environment required"
+            report["reason"] = (
+                "Docker execution detected " + metadata["language"]
+                + "/" + metadata["build_system"]
+                + ", but repair agents currently support Python repositories only")
             return report
+
+        def execute(command, cwd, command_timeout, network=False):
+            # Keep local execution patchable by the existing test suite.
+            if execution_backend.name == "local":
+                return run_command(command, cwd, command_timeout)
+            return execution_backend.run(
+                command,
+                cwd,
+                command_timeout,
+                network=network,
+            )
+
+        if execution_backend.name == "docker":
+            # Docker Desktop can silently mount an empty folder when the host
+            # path is not shared. Detect that before running the repair loop.
+            mount_check = execute(
+                ["test", "-f", metadata["entry"]], root, timeout)
+            report["docker"]["mount_check"] = mount_check
+            if not command_passed(mount_check):
+                report["reason"] = (
+                    "Docker cannot access the temporary work copy. Share the "
+                    "repository folder with Docker Desktop, then retry.")
+                return report
 
         installed_packages = []
         has_requirements = (root / "requirements.txt").is_file()
@@ -115,32 +196,41 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=True):
                 report["steps_to_run"] = basic_run_steps(steps_context)
                 report["steps_source"] = "fallback"
 
-        # Start clean so old packages cannot hide missing dependencies.
-        env = source / ".venv"
-        env_python = env / (
-            "Scripts/python.exe" if os.name == "nt" else "bin/python")
-        setup = run_command(
-            [
-                "uv", "--no-cache", "venv", "--no-project",
-                "--python", sys.executable, "--no-python-downloads",
-                "--clear", str(env),
-            ],
-            source,
-            timeout,
-        )
+        # Start clean so old packages cannot hide missing dependencies. Docker
+        # writes its environment inside the temporary work copy, never source.
+        if execution_backend.name == "docker":
+            python = "/workspace/.venv/bin/python"
+            setup = execute(
+                ["python", "-m", "venv", ".venv"], root, timeout)
+        else:
+            env = root / ".venv"
+            env_python = env / (
+                "Scripts/python.exe" if os.name == "nt" else "bin/python")
+            python = str(env_python)
+            setup = execute(
+                [
+                    "uv", "--no-cache", "venv", "--no-project",
+                    "--python", sys.executable, "--no-python-downloads",
+                    "--clear", str(env),
+                ],
+                root,
+                timeout,
+            )
         report["environment_setup"] = setup
         if setup["exit_code"] != 0 or setup["timeout"]:
-            report["reason"] = "Python environment setup failed"
+            report["reason"] = (
+                "Docker Python environment setup failed"
+                if execution_backend.name == "docker"
+                else "Python environment setup failed")
             add_run_steps()
             return report
 
-        python = str(env_python)
         def verify():
             # Run the app first, then run tests when they exist.
-            app = run_command([python, metadata["entry"]], root, timeout)
+            app = execute([python, metadata["entry"]], root, timeout)
             tests = None
             if metadata["test_command"]:
-                tests = run_command(
+                tests = execute(
                     [python] + metadata["test_command"], root, timeout)
             return {"app": app, "tests": tests}
 
@@ -154,13 +244,16 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=True):
 
         # Install listed packages only when the user allows it.
         if allow_install and has_requirements:
-            setup = run_command(
+            setup = execute(
                 [
-                    "uv", "pip", "install", "--python", python,
+                    *( ["uv", "pip", "install", "--python", python]
+                       if execution_backend.name == "local"
+                       else [python, "-m", "pip", "install"] ),
                     "-r", "requirements.txt",
                 ],
                 root,
                 timeout,
+                network=True,
             )
             report["setup"] = setup
             if setup["exit_code"] != 0 or setup["timeout"]:
@@ -219,13 +312,16 @@ def repair(source, agents, rounds=5, timeout=30, allow_install=True):
                     record["judge"] = review
                     if not review["approved"]:
                         continue
-                    installation = run_command(
+                    installation = execute(
                         [
-                            "uv", "pip", "install", "--python", python,
+                            *( ["uv", "pip", "install", "--python", python]
+                               if execution_backend.name == "local"
+                               else [python, "-m", "pip", "install"] ),
                             action["package"],
                         ],
                         root,
                         timeout,
+                        network=True,
                     )
                     record["installation"] = installation
                     if (installation["exit_code"] == 0
