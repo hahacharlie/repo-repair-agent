@@ -47,7 +47,7 @@ class ExecutionTests(unittest.TestCase):
 
         def execute(command, cwd, timeout):
             if command[:3] == ["uv", "--no-cache", "venv"]:
-                environments.append(command)
+                environments.append((command, Path(cwd)))
             if command[:3] == ["uv", "pip", "install"]:
                 installations.append(command)
                 return {
@@ -61,6 +61,7 @@ class ExecutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "repo"
             shutil.copytree(BROKEN_REPO, root)
+            shutil.rmtree(root / ".venv", ignore_errors=True)
             (root / "requirements.txt").write_text("example-package\n")
             install = {
                 "action": {
@@ -88,8 +89,12 @@ class ExecutionTests(unittest.TestCase):
                 )
             self.assertEqual(report["status"], "passed")
             self.assertEqual(len(environments), 1)
-            self.assertIn("--clear", environments[0])
-            self.assertEqual(Path(environments[0][-1]), root / ".venv")
+            environment_command, environment_cwd = environments[0]
+            self.assertIn("--clear", environment_command)
+            self.assertNotEqual(environment_cwd, root)
+            self.assertFalse((root / ".venv").exists())
+            self.assertEqual(
+                Path(environment_command[-1]).parent, environment_cwd)
             self.assertEqual(len(installations), 2)
             self.assertEqual(installations[0][3], "--python")
             self.assertEqual(installations[0][4], installations[1][4])
@@ -100,7 +105,7 @@ class ExecutionTests(unittest.TestCase):
             )
             self.assertEqual(
                 Path(installations[0][4]),
-                root / ".venv" / python_file,
+                Path(environment_command[-1]) / python_file,
             )
             self.assertEqual(
                 installations[0][5:], ["-r", "requirements.txt"])

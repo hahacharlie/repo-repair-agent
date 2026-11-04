@@ -52,17 +52,28 @@ def run_command(command, cwd, timeout):
     environment["PYTHONIOENCODING"] = "utf-8"
 
     # Start the command inside the work copy.
-    process = subprocess.Popen(
-        command,
-        cwd=cwd,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        start_new_session=(os.name == "posix"),
-    )
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            start_new_session=(os.name == "posix"),
+        )
+    except OSError:
+        # A missing runner (for example Docker) is an execution result, not a
+        # Python traceback that would hide the actionable setup problem.
+        return {
+            "command": _safe_command(command, cwd),
+            "exit_code": 127,
+            "stdout": "",
+            "stderr": "Command is unavailable: " + str(command[0]),
+            "timeout": False,
+        }
     try:
         # Wait for the command, but do not wait past the time limit.
         out, err = process.communicate(timeout=timeout)

@@ -86,11 +86,39 @@ The configuration selects ASU Voyager. Requests enable SSE streaming with usage 
 
 Answers must contain a JSON object, either plain or wrapped in a single Markdown code fence. Prose surrounding JSON, malformed JSON, truncated replies, and streams missing `[DONE]` stop the run without applying that response. Code edits require Judge approval and may change multiple existing Python source files. Test edits, path traversal, and repeated actions are rejected. Regressions in previously passing execution or tests trigger rollback.
 
-Each Python repository gets a clean `.venv` inside its own folder for every repair run. Starting clean prevents packages from an earlier run from hiding missing dependencies. Git ignores `.venv/`, so the environment and downloaded packages are not pushed. Declared `requirements.txt` dependencies are installed there automatically. Extra plain package names proposed by the Fixer are downloaded only after Judge approval. After a successful installation, the package is added to a repaired `requirements.txt` and saved under `fixed_files`. Use `--no-install` when dependency downloads must be disabled. Target dependencies remain isolated from the repair agent. Every result folder includes `steps_to_run.txt` with instructions for copying repaired files first, using `.venv`, installing dependencies, running the application, and running detected tests.
+Each repair run creates a clean `.venv` inside its temporary work copy. Starting clean prevents packages from an earlier run from hiding missing dependencies, while leaving the selected broken repository unchanged. Declared `requirements.txt` dependencies are installed there automatically. Extra plain package names proposed by the Fixer are downloaded only after Judge approval. After a successful installation, the package is added to a repaired `requirements.txt` and saved under `fixed_files`. Use `--no-install` when dependency downloads must be disabled. Target dependencies remain isolated from the repair agent. Every result folder includes `steps_to_run.txt` with instructions for copying repaired files first, using `.venv`, installing dependencies, running the application, and running detected tests.
+
+## Docker execution
+
+The agent can run a trusted Python repair target in a resource-limited Docker
+container. The original repository is copied first; only that temporary copy is
+mounted at `/workspace`. A repository with a `Dockerfile` selects Docker in
+`--backend auto` mode, or Docker can be selected explicitly:
+
+```console
+uv run repo-repair-agent my-repository --backend docker
+```
+
+Repository markers select a default image (`python`, Go, Rust, Node, Java,
+CMake, or Make); use `--docker-image` to override it. The agent checks that
+Docker is installed and its engine is running, then checks for the selected
+image locally. It never downloads an image silently. When the report says that
+an image is missing, review the image name and re-run with
+`--allow-docker-pull` to explicitly approve the download:
+
+```console
+uv run repo-repair-agent my-repository --backend docker --allow-docker-pull
+```
+
+Containers have no network for application and test commands. Network is
+enabled only while installing dependencies that the caller or Judge has already
+allowed. The container runs with CPU, memory, PID, capability, filesystem, and
+temporary-directory limits. Docker execution currently repairs Python source
+only; non-Python repositories are detected and reported without modifying them.
 
 ## Current boundaries
 
-This is the first implementation slice, not the complete milestone system. It supports root `main.py`, `app.py`, or `run.py` and standard-library unittest discovery (`test*.py`, under `tests/` when present). Pytest-only projects and other languages are not supported. Detected tests are not a guarantee of adequate functional coverage.
+This is the first implementation slice, not the complete milestone system. It supports root `main.py`, `app.py`, or `run.py` and standard-library unittest discovery (`test*.py`, under `tests/` when present). Pytest-only projects and non-Python repairs are not supported. Detected tests are not a guarantee of adequate functional coverage.
 
 A temporary directory and virtual environment are **not a security sandbox**. Target programs and package installers run with your user permissions; use only trusted fixtures. Relevant source files and execution output are sent to Voyager in live mode. Do not use repositories containing secrets or private data. Reports contain source edits and command output; review before sharing.
 
