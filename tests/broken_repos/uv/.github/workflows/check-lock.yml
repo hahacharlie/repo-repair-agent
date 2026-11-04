@@ -1,0 +1,24 @@
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  UV_LOCKED: 1
+  UV_PYTHON_DOWNLOADS_JSON_URL: ${{ github.workspace }}/crates/uv-python-managed/download-metadata.json
+
+jobs:
+  lock:
+    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner == 'astral-sh' && 'github-ubuntu-24.04-x86_64-2' || 'ubuntu-slim' }}
+    name: "uv lockfiles"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/setup-uv-toolchain
+        with:
+          enable-cache: auto
+      - name: "Check lockfiles"
+        run: ./scripts/workspace-lock.sh --check

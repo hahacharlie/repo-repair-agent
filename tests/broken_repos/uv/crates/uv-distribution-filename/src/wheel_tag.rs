@@ -1,0 +1,178 @@
+use std::fmt::{Debug, Display, Formatter};
+
+use uv_platform_tags::{AbiTag, CompressedTags, LanguageTag, PlatformTag, TagCompatibility, Tags};
+use uv_small_str::SmallString;
+
+use crate::{BuildTag, VariantLabel};
+
+/// A [`SmallVec`] type for storing tags.
+///
+/// Wheels tend to include a single language, ABI, and platform tag, so we use a [`SmallVec`] with a
+/// capacity of 1 to optimize for this common case.
+pub(crate) type TagSet<T> = smallvec::SmallVec<[T; 3]>;
+
+/// The portion of the wheel filename following the name and version: the optional build tag, along
+/// with the Python tag(s), ABI tag(s), platform tag(s), and optional variant label.
+///
+/// Most wheels consist of a single Python, ABI, and platform tag (and no build tag). We represent
+/// such wheels with [`WheelTagSmall`], a variant with a smaller memory footprint and (generally)
+/// zero allocations. The [`WheelTagLarge`] variant is used for wheels with multiple tags, a build
+/// tag, a variant label, or an unsupported tag (i.e., a tag that can't be represented by
+/// [`LanguageTag`], [`AbiTag`], or [`PlatformTag`]). Unsupported tags are filtered out, but retained
+/// in the display representation of [`WheelTagLarge`].
+#[derive(
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    rkyv::Archive,
+    rkyv::Deserialize,
+    rkyv::Serialize,
+)]
+#[rkyv(derive(Debug))]
+pub(crate) enum WheelTag {
+    Small { small: WheelTagSmall },
+    Large { large: Box<WheelTagLarge> },
+}
+
+impl WheelTag {
+    /// Return the [`TagCompatibility`] of the wheel tag with the given tags.
+    pub(crate) fn compatibility(&self, compatible_tags: &Tags) -> TagCompatibility {
+        match self {
+            Self::Small { small } => compatible_tags.compatibility_tag(
+                &small.python_tag,
+                &small.abi_tag,
+                &small.platform_tag,
+            ),
+            Self::Large { .. } => compatible_tags.compatibility(self.compressed_tags()),
+        }
+    }
+
+    /// Return the components of this tag as one compressed tag group.
+    pub(crate) fn compressed_tags(&self) -> CompressedTags<'_> {
+        CompressedTags {
+            python_tags: self.python_tags(),
+            abi_tags: self.abi_tags(),
+            platform_tags: self.platform_tags(),
+        }
+    }
+
+    /// Return the Python tags.
+    pub(crate) fn python_tags(&self) -> &[LanguageTag] {
+        match self {
+            Self::Small { small } => std::slice::from_ref(&small.python_tag),
+            Self::Large { large } => large.python_tag.as_slice(),
+        }
+    }
+
+    /// Return the ABI tags.
+    pub(crate) fn abi_tags(&self) -> &[AbiTag] {
+        match self {
+            Self::Small { small } => std::slice::from_ref(&small.abi_tag),
+            Self::Large { large } => large.abi_tag.as_slice(),
+        }
+    }
+
+    /// Return the platform tags.
+    pub(crate) fn platform_tags(&self) -> &[PlatformTag] {
+        match self {
+            Self::Small { small } => std::slice::from_ref(&small.platform_tag),
+            Self::Large { large } => large.platform_tag.as_slice(),
+        }
+    }
+
+    /// Return the build tag, if present.
+    pub(crate) fn build_tag(&self) -> Option<&BuildTag> {
+        match self {
+            Self::Small { .. } => None,
+            Self::Large { large } => large.build_tag.as_ref(),
+        }
+    }
+}
+
+impl Display for WheelTag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Small { small } => write!(f, "{small}"),
+            Self::Large { large } => write!(f, "{large}"),
+        }
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    rkyv::Archive,
+    rkyv::Deserialize,
+    rkyv::Serialize,
+)]
+#[rkyv(derive(Debug), attr(expect(clippy::struct_field_names)))]
+#[expect(clippy::struct_field_names)]
+pub(crate) struct WheelTagSmall {
+    /// The Python tag, e.g., `py3` in `1.2.3-py3-none-any`.
+    pub(crate) python_tag: LanguageTag,
+    /// The ABI tag, e.g., `none` in `1.2.3-py3-none-any`.
+    pub(crate) abi_tag: AbiTag,
+    /// The platform tag, e.g., `none` in `1.2.3-py3-none-any`.
+    pub(crate) platform_tag: PlatformTag,
+}
+
+impl Display for WheelTagSmall {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}-{}-{}",
+            self.python_tag, self.abi_tag, self.platform_tag
+        )
+    }
+}
+
+#[derive(
+    Clone, Eq, PartialEq, Ord, PartialOrd, Hash, rkyv::Archive, rkyv::Deserialize, rkyv::Serialize,
+)]
+#[rkyv(derive(Debug))]
+pub(crate) struct WheelTagLarge {
+    /// The optional build tag, e.g., `73` in `1.2.3-73-py3-none-any`.
+    pub(crate) build_tag: Option<BuildTag>,
+    /// The Python tag(s), e.g., `py3` in `1.2.3-py3-none-any`.
+    pub(crate) python_tag: TagSet<LanguageTag>,
+    /// The ABI tag(s), e.g., `none` in `1.2.3-py3-none-any`.
+    pub(crate) abi_tag: TagSet<AbiTag>,
+    /// The platform tag(s), e.g., `none` in `1.2.3-py3-none-any`.
+    pub(crate) platform_tag: TagSet<PlatformTag>,
+    /// The optional variant label, e.g., `cuda130` in `1.2.3-py3-none-any-cuda130`.
+    pub(crate) variant: Option<VariantLabel>,
+    /// The string representation of the tag.
+    ///
+    /// Preserves any unsupported tags that were filtered out when parsing the wheel filename.
+    pub(crate) repr: SmallString,
+}
+
+impl Debug for WheelTagLarge {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("WheelTagLarge");
+        debug.field("build_tag", &self.build_tag);
+        debug.field("python_tag", &self.python_tag);
+        debug.field("abi_tag", &self.abi_tag);
+        debug.field("platform_tag", &self.platform_tag);
+        if let Some(variant) = &self.variant {
+            debug.field("variant", variant);
+        }
+        debug.field("repr", &self.repr);
+        debug.finish()
+    }
+}
+
+impl Display for WheelTagLarge {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.repr)
+    }
+}

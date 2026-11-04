@@ -1,0 +1,2039 @@
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+local Screen = require('test.functional.ui.screen')
+
+local describe, it, before_each, finally = t.describe, t.it, t.before_each, t.finally
+local clear = n.clear
+local insert = n.insert
+local exec_lua = n.exec_lua
+local eval = n.eval
+local feed = n.feed
+local command = n.command
+local api = n.api
+local fn = n.fn
+local eq = t.eq
+
+local hl_query_c = [[
+  ; query
+  (ERROR) @error
+
+  "if" @keyword
+  "else" @keyword
+  "for" @keyword
+  "return" @keyword
+
+  "const" @type
+  "static" @type
+  "struct" @type
+  "enum" @type
+  "extern" @type
+
+  ; nonexistent specializer for string should fallback to string
+  (string_literal) @string.nonexistent_specializer
+
+  (number_literal) @number
+  (char_literal) @string
+
+  (type_identifier) @type
+  ((type_identifier) @constant.builtin (#eq? @constant.builtin "LuaRef"))
+
+  (primitive_type) @type
+  (sized_type_specifier) @type
+
+  ; Use lua regexes
+  ((identifier) @function (#contains? @function "lua_"))
+  ((identifier) @Constant (#lua-match? @Constant "^[A-Z_]+$"))
+  ((identifier) @Normal (#vim-match? @Normal "^lstate$"))
+
+  ((binary_expression left: (identifier) @warning.left right: (identifier) @warning.right) (#eq? @warning.left @warning.right))
+
+  (comment) @comment
+]]
+
+local hl_text_c = [[
+/// Schedule Lua callback on main loop's event queue
+static int nlua_schedule(lua_State *const lstate)
+{
+  if (lua_type(lstate, 1) != LUA_TFUNCTION
+      || lstate != lstate) {
+    lua_pushliteral(lstate, "vim.schedule: expected function");
+    return lua_error(lstate);
+  }
+
+  LuaRef cb = nlua_ref(lstate, 1);
+
+  multiqueue_put(main_loop.events, nlua_schedule_event,
+                 1, (void *)(ptrdiff_t)cb);
+  return 0;
+}]]
+
+local hl_grid_legacy_c = [[
+  {18:^/// Schedule Lua callback on main loop's event queue}             |
+  {6:static} {6:int} nlua_schedule(lua_State *{6:const} lstate)                |
+  {                                                                |
+    {15:if} (lua_type(lstate, {26:1}) != LUA_TFUNCTION                       |
+        || lstate != lstate) {                                     |
+      lua_pushliteral(lstate, {26:"vim.schedule: expected function"});  |
+      {15:return} lua_error(lstate);                                    |
+    }                                                              |
+                                                                   |
+    LuaRef cb = nlua_ref(lstate, {26:1});                               |
+                                                                   |
+    multiqueue_put(main_loop.events, nlua_schedule_event,          |
+                   {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+    {15:return} {26:0};                                                      |
+  }                                                                |
+  {1:~                                                                }|*2
+  14 more lines                                                    |
+]]
+
+local hl_grid_ts_c = [[
+  {18:^/// Schedule Lua callback on main loop's event queue}             |
+  {6:static} {6:int} {25:nlua_schedule}({6:lua_State} *{6:const} lstate)                |
+  {                                                                |
+    {15:if} ({25:lua_type}(lstate, {26:1}) != {26:LUA_TFUNCTION}                       |
+        || {19:lstate} != {19:lstate}) {                                     |
+      {25:lua_pushliteral}(lstate, {26:"vim.schedule: expected function"});  |
+      {15:return} {25:lua_error}(lstate);                                    |
+    }                                                              |
+                                                                   |
+    {29:LuaRef} cb = {25:nlua_ref}(lstate, {26:1});                               |
+                                                                   |
+    multiqueue_put(main_loop.events, {25:nlua_schedule_event},          |
+                   {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+    {15:return} {26:0};                                                      |
+  }                                                                |
+  {1:~                                                                }|*2
+  {MATCH:1?4? m?o?r?e? l?i?n?e?s?.*}|
+]]
+
+local test_text_c = [[
+void ui_refresh(void)
+{
+  int width = INT_MAX, height = INT_MAX;
+  bool ext_widgets[kUIExtCount];
+  for (UIExtension i = 0; (int)i < kUIExtCount; i++) {
+    ext_widgets[i] = true;
+  }
+
+  bool inclusive = ui_override();
+  for (size_t i = 0; i < ui_count; i++) {
+    UI *ui = uis[i];
+    width = MIN(ui->width, width);
+    height = MIN(ui->height, height);
+    foo = BAR(ui->bazaar, bazaar);
+    for (UIExtension j = 0; (int)j < kUIExtCount; j++) {
+      ext_widgets[j] &= (ui->ui_ext[j] || inclusive);
+    }
+  }
+}]]
+
+local injection_text_c = [[
+int x = INT_MAX;
+#define READ_STRING(x, y) (char *)read_string((x), (size_t)(y))
+#define foo void main() { \
+              return 42;  \
+            }
+]]
+
+local injection_grid_c = [[
+  int x = INT_MAX;                                                 |
+  #define READ_STRING(x, y) (char *)read_string((x), (size_t)(y))  |
+  #define foo void main() { \                                      |
+                return 42;  \                                      |
+              }                                                    |
+  ^                                                                 |
+  {1:~                                                                }|*11
+                                                                   |
+]]
+
+local injection_grid_expected_c = [[
+  {6:int} x = {26:INT_MAX};                                                 |
+  #define {26:READ_STRING}(x, y) ({6:char} *)read_string((x), ({6:size_t})(y))  |
+  #define foo {6:void} main() { \                                      |
+                {15:return} {26:42};  \                                      |
+              }                                                    |
+  ^                                                                 |
+  {1:~                                                                }|*11
+                                                                   |
+]]
+
+describe('treesitter highlighting (C)', function()
+  local screen --- @type test.functional.ui.screen
+
+  before_each(function()
+    clear()
+    screen = Screen.new(65, 18)
+    command [[ hi link @error ErrorMsg ]]
+    command [[ hi link @warning WarningMsg ]]
+  end)
+
+  it('starting and stopping treesitter highlight works', function()
+    command('setfiletype c | syntax on')
+    fn.setreg('r', hl_text_c)
+    feed('i<C-R><C-O>r<Esc>gg')
+    -- legacy syntax highlighting is used by default
+    screen:expect(hl_grid_legacy_c)
+
+    exec_lua(function()
+      vim.treesitter.query.set('c', 'highlights', hl_query_c)
+      vim.treesitter.start()
+    end)
+    -- treesitter highlighting is used
+    screen:expect(hl_grid_ts_c)
+
+    -- A second start() on an already-highlighted buffer is a no-op: it returns the existing
+    -- highlighter instead of replacing it (replacing it would leak the old instance's
+    -- on_bytes/on_changedtree callbacks, since destroy() is never called on it).
+    eq(
+      true,
+      exec_lua(function()
+        local buf = vim.api.nvim_get_current_buf()
+        local first = vim.treesitter.highlighter.active[buf]
+        vim.treesitter.start()
+        return first == vim.treesitter.highlighter.active[buf]
+      end)
+    )
+
+    exec_lua(function()
+      vim.treesitter.stop()
+    end)
+    -- legacy syntax highlighting is used
+    screen:expect(hl_grid_legacy_c)
+
+    exec_lua(function()
+      vim.treesitter.start()
+    end)
+    -- treesitter highlighting is used
+    screen:expect(hl_grid_ts_c)
+
+    exec_lua(function()
+      vim.treesitter.stop()
+    end)
+    -- legacy syntax highlighting is used
+    screen:expect(hl_grid_legacy_c)
+
+    exec_lua(function()
+      vim.cmd 'new | wincmd p'
+      vim.treesitter.start()
+      vim.cmd 'bdelete!'
+    end)
+    -- Does not change &syntax of the other, unrelated buffer.
+    eq('', eval('&syntax'))
+  end)
+
+  it('is updated with edits', function()
+    insert(hl_text_c)
+    feed('gg')
+    screen:expect {
+      grid = [[
+      ^/// Schedule Lua callback on main loop's event queue             |
+      static int nlua_schedule(lua_State *const lstate)                |
+      {                                                                |
+        if (lua_type(lstate, 1) != LUA_TFUNCTION                       |
+            || lstate != lstate) {                                     |
+          lua_pushliteral(lstate, "vim.schedule: expected function");  |
+          return lua_error(lstate);                                    |
+        }                                                              |
+                                                                       |
+        LuaRef cb = nlua_ref(lstate, 1);                               |
+                                                                       |
+        multiqueue_put(main_loop.events, nlua_schedule_event,          |
+                       1, (void *)(ptrdiff_t)cb);                      |
+        return 0;                                                      |
+      }                                                                |
+      {1:~                                                                }|*2
+                                                                       |
+    ]],
+    }
+
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'c')
+      local highlighter = vim.treesitter.highlighter
+      highlighter.new(parser, { queries = { c = hl_query_c } })
+    end)
+    screen:expect(hl_grid_ts_c)
+
+    feed('5Goc<esc>dd')
+
+    screen:expect({
+      grid = [[
+        {18:/// Schedule Lua callback on main loop's event queue}             |
+        {6:static} {6:int} {25:nlua_schedule}({6:lua_State} *{6:const} lstate)                |
+        {                                                                |
+          {15:if} ({25:lua_type}(lstate, {26:1}) != {26:LUA_TFUNCTION}                       |
+              || {19:lstate} != {19:lstate}) {                                     |
+            {25:^lua_pushliteral}(lstate, {26:"vim.schedule: expected function"});  |
+            {15:return} {25:lua_error}(lstate);                                    |
+          }                                                              |
+                                                                         |
+          {29:LuaRef} cb = {25:nlua_ref}(lstate, {26:1});                               |
+                                                                         |
+          multiqueue_put(main_loop.events, {25:nlua_schedule_event},          |
+                         {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+          {15:return} {26:0};                                                      |
+        }                                                                |
+        {1:~                                                                }|*2
+                                                                         |
+      ]],
+    })
+
+    feed('7Go*/<esc>')
+    screen:expect({
+      grid = [[
+        {18:/// Schedule Lua callback on main loop's event queue}             |
+        {6:static} {6:int} {25:nlua_schedule}({6:lua_State} *{6:const} lstate)                |
+        {                                                                |
+          {15:if} ({25:lua_type}(lstate, {26:1}) != {26:LUA_TFUNCTION}                       |
+              || {19:lstate} != {19:lstate}) {                                     |
+            {25:lua_pushliteral}(lstate, {26:"vim.schedule: expected function"});  |
+            {15:return} {25:lua_error}(lstate);                                    |
+        {9:*^/}                                                               |
+          }                                                              |
+                                                                         |
+          {29:LuaRef} cb = {25:nlua_ref}(lstate, {26:1});                               |
+                                                                         |
+          multiqueue_put(main_loop.events, {25:nlua_schedule_event},          |
+                         {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+          {15:return} {26:0};                                                      |
+        }                                                                |
+        {1:~                                                                }|
+                                                                         |
+      ]],
+    })
+
+    feed('3Go/*<esc>')
+    screen:expect({
+      grid = [[
+        {18:/// Schedule Lua callback on main loop's event queue}             |
+        {6:static} {6:int} {25:nlua_schedule}({6:lua_State} *{6:const} lstate)                |
+        {                                                                |
+        {18:/^*}                                                               |
+        {18:  if (lua_type(lstate, 1) != LUA_TFUNCTION}                       |
+        {18:      || lstate != lstate) {}                                     |
+        {18:    lua_pushliteral(lstate, "vim.schedule: expected function");}  |
+        {18:    return lua_error(lstate);}                                    |
+        {18:*/}                                                               |
+          }                                                              |
+                                                                         |
+          {29:LuaRef} cb = {25:nlua_ref}(lstate, {26:1});                               |
+                                                                         |
+          multiqueue_put(main_loop.events, {25:nlua_schedule_event},          |
+                         {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+          {15:return} {26:0};                                                      |
+        {9:}}                                                                |
+                                                                         |
+      ]],
+    })
+
+    feed('gg$')
+    feed('~')
+    screen:expect({
+      grid = [[
+        {18:/// Schedule Lua callback on main loop's event queu^E}             |
+        {6:static} {6:int} {25:nlua_schedule}({6:lua_State} *{6:const} lstate)                |
+        {                                                                |
+        {18:/*}                                                               |
+        {18:  if (lua_type(lstate, 1) != LUA_TFUNCTION}                       |
+        {18:      || lstate != lstate) {}                                     |
+        {18:    lua_pushliteral(lstate, "vim.schedule: expected function");}  |
+        {18:    return lua_error(lstate);}                                    |
+        {18:*/}                                                               |
+          }                                                              |
+                                                                         |
+          {29:LuaRef} cb = {25:nlua_ref}(lstate, {26:1});                               |
+                                                                         |
+          multiqueue_put(main_loop.events, {25:nlua_schedule_event},          |
+                         {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+          {15:return} {26:0};                                                      |
+        {9:}}                                                                |
+                                                                         |
+      ]],
+    })
+
+    feed('re')
+    screen:expect({
+      grid = [[
+        {18:/// Schedule Lua callback on main loop's event queu^e}             |
+        {6:static} {6:int} {25:nlua_schedule}({6:lua_State} *{6:const} lstate)                |
+        {                                                                |
+        {18:/*}                                                               |
+        {18:  if (lua_type(lstate, 1) != LUA_TFUNCTION}                       |
+        {18:      || lstate != lstate) {}                                     |
+        {18:    lua_pushliteral(lstate, "vim.schedule: expected function");}  |
+        {18:    return lua_error(lstate);}                                    |
+        {18:*/}                                                               |
+          }                                                              |
+                                                                         |
+          {29:LuaRef} cb = {25:nlua_ref}(lstate, {26:1});                               |
+                                                                         |
+          multiqueue_put(main_loop.events, {25:nlua_schedule_event},          |
+                         {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+          {15:return} {26:0};                                                      |
+        {9:}}                                                                |
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('is updated with :sort', function()
+    insert(test_text_c)
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'c')
+      vim.treesitter.highlighter.new(parser, { queries = { c = hl_query_c } })
+    end)
+    screen:expect({
+      grid = [[
+          {6:int} width = {26:INT_MAX}, height = {26:INT_MAX};                         |
+          {6:bool} ext_widgets[kUIExtCount];                                 |
+          {15:for} ({6:UIExtension} i = {26:0}; ({6:int})i < kUIExtCount; i++) {           |
+            ext_widgets[i] = true;                                       |
+          }                                                              |
+                                                                         |
+          {6:bool} inclusive = ui_override();                                |
+          {15:for} ({6:size_t} i = {26:0}; i < ui_count; i++) {                        |
+            {6:UI} *ui = uis[i];                                             |
+            width = {26:MIN}(ui->width, width);                               |
+            height = {26:MIN}(ui->height, height);                            |
+            foo = {26:BAR}(ui->bazaar, bazaar);                               |
+            {15:for} ({6:UIExtension} j = {26:0}; ({6:int})j < kUIExtCount; j++) {         |
+              ext_widgets[j] &= (ui->ui_ext[j] || inclusive);            |
+            }                                                            |
+          }                                                              |
+        ^}                                                                |
+                                                                         |
+      ]],
+    })
+
+    feed ':sort<cr>'
+    screen:expect({
+      grid = [[
+        ^                                                                 |
+              ext_widgets[j] &= (ui->ui_ext[j] || inclusive);            |
+            {6:UI} *ui = uis[i];                                             |
+            ext_widgets[i] = true;                                       |
+            foo = {26:BAR}(ui->bazaar, bazaar);                               |
+            {15:for} ({6:UIExtension} j = {26:0}; ({6:int})j < kUIExtCount; j++) {         |
+            height = {26:MIN}(ui->height, height);                            |
+            width = {26:MIN}(ui->width, width);                               |
+            }                                                            |
+          {6:bool} ext_widgets[kUIExtCount];                                 |
+          {6:bool} inclusive = ui_override();                                |
+          {15:for} ({6:UIExtension} i = {26:0}; ({6:int})i < kUIExtCount; i++) {           |
+          {15:for} ({6:size_t} i = {26:0}; i < ui_count; i++) {                        |
+          {6:int} width = {26:INT_MAX}, height = {26:INT_MAX};                         |
+          }                                                              |*2
+        {6:void} ui_refresh({6:void})                                            |
+        :sort                                                            |
+      ]],
+    })
+
+    feed 'u:<esc>'
+
+    screen:expect({
+      grid = [[
+          {6:int} width = {26:INT_MAX}, height = {26:INT_MAX};                         |
+          {6:bool} ext_widgets[kUIExtCount];                                 |
+          {15:for} ({6:UIExtension} i = {26:0}; ({6:int})i < kUIExtCount; i++) {           |
+            ext_widgets[i] = true;                                       |
+          }                                                              |
+                                                                         |
+          {6:bool} inclusive = ui_override();                                |
+          {15:for} ({6:size_t} i = {26:0}; i < ui_count; i++) {                        |
+            {6:UI} *ui = uis[i];                                             |
+            width = {26:MIN}(ui->width, width);                               |
+            height = {26:MIN}(ui->height, height);                            |
+            foo = {26:BAR}(ui->bazaar, bazaar);                               |
+            {15:for} ({6:UIExtension} j = {26:0}; ({6:int})j < kUIExtCount; j++) {         |
+              ext_widgets[j] &= (ui->ui_ext[j] || inclusive);            |
+            }                                                            |
+          }                                                              |
+        ^}                                                                |
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('supports with custom parser', function()
+    insert(test_text_c)
+
+    screen:expect {
+      grid = [[
+      int width = INT_MAX, height = INT_MAX;                         |
+      bool ext_widgets[kUIExtCount];                                 |
+      for (UIExtension i = 0; (int)i < kUIExtCount; i++) {           |
+        ext_widgets[i] = true;                                       |
+      }                                                              |
+                                                                     |
+      bool inclusive = ui_override();                                |
+      for (size_t i = 0; i < ui_count; i++) {                        |
+        UI *ui = uis[i];                                             |
+        width = MIN(ui->width, width);                               |
+        height = MIN(ui->height, height);                            |
+        foo = BAR(ui->bazaar, bazaar);                               |
+        for (UIExtension j = 0; (int)j < kUIExtCount; j++) {         |
+          ext_widgets[j] &= (ui->ui_ext[j] || inclusive);            |
+        }                                                            |
+      }                                                              |
+    ^}                                                                |
+                                                                     |
+    ]],
+    }
+
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'c')
+      local query = vim.treesitter.query.parse('c', '(declaration) @decl')
+
+      local nodes = {}
+      for _, node in query:iter_captures(parser:parse()[1]:root(), 0, 0, 19) do
+        table.insert(nodes, node)
+      end
+
+      parser:set_included_regions({ nodes })
+
+      vim.treesitter.highlighter.new(parser, { queries = { c = '(identifier) @type' } })
+    end)
+
+    screen:expect({
+      grid = [[
+          int {6:width} = {6:INT_MAX}, {6:height} = {6:INT_MAX};                         |
+          bool {6:ext_widgets}[{6:kUIExtCount}];                                 |
+          for (UIExtension {6:i} = 0; (int)i < kUIExtCount; i++) {           |
+            ext_widgets[i] = true;                                       |
+          }                                                              |
+                                                                         |
+          bool {6:inclusive} = {6:ui_override}();                                |
+          for (size_t {6:i} = 0; i < ui_count; i++) {                        |
+            UI *{6:ui} = {6:uis}[{6:i}];                                             |
+            width = MIN(ui->width, width);                               |
+            height = MIN(ui->height, height);                            |
+            foo = BAR(ui->bazaar, bazaar);                               |
+            for (UIExtension {6:j} = 0; (int)j < kUIExtCount; j++) {         |
+              ext_widgets[j] &= (ui->ui_ext[j] || inclusive);            |
+            }                                                            |
+          }                                                              |
+        ^}                                                                |
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('supports injected languages', function()
+    insert(injection_text_c)
+
+    screen:expect { grid = injection_grid_c }
+
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'c', {
+        injections = {
+          c = '(preproc_def (preproc_arg) @injection.content (#set! injection.language "c")) (preproc_function_def value: (preproc_arg) @injection.content (#set! injection.language "c"))',
+        },
+      })
+      local highlighter = vim.treesitter.highlighter
+      highlighter.new(parser, { queries = { c = hl_query_c } })
+    end)
+
+    screen:expect { grid = injection_grid_expected_c }
+  end)
+
+  it('supports combined injections #31777', function()
+    insert([=[
+      -- print([[
+      -- some
+      -- random
+      -- text
+      -- here]])
+    ]=])
+
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'lua', {
+        injections = {
+          lua = [[
+          ; query
+          ((comment_content) @injection.content
+            (#set! injection.self)
+            (#set! injection.combined))
+          ]],
+        },
+      })
+      local highlighter = vim.treesitter.highlighter
+      highlighter.new(parser, {
+        queries = {
+          lua = [[
+            ; query
+            (string) @string
+            (comment) @comment
+            (function_call (identifier) @function.call)
+            [ "(" ")" ] @punctuation.bracket
+          ]],
+        },
+      })
+    end)
+
+    screen:expect([=[
+      {18:-- }{25:print}{16:(}{26:[[}                                                      |
+      {18:--}{26: some}                                                          |
+      {18:--}{26: random}                                                        |
+      {18:--}{26: text}                                                          |
+      {18:--}{26: here]]}{16:)}                                                       |
+      ^                                                                 |
+      {1:~                                                                }|*11
+                                                                       |
+    ]=])
+  end)
+
+  it('supports complicated combined injections', function()
+    insert([[
+      -- # Markdown here
+      --
+      -- ```c
+      -- int main() {
+      --   printf("Hello, world!");
+      -- }
+      -- ```
+    ]])
+
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'lua', {
+        injections = {
+          lua = [[
+          ; query
+          ((comment) @injection.content
+            (#offset! @injection.content 0 3 0 1)
+            (#lua-match? @injection.content "[-][-] ")
+            (#set! injection.combined)
+            (#set! injection.include-children)
+            (#set! injection.language "markdown"))
+          ]],
+        },
+      })
+      local highlighter = vim.treesitter.highlighter
+      highlighter.new(parser, {
+        queries = {
+          lua = [[
+            ; query
+            (string) @string
+            (comment) @comment
+            (function_call (identifier) @function.call)
+            [ "(" ")" ] @punctuation.bracket
+          ]],
+        },
+      })
+    end)
+
+    screen:add_extra_attr_ids({
+      [131] = { foreground = Screen.colors.Fuchsia, bold = true },
+    })
+
+    screen:expect([[
+      {18:-- }{131:# Markdown here}                                               |
+      {18:--}                                                               |
+      {18:-- ```}{15:c}                                                          |
+      {18:-- }{16:int}{18: }{25:main}{16:()}{18: }{16:{}                                                  |
+      {18:--   }{25:printf}{16:(}{26:"Hello, world!"}{16:);}                                    |
+      {18:-- }{16:}}                                                             |
+      {18:-- ```}                                                           |
+      ^                                                                 |
+      {1:~                                                                }|*9
+                                                                       |
+    ]])
+  end)
+
+  it("supports injecting by ft name in metadata['injection.language']", function()
+    insert(injection_text_c)
+
+    screen:expect { grid = injection_grid_c }
+
+    exec_lua(function()
+      vim.treesitter.language.register('c', 'foo')
+      local parser = vim.treesitter.get_parser(0, 'c', {
+        injections = {
+          c = '(preproc_def (preproc_arg) @injection.content (#set! injection.language "foo")) (preproc_function_def value: (preproc_arg) @injection.content (#set! injection.language "foo"))',
+        },
+      })
+      local highlighter = vim.treesitter.highlighter
+      highlighter.new(parser, { queries = { c = hl_query_c } })
+    end)
+
+    screen:expect { grid = injection_grid_expected_c }
+  end)
+
+  it('supports overriding queries, like ', function()
+    insert([[
+    int x = INT_MAX;
+    #define READ_STRING(x, y) (char *)read_string((x), (size_t)(y))
+    #define foo void main() { \
+                  return 42;  \
+                }
+    ]])
+
+    exec_lua(function()
+      local injection_query =
+        '(preproc_def (preproc_arg) @injection.content (#set! injection.language "c")) (preproc_function_def value: (preproc_arg) @injection.content (#set! injection.language "c"))'
+      vim.treesitter.query.set('c', 'highlights', hl_query_c)
+      vim.treesitter.query.set('c', 'injections', injection_query)
+
+      vim.treesitter.highlighter.new(vim.treesitter.get_parser(0, 'c'))
+    end)
+
+    screen:expect({
+      grid = [[
+        {6:int} x = {26:INT_MAX};                                                 |
+        #define {26:READ_STRING}(x, y) ({6:char} *)read_string((x), ({6:size_t})(y))  |
+        #define foo {6:void} main() { \                                      |
+                      {15:return} {26:42};  \                                      |
+                    }                                                    |
+        ^                                                                 |
+        {1:~                                                                }|*11
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('supports highlighting with custom highlight groups', function()
+    insert(hl_text_c)
+    feed('gg')
+
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'c')
+      vim.treesitter.highlighter.new(parser, { queries = { c = hl_query_c } })
+    end)
+
+    screen:expect(hl_grid_ts_c)
+
+    -- This will change ONLY the literal strings to look like comments
+    -- The only literal string is the "vim.schedule: expected function" in this test.
+    exec_lua [[vim.cmd("highlight link @string.nonexistent_specializer comment")]]
+    screen:expect({
+      grid = [[
+        {18:^/// Schedule Lua callback on main loop's event queue}             |
+        {6:static} {6:int} {25:nlua_schedule}({6:lua_State} *{6:const} lstate)                |
+        {                                                                |
+          {15:if} ({25:lua_type}(lstate, {26:1}) != {26:LUA_TFUNCTION}                       |
+              || {19:lstate} != {19:lstate}) {                                     |
+            {25:lua_pushliteral}(lstate, {18:"vim.schedule: expected function"});  |
+            {15:return} {25:lua_error}(lstate);                                    |
+          }                                                              |
+                                                                         |
+          {29:LuaRef} cb = {25:nlua_ref}(lstate, {26:1});                               |
+                                                                         |
+          multiqueue_put(main_loop.events, {25:nlua_schedule_event},          |
+                         {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+          {15:return} {26:0};                                                      |
+        }                                                                |
+        {1:~                                                                }|*2
+                                                                         |
+      ]],
+    })
+    screen:expect { unchanged = true }
+  end)
+
+  it('supports highlighting with priority', function()
+    insert([[
+    int x = INT_MAX;
+    #define READ_STRING(x, y) (char *)read_string((x), (size_t)(y))
+    #define foo void main() { \
+                  return 42;  \
+                }
+    ]])
+
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'c')
+      vim.treesitter.highlighter.new(parser, {
+        queries = {
+          c = hl_query_c .. '\n((translation_unit) @constant (#set! "priority" 101))\n',
+        },
+      })
+    end)
+    -- expect everything to have Constant highlight
+    screen:expect {
+      grid = [[
+      {12:int}{8: x = INT_MAX;}                                                 |
+      {8:#define READ_STRING(x, y) (}{12:char}{8: *)read_string((x), (}{12:size_t}{8:)(y))}  |
+      {8:#define foo }{12:void}{8: main() { \}                                      |
+      {8:              }{12:return}{8: 42;  \}                                      |
+      {8:            }}                                                    |
+      ^                                                                 |
+      {1:~                                                                }|*11
+                                                                       |
+    ]],
+      attr_ids = {
+        [1] = { bold = true, foreground = Screen.colors.Blue1 },
+        [8] = { foreground = Screen.colors.Magenta1 },
+        -- bold will not be overwritten at the moment
+        [12] = { bold = true, foreground = Screen.colors.Magenta1 },
+      },
+    }
+
+    eq({
+      {
+        capture = 'constant',
+        metadata = { priority = '101' },
+        lang = 'c',
+        id = 14,
+        pattern_id = 23,
+        row = 0,
+        col = 0,
+        end_row = 6,
+        end_col = 0,
+      },
+      {
+        capture = 'type',
+        metadata = {},
+        lang = 'c',
+        id = 3,
+        pattern_id = 16,
+        row = 0,
+        col = 0,
+        end_row = 0,
+        end_col = 3,
+      },
+    }, exec_lua [[ return vim.treesitter.get_captures_at_pos(0, 0, 2) ]])
+  end)
+
+  it(
+    "allows to use captures with dots (don't use fallback when specialization of foo exists)",
+    function()
+      insert([[
+    char* x = "Will somebody ever read this?";
+    ]])
+
+      screen:expect {
+        grid = [[
+      char* x = "Will somebody ever read this?";                       |
+      ^                                                                 |
+      {1:~                                                                }|*15
+                                                                       |
+    ]],
+      }
+
+      command [[
+      hi link @foo.bar Type
+      hi link @foo String
+    ]]
+      exec_lua(function()
+        local parser = vim.treesitter.get_parser(0, 'c', {})
+        local highlighter = vim.treesitter.highlighter
+        highlighter.new(
+          parser,
+          { queries = { c = '(primitive_type) @foo.bar (string_literal) @foo' } }
+        )
+      end)
+
+      screen:expect({
+        grid = [[
+          {6:char}* x = {26:"Will somebody ever read this?"};                       |
+          ^                                                                 |
+          {1:~                                                                }|*15
+                                                                           |
+        ]],
+      })
+
+      -- clearing specialization reactivates fallback
+      command [[ hi clear @foo.bar ]]
+      screen:expect({
+        grid = [[
+          {26:char}* x = {26:"Will somebody ever read this?"};                       |
+          ^                                                                 |
+          {1:~                                                                }|*15
+                                                                           |
+        ]],
+      })
+    end
+  )
+
+  it('supports conceal attribute', function()
+    insert(hl_text_c)
+
+    -- conceal can be empty or a single cchar.
+    exec_lua(function()
+      vim.opt.cole = 2
+      local parser = vim.treesitter.get_parser(0, 'c')
+      vim.treesitter.highlighter.new(parser, {
+        queries = {
+          c = [[
+        ("static" @keyword
+         (#set! conceal "R"))
+
+        ((identifier) @Identifier
+         (#set! conceal "")
+         (#eq? @Identifier "lstate"))
+
+        ((call_expression
+            function: (identifier) @function
+            arguments: (argument_list) @arguments)
+         (#eq? @function "multiqueue_put")
+         (#set! @function conceal "V"))
+      ]],
+        },
+      })
+    end)
+
+    screen:expect({
+      grid = [[
+        /// Schedule Lua callback on main loop's event queue             |
+        {15:R} int nlua_schedule(lua_State *const )                           |
+        {                                                                |
+          if (lua_type(, 1) != LUA_TFUNCTION                             |
+              ||  != ) {                                                 |
+            lua_pushliteral(, "vim.schedule: expected function");        |
+            return lua_error();                                          |
+          }                                                              |
+                                                                         |
+          LuaRef cb = nlua_ref(, 1);                                     |
+                                                                         |
+          {25:V}(main_loop.events, nlua_schedule_event,                       |
+                         1, (void *)(ptrdiff_t)cb);                      |
+          return 0;                                                      |
+        ^}                                                                |
+        {1:~                                                                }|*2
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('supports @noconceal', function()
+    insert([[
+      int foo = bar;
+    ]])
+
+    exec_lua(function()
+      vim.opt.cole = 2
+      local parser = vim.treesitter.get_parser(0, 'c')
+      vim.treesitter.highlighter.new(parser, {
+        queries = {
+          c = [[
+        ((identifier) @conceal
+         (#set! conceal "X"))
+
+        ((identifier) @noconceal
+         (#eq? @noconceal "bar"))
+      ]],
+        },
+      })
+    end)
+
+    screen:expect({
+      grid = [[
+        int {14:X} = bar;                                                     |
+        ^                                                                 |
+        {1:~                                                                }|*15
+                                                                         |
+      ]],
+    })
+  end)
+
+  describe('conceal geometry', function()
+    local text = 'int HIDDENIDENTIFIER = b;'
+    local conceal_query = [[
+      ((identifier) @conceal
+        (#eq? @conceal "HIDDENIDENTIFIER")
+        (#set! conceal ""))
+    ]]
+
+    before_each(function()
+      screen:try_resize(20, 4)
+      command('set conceallevel=3 concealcursor=nvic')
+    end)
+
+    --- Starts C highlighting of `lines`, with Lua injected in comments concealing its identifiers.
+    local function start_injected(lines)
+      exec_lua(function(lines_)
+        local q = vim.treesitter.query
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, lines_)
+        q.set(
+          'c',
+          'injections',
+          [[
+            ((comment) @injection.content
+              (#set! injection.language "lua")
+              (#offset! @injection.content 0 3 0 -3))
+          ]]
+        )
+        q.set('lua', 'injections', '')
+        q.set('c', 'highlights', '(identifier) @variable')
+        q.set('lua', 'highlights', '((identifier) @conceal (#set! conceal ""))')
+        vim.treesitter.start(0, 'c')
+        vim.treesitter.get_parser():parse(true)
+      end, lines)
+    end
+
+    it('tree-sitter @conceal reflows wrapped lines through edits and undo', function()
+      screen:try_resize(20, 6)
+      command('set conceallevel=2')
+      local edited = 'int VISIBLEIDENTIFIE = b;'
+      api.nvim_buf_set_lines(0, 0, -1, true, { text, text, text })
+      exec_lua(function(query_text)
+        vim.treesitter.highlighter.new(vim.treesitter.get_parser(0, 'c'), {
+          queries = { c = query_text },
+        })
+      end, conceal_query)
+      local function heights()
+        return {
+          api.nvim_win_text_height(0, { start_row = 0, end_row = 0 }).all,
+          api.nvim_win_text_height(0, { start_row = 1, end_row = 1 }).all,
+          api.nvim_win_text_height(0, { start_row = 2, end_row = 2 }).all,
+        }
+      end
+      eq({ 1, 1, 1 }, heights())
+      eq({ row = 1, col = 5, curscol = 5, endcol = 5 }, fn.screenpos(0, 1, 21))
+      eq({ row = 1, col = 9, curscol = 9, endcol = 9 }, fn.screenpos(0, 1, 25))
+
+      api.nvim_buf_set_lines(0, 0, 1, true, { edited })
+      eq({ 2, 1, 1 }, heights())
+      api.nvim_buf_set_lines(0, 1, 3, true, { edited, edited })
+      eq({ 2, 2, 2 }, heights())
+      command('undo')
+      eq({ 2, 1, 1 }, heights())
+      command('undo')
+      eq({ 1, 1, 1 }, heights())
+      command('redo | redo')
+      eq({ 2, 2, 2 }, heights())
+
+      -- 'nowrap' replaces the marks that an edit moved.
+      command('undo | undo')
+      command('set nowrap | echo')
+      api.nvim_buf_set_text(0, 0, 10, 0, 10, { 'x' })
+      screen:expect([[
+        ^int HIDDENxIDENTIFIE|
+        int  = b;           |*2
+        {1:~                   }|*2
+                            |
+      ]])
+
+      exec_lua('vim.treesitter.stop(0)')
+      eq(0, api.nvim__buf_stats(0).conceal_providers)
+    end)
+
+    it('conceal redraws do not grow undo history during insert', function()
+      screen:try_resize(60, 8)
+      command('set conceallevel=2')
+      local original = { text, text, text, text }
+      api.nvim_buf_set_lines(0, 0, -1, true, original)
+      exec_lua(function(query_text)
+        vim.treesitter.highlighter.new(vim.treesitter.get_parser(0, 'c'), {
+          queries = { c = query_text },
+        })
+      end, conceal_query)
+      feed('ggA')
+      local seq
+      for i = 1, 40 do
+        feed(' ')
+        api.nvim_win_text_height(0, {})
+        if i == 10 or i == 40 then
+          local undo = fn.undotree()
+          seq = seq or undo.seq_cur
+          eq(seq, undo.seq_cur)
+          eq(0, undo.synced)
+          eq(1, api.nvim__buf_stats(0).uhp_extmark_size)
+        end
+      end
+      feed('<Esc>u')
+      eq(original, api.nvim_buf_get_lines(0, 0, -1, true))
+      feed('<C-r>')
+      eq(text .. (' '):rep(40), api.nvim_get_current_line())
+      -- The redone line is 65 raw cells, 49 displayed.
+      eq(4, api.nvim_win_text_height(0, {}).all)
+      command('set conceallevel=0')
+      eq(5, api.nvim_win_text_height(0, {}).all)
+      exec_lua('vim.treesitter.stop(0)')
+      eq(1, api.nvim__buf_stats(0).uhp_extmark_size)
+    end)
+
+    it('tree-sitter conceals an injected tree through edits outside it', function()
+      start_injected({ 'int x;', '', '/* HIDDENIDENTIFIER = 1 */' })
+      screen:expect([[
+        ^int {25:x};              |
+                            |
+        /*  = 1 */          |
+                            |
+      ]])
+      -- Measured before a redraw: parsing the edited row drops the injected tree.
+      eq(
+        3,
+        exec_lua(function()
+          vim.api.nvim_buf_set_text(0, 0, 0, 0, 0, { 'x' })
+          return vim.api.nvim_win_text_height(0, {}).all
+        end)
+      )
+    end)
+
+    it('ignores callbacks from a stopped highlighter', function()
+      start_injected({ '/* hidden */', text })
+
+      eq(
+        1,
+        exec_lua(function(query_text)
+          vim.treesitter.stop()
+          vim.treesitter.query.set('c', 'highlights', query_text)
+          vim.treesitter.query.set('lua', 'highlights', '(identifier) @variable')
+          vim.treesitter.start(0, 'c')
+          vim.treesitter.get_parser():parse(true)
+          vim.api.nvim_buf_set_lines(0, 0, 1, false, {})
+          vim.treesitter.get_parser():parse(true)
+          return vim.api.nvim_win_text_height(0, {}).all
+        end, conceal_query)
+      )
+      screen:expect([[
+        ^int  = b;           |
+        {1:~                   }|*2
+                            |
+      ]])
+    end)
+
+    for _, override in ipairs({ '@noconceal', 'pattern metadata', 'capture metadata' }) do
+      it(('uses %s without another concealing pattern'):format(override), function()
+        exec_lua(function(kind, line)
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, { line })
+          vim.api.nvim_buf_set_extmark(0, vim.api.nvim_create_namespace('test'), 0, 4, {
+            end_col = 20,
+            conceal = '',
+            priority = 100,
+          })
+          local query_text = '(identifier) @noconceal'
+          if kind ~= '@noconceal' then
+            vim.treesitter.query.add_directive('test-conceal!', function(_, _, _, pred, metadata)
+              if kind == 'pattern metadata' then
+                metadata.conceal = false
+                metadata[pred[2]] = { conceal = 'X' }
+              else
+                metadata[pred[2]] = { conceal = false }
+              end
+            end, {})
+            query_text = '((identifier) @Normal (#test-conceal! @Normal))'
+          end
+          vim.treesitter.query.set('c', 'highlights', query_text)
+          vim.treesitter.start(0, 'c')
+          vim.treesitter.get_parser():parse(true)
+        end, override, text)
+        screen:expect([[
+          ^int HIDDENIDENTIFIER|
+           = b;               |
+          {1:~                   }|
+                              |
+        ]])
+        eq(2, api.nvim_win_text_height(0, {}).all)
+        eq({ row = 2, col = 5, endcol = 5, curscol = 5 }, fn.screenpos(0, 1, 25))
+      end)
+    end
+
+    it('checks conceal_lines and intra-line conceal once per row', function()
+      local c_query = [[
+        ((comment) @comment (#set! conceal_lines ""))
+        ((identifier) @conceal (#set! conceal ""))
+      ]]
+      api.nvim_buf_set_lines(0, 0, -1, false, { '/* one', 'two', 'three */', 'int identifier;' })
+      eq(
+        { 1, 1 },
+        exec_lua(function(query_text)
+          vim.treesitter.query.set('c', 'highlights', query_text)
+          vim.treesitter.start(0, 'c')
+          vim.treesitter.get_parser():parse(true)
+          vim.fn.screenpos(0, 1, 3)
+          return {
+            vim.api.nvim_win_text_height(0, {}).all,
+            vim.api.nvim_win_text_height(0, {}).all,
+          }
+        end, c_query)
+      )
+
+      -- A capture that ends at column 0 does not include that row.
+      eq(
+        { 2, 2 },
+        exec_lua(function()
+          vim.treesitter.stop()
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'a', '```', 'code', '```', 'b' })
+          vim.treesitter.query.set(
+            'markdown',
+            'highlights',
+            '((fenced_code_block) @markup.raw.block (#set! conceal_lines ""))'
+          )
+          vim.treesitter.start(0, 'markdown')
+          return {
+            vim.api.nvim_win_text_height(0, {}).all,
+            vim.api.nvim_win_text_height(0, {}).all,
+          }
+        end)
+      )
+      screen:expect([[
+        ^a                   |
+        b                   |
+        {1:~                   }|
+                            |
+      ]])
+
+      -- Under 'nowrap', checking `conceal_lines` adds no intra-line conceal, which 'wrap' adds.
+      command('set nowrap')
+      eq(
+        0,
+        exec_lua(function(lines, query_text)
+          vim.treesitter.stop()
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+          vim.treesitter.query.set('c', 'highlights', query_text)
+          vim.treesitter.start(0, 'c')
+          vim.cmd('redraw')
+          local conceal_ns = vim.api.nvim_create_namespace('nvim.treesitter.highlighter.conceal')
+          return #vim.api.nvim_buf_get_extmarks(0, conceal_ns, 0, -1, {})
+        end, { '/* one */', ('int %s;'):format(('x'):rep(20)) }, c_query)
+      )
+      command('set wrap')
+      eq(1, api.nvim_win_text_height(0, { start_row = 1, end_row = 1 }).all)
+
+      -- Under 'wrap', each row is checked once, though `conceal_lines` asks first.
+      eq(
+        { 1, 1 },
+        exec_lua(function()
+          local hl = require('vim.treesitter.highlighter')
+          local prepare = hl.prepare_highlight_states
+          local checks = {}
+          hl.prepare_highlight_states = function(self, srow, erow)
+            checks[srow + 1] = (checks[srow + 1] or 0) + (srow == erow and 1 or 0)
+            return prepare(self, srow, erow)
+          end
+          vim.treesitter.stop()
+          vim.treesitter.start(0, 'c')
+          vim.api.nvim_win_text_height(0, {})
+          hl.prepare_highlight_states = prepare
+          return checks
+        end)
+      )
+
+      -- Rechecking the last row of a `conceal_lines` mark keeps its capture's rows concealed, also
+      -- when that row's query does not return the capture: moved by `#offset!`, or shrunk by an edit.
+      for _, case in ipairs({
+        { '((comment) @c (#offset! @c 0 0 1 0) (#set! conceal_lines ""))', { 4, 4, 'A' }, 1 },
+        { c_query, { 2, 3, ' */' }, 3 },
+      }) do
+        eq(
+          { case[3], case[3] },
+          exec_lua(function(query_text, edit)
+            vim.treesitter.stop()
+            local lines = { 'int x;', '/* one', 'two', 'three */', 'int a;' }
+            vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+            vim.treesitter.query.set('c', 'highlights', query_text)
+            vim.treesitter.start(0, 'c')
+            vim.cmd('redraw')
+            vim.api.nvim_buf_set_text(0, edit[1], edit[2], edit[1], edit[2], { edit[3] })
+            -- Before a redraw, which would re-add the mark.
+            return {
+              vim.api.nvim_win_text_height(0, {}).all,
+              vim.api.nvim_win_text_height(0, {}).all,
+            }
+          end, case[1], case[2])
+        )
+      end
+    end)
+
+    it('preserves the replacement start when clipping multiline conceal', function()
+      command('set conceallevel=2')
+      api.nvim_buf_set_lines(0, 0, -1, false, { '/* hidden', ('end */%s'):format(('x'):rep(20)) })
+      exec_lua(function()
+        vim.treesitter.query.set('c', 'highlights', '((comment) @Normal (#set! conceal "X"))')
+        vim.treesitter.start(0, 'c')
+        vim.treesitter.get_parser():parse(true)
+      end)
+      eq(1, api.nvim_win_text_height(0, { start_row = 0, end_row = 0 }).all)
+      eq(1, api.nvim_win_text_height(0, { start_row = 1, end_row = 1 }).all)
+      screen:expect([[
+        {14:^X}                   |
+        xxxxxxxxxxxxxxxxxxxx|
+        {1:~                   }|
+                            |
+      ]])
+      -- Also in a window with another 'conceallevel', after an edit.
+      eq(
+        { 1, 1 },
+        exec_lua(function()
+          local other = vim.api.nvim_open_win(0, false, {
+            relative = 'editor',
+            row = 0,
+            col = 0,
+            width = 20,
+            height = 2,
+            hide = true,
+          })
+          vim.wo[other].conceallevel = 1
+          vim.wo[other].concealcursor = 'nvic'
+          local before = vim.api.nvim_win_text_height(other, { start_row = 1, end_row = 1 }).all
+          vim.api.nvim_buf_set_text(0, 1, 0, 1, 3, { 'other' })
+          vim.treesitter.get_parser():parse(true)
+          local after = vim.api.nvim_win_text_height(other, { start_row = 1, end_row = 1 }).all
+          vim.api.nvim_win_close(other, true)
+          return { before, after }
+        end)
+      )
+      eq(2, api.nvim_win_text_height(0, {}).all)
+      screen:expect_unchanged()
+    end)
+  end)
+
+  it('@foo.bar groups has the correct fallback behavior', function()
+    local get_hl = function(name)
+      return api.nvim_get_hl_by_name(name, 1).foreground
+    end
+    api.nvim_set_hl(0, '@foo', { fg = 1 })
+    api.nvim_set_hl(0, '@foo.bar', { fg = 2 })
+    api.nvim_set_hl(0, '@foo.bar.baz', { fg = 3 })
+
+    eq(1, get_hl '@foo')
+    eq(1, get_hl '@foo.a.b.c.d')
+    eq(2, get_hl '@foo.bar')
+    eq(2, get_hl '@foo.bar.a.b.c.d')
+    eq(3, get_hl '@foo.bar.baz')
+    eq(3, get_hl '@foo.bar.baz.d')
+
+    -- lookup is case insensitive
+    eq(2, get_hl '@FOO.BAR.SPAM')
+
+    api.nvim_set_hl(0, '@foo.missing.exists', { fg = 3 })
+    eq(1, get_hl '@foo.missing')
+    eq(3, get_hl '@foo.missing.exists')
+    eq(3, get_hl '@foo.missing.exists.bar')
+    eq(nil, get_hl '@total.nonsense.but.a.lot.of.dots')
+  end)
+
+  it('supports multiple nodes assigned to the same capture #17060', function()
+    insert([[
+      int x = 4;
+      int y = 5;
+      int z = 6;
+    ]])
+
+    exec_lua(function()
+      local query = '((declaration)+ @string)'
+      vim.treesitter.query.set('c', 'highlights', query)
+      vim.treesitter.highlighter.new(vim.treesitter.get_parser(0, 'c'))
+    end)
+
+    screen:expect({
+      grid = [[
+        {26:int x = 4;}                                                       |
+        {26:int y = 5;}                                                       |
+        {26:int z = 6;}                                                       |
+        ^                                                                 |
+        {1:~                                                                }|*13
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('gives higher priority to more specific captures #27895', function()
+    insert([[
+      void foo(int *bar);
+    ]])
+
+    local query = [[
+      "*" @operator
+
+      (parameter_declaration
+        declarator: (pointer_declarator) @variable.parameter)
+    ]]
+
+    exec_lua(function()
+      vim.treesitter.query.set('c', 'highlights', query)
+      vim.treesitter.highlighter.new(vim.treesitter.get_parser(0, 'c'))
+    end)
+
+    screen:expect({
+      grid = [[
+        void foo(int {15:*}{25:bar});                                              |
+        ^                                                                 |
+        {1:~                                                                }|*15
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('highlights applied to first line of closed fold', function()
+    insert(hl_text_c)
+    exec_lua(function()
+      vim.treesitter.query.set('c', 'highlights', hl_query_c)
+      vim.treesitter.highlighter.new(vim.treesitter.get_parser(0, 'c'))
+    end)
+    feed('ggjzfj')
+    command('set foldtext=')
+    screen:add_extra_attr_ids({
+      [100] = {
+        bold = true,
+        background = Screen.colors.LightGray,
+        foreground = Screen.colors.SeaGreen4,
+      },
+      [101] = { background = Screen.colors.LightGray, foreground = Screen.colors.DarkCyan },
+    })
+    screen:expect({
+      grid = [[
+        {18:/// Schedule Lua callback on main loop's event queue}             |
+        {100:^static}{13: }{100:int}{13: }{101:nlua_schedule}{13:(}{100:lua_State}{13: *}{100:const}{13: lstate)················}|
+          {15:if} ({25:lua_type}(lstate, {26:1}) != {26:LUA_TFUNCTION}                       |
+              || {19:lstate} != {19:lstate}) {                                     |
+            {25:lua_pushliteral}(lstate, {26:"vim.schedule: expected function"});  |
+            {15:return} {25:lua_error}(lstate);                                    |
+          }                                                              |
+                                                                         |
+          {29:LuaRef} cb = {25:nlua_ref}(lstate, {26:1});                               |
+                                                                         |
+          multiqueue_put(main_loop.events, {25:nlua_schedule_event},          |
+                         {26:1}, ({6:void} *)({6:ptrdiff_t})cb);                      |
+          {15:return} {26:0};                                                      |
+        }                                                                |
+        {1:~                                                                }|*3
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('#35575', function()
+    -- Window size is 14x14, and first string literal ends at byte 14
+    -- See: https://github.com/neovim/neovim/pull/35587
+    screen:try_resize(14, 15)
+
+    exec_lua(function()
+      local line = 'A a="\240\157\158\140\240\157\158\140" "aaaaaaaaaaaaaaaaaaaaaaaa";'
+      vim.api.nvim_buf_set_lines(0, 0, -1, true, { line })
+      vim.cmd('set nowrap')
+      vim.treesitter.query.set('c', 'highlights', hl_query_c)
+      vim.treesitter.start(0, 'c')
+    end)
+
+    screen:expect([[
+      {6:^A} a={26:"𝞌𝞌"} {26:"aaaa}|
+      {1:~             }|*13
+                    |
+    ]])
+  end)
+end)
+
+describe('treesitter highlighting (lua)', function()
+  local screen
+
+  before_each(function()
+    clear()
+    screen = Screen.new(65, 18)
+  end)
+
+  it('supports language injections', function()
+    insert [[
+      local ffi = require('ffi')
+      ffi.cdef("int (*fun)(int, char *);")
+    ]]
+
+    exec_lua(function()
+      vim.bo.filetype = 'lua'
+      vim.treesitter.start()
+    end)
+
+    screen:expect({
+      grid = [[
+        {15:local} {25:ffi} {15:=} {16:require(}{26:'ffi'}{16:)}                                       |
+        {25:ffi}{16:.}{25:cdef}{16:(}{26:"}{16:int}{26: }{16:(}{15:*}{26:fun}{16:)(int,}{26: }{16:char}{26: }{15:*}{16:);}{26:"}{16:)}                             |
+        ^                                                                 |
+        {1:~                                                                }|*14
+                                                                         |
+      ]],
+    })
+  end)
+
+  it('removes outdated highlights', function()
+    insert('-- int main() {}' .. string.rep("\nprint('test')", 20) .. '\n-- int other() {}')
+
+    exec_lua(function()
+      vim.cmd.norm('gg')
+      vim.treesitter.query.set(
+        'lua',
+        'injections',
+        [[((comment_content) @injection.content
+            (#set! injection.combined)
+            (#set! injection.language "c"))]]
+      )
+      vim.bo.filetype = 'lua'
+      vim.treesitter.start()
+    end)
+
+    screen:expect([[
+      {18:^-- }{16:int}{18: }{25:main}{16:()}{18: }{16:{}}                                                 |
+      {16:print(}{26:'test'}{16:)}                                                    |*16
+                                                                       |
+    ]])
+
+    exec_lua(function()
+      vim.cmd.norm('gg0dw')
+    end)
+
+    screen:expect([[
+      {25:^int} {25:main}{16:()} {16:{}}                                                    |
+      {16:print(}{26:'test'}{16:)}                                                    |*16
+                                                                       |
+    ]])
+  end)
+end)
+
+describe('treesitter highlighting (help)', function()
+  local screen
+
+  before_each(function()
+    clear()
+    screen = Screen.new(40, 6)
+  end)
+
+  it('defaults in vimdoc/highlights.scm', function()
+    -- Avoid regressions when syncing upstream vimdoc queries.
+
+    insert [[
+    ==============================================================================
+    NVIM DOCUMENTATION
+
+    ------------------------------------------------------------------------------
+    ABOUT NVIM                                                     *tag-1* *tag-2*
+
+    |news|			News
+    |nvim|			NVim
+    ]]
+
+    feed('gg')
+    exec_lua(function()
+      vim.wo.wrap = false
+      vim.bo.filetype = 'help'
+      vim.treesitter.start()
+    end)
+
+    screen:add_extra_attr_ids({
+      [100] = { nocombine = true, underdouble = true },
+      [101] = { foreground = Screen.colors.Fuchsia, bold = true },
+      [102] = { underline = true, nocombine = true },
+    })
+    screen:expect({
+      grid = [[
+        {100:^========================================}|
+        {101:NVIM DOCUMENTATION}                      |
+                                                |
+        {102:----------------------------------------}|
+        {101:ABOUT NVIM}                              |
+                                                |
+      ]],
+    })
+
+    -- Concealed taglinks wrap at their concealed width, also on rows no window has drawn yet.
+    exec_lua(function()
+      local lines = {}
+      for i = 1, 100 do
+        lines[i] = ('|a| |b| |c| |d| |e| |f| |g| |h| |i| |j| %d'):format(i)
+      end
+      vim.api.nvim_buf_set_lines(0, 0, -1, true, lines)
+      vim.wo.wrap = true
+      vim.wo.conceallevel = 2
+    end)
+    feed('G')
+    screen:expect([[
+      {25:a} {25:b} {25:c} {25:d} {25:e} {25:f} {25:g} {25:h} {25:i} {25:j} 97                  |
+      {25:a} {25:b} {25:c} {25:d} {25:e} {25:f} {25:g} {25:h} {25:i} {25:j} 98                  |
+      {25:a} {25:b} {25:c} {25:d} {25:e} {25:f} {25:g} {25:h} {25:i} {25:j} 99                  |
+      {25:^|a|} {25:|b|} {25:|c|} {25:|d|} {25:|e|} {25:|f|} {25:|g|} {25:|h|} {25:|i|} {25:|j|} |
+      100                                     |
+                                              |
+    ]])
+    eq(101, api.nvim_win_text_height(0, {}).all)
+  end)
+
+  it('correctly redraws added/removed injections', function()
+    insert [[
+    >ruby
+      -- comment
+      local this_is = 'actually_lua'
+    <
+    ]]
+
+    exec_lua(function()
+      vim.bo.filetype = 'help'
+      vim.treesitter.start()
+    end)
+
+    screen:expect({
+      grid = [[
+        {18:>}{15:ruby}                                   |
+        {18:  -- comment}                            |
+        {18:  local this_is = 'actually_lua'}        |
+        {18:<}                                       |
+        ^                                        |
+                                                |
+      ]],
+    })
+
+    n.api.nvim_buf_set_text(0, 0, 1, 0, 5, { 'lua' })
+
+    screen:expect({
+      grid = [[
+        {18:>}{15:lua}                                    |
+        {18:  -- comment}                            |
+        {18:  }{15:local}{18: }{25:this_is}{18: }{15:=}{18: }{26:'actually_lua'}        |
+        {18:<}                                       |
+        ^                                        |
+                                                |
+      ]],
+    })
+
+    n.api.nvim_buf_set_text(0, 0, 1, 0, 4, { 'ruby' })
+
+    screen:expect({
+      grid = [[
+        {18:>}{15:ruby}                                   |
+        {18:  -- comment}                            |
+        {18:  local this_is = 'actually_lua'}        |
+        {18:<}                                       |
+        ^                                        |
+                                                |
+      ]],
+    })
+  end)
+
+  it('correctly redraws injections subpriorities', function()
+    -- The top level string node will be highlighted first
+    -- with an extmark spanning multiple lines.
+    -- When the next line is drawn, which includes an injection,
+    -- make sure the highlight appears above the base tree highlight
+
+    insert([=[
+    local s = [[
+      local also = lua
+    ]]
+    ]=])
+
+    exec_lua(function()
+      local parser = vim.treesitter.get_parser(0, 'lua', {
+        injections = {
+          lua = '(string content: (_) @injection.content (#set! injection.language lua))',
+        },
+      })
+
+      vim.treesitter.highlighter.new(parser)
+    end)
+
+    screen:expect({
+      grid = [=[
+        {15:local} {25:s} {15:=} {26:[[}                            |
+        {26:  }{15:local}{26: }{25:also}{26: }{15:=}{26: }{25:lua}                      |
+        {26:]]}                                      |
+        ^                                        |
+        {1:~                                       }|
+                                                |
+      ]=],
+    })
+  end)
+end)
+
+describe('treesitter highlighting (nested injections)', function()
+  local screen --- @type test.functional.ui.screen
+
+  before_each(function()
+    clear()
+    screen = Screen.new(80, 7)
+  end)
+
+  it('correctly redraws nested injections (GitHub #25252)', function()
+    insert [=[
+function foo() print("Lua!") end
+
+local lorem = {
+    ipsum = {},
+    bar = {},
+}
+vim.cmd([[
+    augroup RustLSP
+    autocmd CursorHold silent! lua vim.lsp.buf.document_highlight()
+    augroup END
+]])
+    ]=]
+
+    exec_lua(function()
+      vim.opt.scrolloff = 0
+      vim.bo.filetype = 'lua'
+      vim.treesitter.start()
+    end)
+
+    -- invalidate the language tree
+    feed('ggi--[[<ESC>04x')
+
+    screen:expect({
+      grid = [[
+        {15:^function} {25:foo}{16:()} {16:print(}{26:"Lua!"}{16:)} {15:end}                                                |
+                                                                                        |
+        {15:local} {25:lorem} {15:=} {16:{}                                                                 |
+            {25:ipsum} {15:=} {16:{},}                                                                 |
+            {25:bar} {15:=} {16:{},}                                                                   |
+        {16:}}                                                                               |
+                                                                                        |
+      ]],
+    })
+
+    -- spam newline insert/delete to invalidate Lua > Vim > Lua region
+    feed('3jo<ESC>ddko<ESC>ddko<ESC>ddko<ESC>ddk0')
+
+    screen:expect({
+      grid = [[
+        {15:function} {25:foo}{16:()} {16:print(}{26:"Lua!"}{16:)} {15:end}                                                |
+                                                                                        |
+        {15:local} {25:lorem} {15:=} {16:{}                                                                 |
+        ^    {25:ipsum} {15:=} {16:{},}                                                                 |
+            {25:bar} {15:=} {16:{},}                                                                   |
+        {16:}}                                                                               |
+                                                                                        |
+      ]],
+    })
+  end)
+end)
+
+describe('treesitter highlighting (markdown)', function()
+  local screen
+
+  before_each(function()
+    clear()
+    screen = Screen.new(40, 6)
+    exec_lua(function()
+      vim.bo.filetype = 'markdown'
+      vim.treesitter.start()
+    end)
+  end)
+
+  it('supports hyperlinks', function()
+    local url = 'https://example.com'
+    insert(string.format('[This link text](%s) is a hyperlink.', url))
+    screen:add_extra_attr_ids({
+      [100] = { foreground = Screen.colors.DarkCyan, url = 'https://example.com' },
+      [101] = {
+        foreground = Screen.colors.SlateBlue,
+        url = 'https://example.com',
+        underline = true,
+      },
+    })
+    screen:expect({
+      grid = [[
+        {100:[This link text](}{101:https://example.com}{100:)} is|
+         a hyperlink^.                           |
+        {1:~                                       }|*3
+                                                |
+      ]],
+    })
+    command('set conceallevel=2')
+    feed('o<Esc>')
+    screen:expect([[
+      {100:This link text} is a hyperlink.          |
+      ^                                        |
+      {1:~                                       }|*3
+                                              |
+    ]])
+    -- Deleting the cursor line reveals the line above. #42631
+    feed('dd')
+    screen:expect([[
+      {100:^[This link text](}{101:https://example.com}{100:)} is|
+       a hyperlink.                           |
+      {1:~                                       }|*3
+                                              |
+    ]])
+  end)
+
+  local code_block = [[
+- $f(0)=\sum_{k=1}^{\infty}\frac{2}{\pi^{2}k^{2}}+\lim_{w \to 0}x$.
+
+```c
+printf('Hello World!');
+```
+    ]]
+
+  it('works with spellchecked and smoothscrolled topline', function()
+    insert(code_block)
+    command('set spell smoothscroll')
+    feed('gg<C-E>')
+    screen:add_extra_attr_ids({ [100] = { undercurl = true, special = Screen.colors.Red } })
+    screen:expect({
+      grid = [[
+        {1:<<<}k^{2}}+\{100:lim}_{w \to 0}x$^.             |
+                                                |
+        {18:```}{15:c}                                    |
+        {25:printf}{16:(}{26:'Hello World!'}{16:);}                 |
+        {18:```}                                     |
+                                                |
+      ]],
+    })
+  end)
+
+  it('works with concealed lines', function()
+    insert(code_block)
+    screen:expect({
+      grid = [[
+                                                |
+        {18:```}{15:c}                                    |
+        {25:printf}{16:(}{26:'Hello World!'}{16:);}                 |
+        {18:```}                                     |
+        ^                                        |
+                                                |
+      ]],
+    })
+    feed('ggj')
+    command('set number conceallevel=3')
+    screen:expect({
+      grid = [[
+        {8:  1 }{16:- }$f(0)=\sum_{k=1}^{\infty}\frac{2}{|
+        {8:    }\pi^{2}k^{2}}+\lim_{w \to 0}x$.     |
+        {8:  2 }^                                    |
+        {8:  4 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+        {8:  6 }                                    |
+                                                |
+      ]],
+    })
+    feed('j')
+    screen:expect({
+      grid = [[
+        {8:  1 }{16:- }$f(0)=\sum_{k=1}^{\infty}\frac{2}{|
+        {8:    }\pi^{2}k^{2}}+\lim_{w \to 0}x$.     |
+        {8:  2 }                                    |
+        {8:  3 }{18:^```}{15:c}                                |
+        {8:  4 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+                                                |
+      ]],
+    })
+    feed('j')
+    screen:expect({
+      grid = [[
+        {8:  1 }{16:- }$f(0)=\sum_{k=1}^{\infty}\frac{2}{|
+        {8:    }\pi^{2}k^{2}}+\lim_{w \to 0}x$.     |
+        {8:  2 }                                    |
+        {8:  4 }{25:^printf}{16:(}{26:'Hello World!'}{16:);}             |
+        {8:  6 }                                    |
+                                                |
+      ]],
+    })
+    feed('j')
+    screen:expect({
+      grid = [[
+        {8:  1 }{16:- }$f(0)=\sum_{k=1}^{\infty}\frac{2}{|
+        {8:    }\pi^{2}k^{2}}+\lim_{w \to 0}x$.     |
+        {8:  2 }                                    |
+        {8:  4 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+        {8:  5 }{18:^```}                                 |
+                                                |
+      ]],
+    })
+    -- Concealed lines highlight until changed botline
+    screen:try_resize(screen._width, 16)
+    feed('y3k30P:<Esc><C-F><C-B>')
+    screen:expect([[
+      {8:  1 }{16:- }$f(0)=\sum_{k=1}^{\infty}\frac{2}{|
+      {8:    }\pi^{2}k^{2}}+\lim_{w \to 0}x$.     |
+      {8:  2 }                                    |
+      {8:  4 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:  6 }                                    |
+      {8:  8 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 10 }                                    |
+      {8: 12 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 14 }                                    |
+      {8: 16 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 18 }                                    |
+      {8: 20 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 22 }                                    |
+      {8: 24 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 25 }{18:^```}                                 |
+                                              |
+    ]])
+    feed('G')
+    screen:expect([[
+      {8: 98 }                                    |
+      {8:100 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:102 }                                    |
+      {8:104 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:106 }                                    |
+      {8:108 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:110 }                                    |
+      {8:112 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:114 }                                    |
+      {8:116 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:118 }                                    |
+      {8:120 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:122 }                                    |
+      {8:124 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:126 }^                                    |
+                                              |
+    ]])
+    feed('ggdj')
+    command('set concealcursor=n')
+    screen:expect([[
+      {8:  2 }{25:^printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:  4 }                                    |
+      {8:  6 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8:  8 }                                    |
+      {8: 10 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 12 }                                    |
+      {8: 14 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 16 }                                    |
+      {8: 18 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 20 }                                    |
+      {8: 22 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 24 }                                    |
+      {8: 26 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+      {8: 28 }                                    |
+      {8: 30 }{25:printf}{16:(}{26:'Hello World!'}{16:);}             |
+                                              |
+    ]])
+    exec_lua(function()
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, {})
+      assert(vim.api.nvim_win_text_height(0, {}).all == 1, 'line concealed')
+    end)
+  end)
+
+  it('conceals backslash in hard_line_break/backslash_escape', function()
+    command('set concealcursor=n')
+    command('set conceallevel=2')
+    insert('Hello\\\nWorld\nHello\\. World')
+    screen:expect({
+      grid = [[
+        Hello                                   |
+        World                                   |
+        Hello. Worl^d                            |
+        {1:~                                       }|*2
+                                                |
+      ]],
+    })
+  end)
+end)
+
+it('starting and stopping treesitter highlight in init.lua works #29541', function()
+  t.write_file(
+    'Xinit.lua',
+    [[
+      vim.bo.ft = 'c'
+      vim.treesitter.start()
+      vim.treesitter.stop()
+    ]]
+  )
+  finally(function()
+    os.remove('Xinit.lua')
+  end)
+  clear({ args = { '-u', 'Xinit.lua' } })
+  eq('', api.nvim_get_vvar('errmsg'))
+
+  local screen = Screen.new(65, 18)
+  fn.setreg('r', hl_text_c)
+  feed('i<C-R><C-O>r<Esc>gg')
+  -- legacy syntax highlighting is used
+  screen:expect(hl_grid_legacy_c)
+end)
+
+it('no nil index for missing highlight query', function()
+  clear()
+  local cqueries = t.paths.test_source_path .. '/runtime/queries/c/'
+  os.rename(cqueries .. 'highlights.scm', cqueries .. '_highlights.scm')
+  finally(function()
+    os.rename(cqueries .. '_highlights.scm', cqueries .. 'highlights.scm')
+  end)
+  exec_lua([[
+    local parser = vim.treesitter.get_parser(0, 'c')
+    vim.treesitter.highlighter.new(parser)
+  ]])
+end)
+
+it('spell navigation correctly wraps back to the first line (Row 0) #36970', function()
+  clear()
+  insert([[
+mispelledone
+mispelledtwo]])
+
+  command('set spell')
+  command('set wrapscan')
+  exec_lua(function()
+    vim.treesitter.start(0, 'markdown')
+  end)
+
+  api.nvim_win_set_cursor(0, { 2, 0 })
+
+  feed(']s')
+
+  local pos = api.nvim_win_get_cursor(0)
+  eq(1, pos[1], 'Should have wrapped back to Line 1')
+end)
+
+it('conceals lines contributed by an injected tree', function()
+  clear()
+  command('set conceallevel=3')
+
+  -- Measured without an intervening redraw, so that the conceal_line callback
+  -- is the thing that has to parse the injection. The outer ~~~ fences come
+  -- from the root tree, the inner ``` fences from the markdown tree injected
+  -- into it; all four carry conceal_lines, leaving "filler", "print(1)" and
+  -- "tail" on screen.
+  eq(
+    3,
+    exec_lua(function()
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+        'filler',
+        '~~~markdown',
+        '```lua',
+        'print(1)',
+        '```',
+        '~~~',
+        'tail',
+      })
+      vim.treesitter.start(0, 'markdown')
+      return vim.api.nvim_win_text_height(0, {}).all
+    end)
+  )
+end)
+
+describe('treesitter get_captures', function()
+  local function captures(start, stop)
+    local result = exec_lua(function()
+      return vim.treesitter.get_captures(0, start, stop)
+    end)
+    return vim.tbl_map(function(c)
+      return { c.capture, c.lang, c.row, c.col, c.end_row, c.end_col }
+    end, result)
+  end
+
+  before_each(function()
+    clear()
+    exec_lua(function()
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'local abc = 123', 'local def = 456' })
+      vim.treesitter.query.set('lua', 'highlights', '(identifier) @variable (number) @number')
+      vim.treesitter.start(0, 'lua')
+      vim.treesitter.get_parser():parse(true)
+    end)
+  end)
+
+  it('returns overlapping captures with exclusive ends', function()
+    eq({ { 'variable', 'lua', 0, 6, 0, 9 } }, captures({ 0, 7 }))
+    eq({}, captures({ 0, 9 }))
+    eq({ { 'variable', 'lua', 0, 6, 0, 9 } }, captures({ 0, 7 }, { 0, 8 }))
+    eq({}, captures({ 0, 9 }, { 0, 12 }))
+    eq({}, captures({ 0, 7 }, { 0, 7 }))
+  end)
+
+  it('accepts row endpoints and excludes the stop row', function()
+    eq({ { 'variable', 'lua', 0, 6, 0, 9 }, { 'number', 'lua', 0, 12, 0, 15 } }, captures(0, 1))
+    eq(captures(0, 1), captures(0))
+    eq({}, captures(0, 0))
+    eq(captures(0, 1), captures({ 0, 0 }, 1))
+    eq({
+      { 'variable', 'lua', 0, 6, 0, 9 },
+      { 'number', 'lua', 0, 12, 0, 15 },
+      { 'variable', 'lua', 1, 6, 1, 9 },
+    }, captures(0, { 1, 7 }))
+  end)
+
+  it('includes injected captures outside the parsed viewport', function()
+    exec_lua(function()
+      vim.api.nvim_set_current_buf(vim.api.nvim_create_buf(false, true))
+      local lines = {}
+      for row = 1, 100 do
+        lines[row] = 'local s = "int abc;"'
+      end
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+      vim.treesitter.query.set(
+        'lua',
+        'injections',
+        '((string_content) @injection.content (#set! injection.language "c"))'
+      )
+      vim.treesitter.query.set('c', 'highlights', '(identifier) @variable')
+      vim.treesitter.start(0, 'lua')
+      vim.treesitter.get_parser():parse({ 0, 10 })
+    end)
+    eq({ { 'variable', 'c', 99, 15, 99, 18 } }, captures({ 99, 16 }, { 99, 17 }))
+    eq({}, captures({ 99, 18 }, { 99, 19 }))
+  end)
+end)

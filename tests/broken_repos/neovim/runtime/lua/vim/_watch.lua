@@ -1,0 +1,614 @@
+local uv = vim.uv
+local log = vim.log.new({ name = 'nvim-watch' })
+
+local M = {}
+
+--- @enum vim._watch.FileChangeType
+--- Types of events watchers will emit.
+M.FileChangeType = {
+  Created = 1,
+  Changed = 2,
+  Deleted = 3,
+}
+
+--- A glob string or compiled LPeg pattern. Strings match full paths using `/` separators.
+--- Glob syntax follows [vim.glob] (LSP 3.17).
+--- @alias vim._watch.Pattern string|vim.lpeg.Pattern
+
+--- A list matches if any of its patterns matches. An empty list matches nothing.
+--- @alias vim._watch.Filter vim._watch.Pattern|vim._watch.Pattern[]
+
+--- Option and rule tables must not be modified while watching.
+--- @class vim._watch.Opts
+---
+--- @field debounce? integer ms
+---
+--- Handles watcher failures and invalid globs, with root and pattern context in the message.
+--- Invalid globs are skipped. Defaults to logging at ERROR in nvim-watch.log.
+--- @field on_error? fun(err: string)
+---
+--- Only changes matching this filter are reported. Parent directories remain watched for matching
+--- descendants. See vim._watch.Pattern for glob syntax. When nil, matches any path.
+--- @field include_pattern? vim._watch.Filter
+---
+--- Changes matching this filter are not reported. With watchdirs(), excluding a subdirectory
+--- excludes its entire subtree. When nil, matches nothing.
+--- @field exclude_pattern? vim._watch.Filter
+
+--- @alias vim._watch.Callback fun(path: string, change_type: vim._watch.FileChangeType)
+
+--- @class vim._watch.watch.Opts : vim._watch.Opts
+--- @field uvflags? uv.fs_event_start.flags See |uv.fs_event_start()|.
+
+--- Rules sharing a root use one backend watcher. Each event is reported once per root if any
+--- rule matches, subject to the include_pattern and exclude_pattern options.
+--- @class vim._watch.Rule
+--- @field path string Root to watch.
+--- @field pattern? vim._watch.Filter Matches full paths; nil matches everything.
+--- @field events? vim._watch.FileChangeType[] Defaults to all event types.
+
+--- A path matcher and the directories that could contain matching paths.
+--- @class (internal) vim._watch.CompiledFilter
+--- @field pattern vim.lpeg.Pattern Exact matcher, used to filter events.
+--- Roots guide include traversal: keep these subtrees and their parents within the watched path.
+--- Nonempty roots end in '/'; an entry of '' covers any directory.
+--- @field roots string[]
+
+--- @class (internal) vim._watch.BackendOpts
+--- @field include vim._watch.CompiledFilter
+--- @field exclude? vim._watch.CompiledFilter
+--- @field matches? fun(path: string): boolean
+--- @field debounce? integer
+--- @field uvflags? uv.fs_event_start.flags
+--- @field on_error fun(err: string, path?: string)
+
+--- @alias vim._watch.Backend fun(path: string, opts: vim._watch.BackendOpts, callback: vim._watch.Callback): fun()?
+
+--- @class (private) vim._watch.CompiledRule
+--- @field pattern vim.lpeg.Pattern
+--- @field events? vim._watch.FileChangeType[]
+
+--- @class (private) vim._watch.Subscriber
+--- @field pattern vim.lpeg.Pattern Include filter intersected with all rule patterns.
+--- @field rules vim._watch.CompiledRule[]
+--- @field callback vim._watch.Callback
+--- @field on_error fun(err: string)
+
+--- @class (private) vim._watch.Shared
+--- @field key table
+--- @field stat? uv.fs_stat.result
+--- @field failed boolean
+--- @field subscribers table<vim._watch.Subscriber, true>
+--- @field cancel? fun()
+
+--- @type table<'watch'|'watchdirs'|'inotify', table<string, table<vim._watch.Shared, true>>>
+local shared = { watch = {}, watchdirs = {}, inotify = {} }
+
+--- Counts backend watchers with outstanding subscriptions, excluding failed starts.
+--- @return {watch: integer, watchdirs: integer, inotify: integer}
+function M.active()
+  local active = { watch = 0, watchdirs = 0, inotify = 0 }
+
+  for name, paths in pairs(shared) do
+    for _, entries in pairs(paths) do
+      active[name] = active[name] + vim.tbl_count(entries)
+    end
+  end
+
+  return active
+end
+
+--- Removes duplicate roots and roots covered by a parent, without changing any matchers.
+--- For example, { '/src/lib/', '/src/', '/src/' } becomes { '/src/' }.
+--- @param roots string[] Compacted in place.
+--- @return string[]
+local function minimize_roots(roots)
+  table.sort(roots)
+  local count = 0
+  for _, root in ipairs(roots) do
+    -- Nonempty roots end in '/', so '/src/' cannot cover '/src2/'.
+    if count == 0 or not vim.startswith(root, assert(roots[count])) then
+      count = count + 1
+      roots[count] = root
+    end
+  end
+  for i = #roots, count + 1, -1 do
+    roots[i] = nil
+  end
+  return roots
+end
+
+--- Compiles a filter, keeping its path matcher and directory roots together.
+--- For example, '/src/**/*.lua' has roots { '/src/' }.
+--- Roots guide directory traversal; the pattern decides which events to report.
+---
+--- An omitted filter matches everything; invalid or empty filters return nil.
+--- Invalid globs are reported to on_error and skipped.
+---
+--- @param filter vim._watch.Filter?
+--- @param on_error fun(err: string)
+--- @return vim._watch.CompiledFilter?
+local function compile(filter, on_error)
+  if filter == nil then
+    return { pattern = vim.lpeg.P(true), roots = { '' } }
+  elseif type(filter) == 'userdata' then
+    -- Arbitrary LPeg filters cannot be inspected to restrict directory coverage.
+    --- @cast filter vim.lpeg.Pattern
+    return { pattern = filter, roots = { '' } }
+  elseif type(filter) == 'string' then
+    local ok, pattern = pcall(vim.glob.to_lpeg, filter)
+    if not ok then
+      on_error(('Invalid glob %q: %s'):format(filter, pattern))
+      return nil
+    end
+
+    return { pattern = pattern, roots = { vim.glob._get_base(filter) } }
+  end
+
+  local pattern --- @type vim.lpeg.Pattern?
+  local roots = {} --- @type string[]
+
+  for _, item in ipairs(filter) do
+    local compiled = compile(item, on_error)
+    if compiled then
+      pattern = pattern and pattern + compiled.pattern or compiled.pattern
+      vim.list_extend(roots, compiled.roots)
+    end
+  end
+
+  return pattern and { pattern = pattern, roots = minimize_roots(roots) } or nil
+end
+
+--- Builds a filter that only matches paths accepted by both inputs.
+--- Examples:
+--- - Roots '/src/' and '/src/lib/' give '/src/lib/'.
+--- - Roots '/src/' and '/test/' give no roots because they do not overlap.
+--- @param a vim._watch.CompiledFilter
+--- @param b vim._watch.CompiledFilter
+--- @return vim._watch.CompiledFilter
+local function intersect(a, b)
+  local roots = {} --- @type string[]
+  for _, root in ipairs(a.roots) do
+    for _, other in ipairs(b.roots) do
+      -- Nonempty roots end in '/', so startswith cannot confuse '/src/' with '/src2/'.
+      if vim.startswith(root, other) then
+        roots[#roots + 1] = root
+      elseif vim.startswith(other, root) then
+        roots[#roots + 1] = other
+      end
+    end
+  end
+
+  return {
+    -- Both filters must match from the beginning of the full path.
+    -- EmmyLua does not infer the LPeg length operator's result type.
+    pattern = (#a.pattern * b.pattern) --[[@as vim.lpeg.Pattern]],
+    roots = minimize_roots(roots),
+  }
+end
+
+--- Calls notify for each subscriber present when dispatch starts, unless
+--- cancelled before its turn. New subscribers wait for the next dispatch.
+--- Raises the first error after notifying the others.
+--- @param entry vim._watch.Shared
+--- @param notify fun(subscriber: vim._watch.Subscriber)
+local function dispatch(entry, notify)
+  local first_error
+
+  -- Callbacks can subscribe or cancel other subscriptions while handling an event.
+  for _, subscriber in ipairs(vim.tbl_keys(entry.subscribers)) do
+    if entry.subscribers[subscriber] then
+      local ok, err = pcall(notify, subscriber)
+      if not ok then
+        first_error = first_error or tostring(err)
+      end
+    end
+  end
+
+  if first_error then
+    error(first_error)
+  end
+end
+
+--- @param name 'watch'|'watchdirs'|'inotify'
+--- @param backend vim._watch.Backend
+--- @param path string
+--- @param opts vim._watch.watch.Opts
+--- @param rules {pattern: vim._watch.Filter?, events: vim._watch.FileChangeType[]?}[]
+--- @param handlers {callback: vim._watch.Callback, on_error: fun(err: string)}
+--- @return fun()
+local function subscribe(name, backend, path, opts, rules, handlers)
+  local key = {
+    include_pattern = opts.include_pattern,
+    exclude_pattern = opts.exclude_pattern,
+    debounce = name == 'watchdirs' and (opts.debounce or 500) or nil,
+    uvflags = name == 'watch' and (opts.uvflags or {}) or nil,
+    -- watchdirs() set up for src/** can leave tests/ unwatched. Reusing that backend
+    -- for tests/** would miss its events, so keep rules in the sharing key.
+    -- watch() uses the same OS watch regardless of glob rules and can share it.
+    rules = name ~= 'watch' and rules or nil,
+  }
+
+  -- Validate every subscription, even when reusing a backend. Invalid globs do not mean the
+  -- backend has failed, and each subscriber should receive its own diagnostics.
+  local include = compile(key.include_pattern, handlers.on_error)
+  local exclude = key.exclude_pattern and compile(key.exclude_pattern, handlers.on_error)
+  local compiled = {} --- @type vim._watch.CompiledRule[]
+  local combined = { pattern = vim.lpeg.P(false), roots = {} } --- @type vim._watch.CompiledFilter
+
+  for _, rule in ipairs(rules) do
+    local filter = compile(rule.pattern, handlers.on_error)
+    if filter then
+      compiled[#compiled + 1] = { pattern = filter.pattern, events = rule.events }
+      combined.pattern = combined.pattern + filter.pattern
+      vim.list_extend(combined.roots, filter.roots)
+    end
+  end
+
+  if not include or #compiled == 0 then
+    return function() end
+  end
+
+  local filter = intersect(include, combined)
+
+  --- @type vim._watch.Subscriber
+  local subscriber = {
+    pattern = filter.pattern,
+    rules = compiled,
+    callback = handlers.callback,
+    on_error = handlers.on_error,
+  }
+
+  local stat = uv.fs_stat(path)
+  local entry --- @type vim._watch.Shared?
+
+  for r in pairs(shared[name][path] or {}) do
+    if
+      not r.failed
+      and stat
+      and r.stat
+      and stat.dev == r.stat.dev
+      and stat.ino == r.stat.ino
+      and vim.deep_equal(r.key, key)
+    then
+      entry = r
+      break
+    end
+  end
+
+  if entry then
+    entry.subscribers[subscriber] = true
+  else
+    entry = { key = key, stat = stat, failed = false, subscribers = { [subscriber] = true } }
+
+    --- @type vim._watch.BackendOpts
+    local backend_opts = {
+      debounce = key.debounce,
+      uvflags = key.uvflags,
+      include = name == 'watch' and include or filter,
+      exclude = exclude,
+      on_error = function(err, fullpath)
+        if not fullpath then
+          entry.failed = true
+        end
+        dispatch(entry, function(s)
+          if not fullpath or s.pattern:match(fullpath) ~= nil then
+            s.on_error(err)
+          end
+        end)
+      end,
+    }
+
+    if name == 'watch' then
+      backend_opts.matches = function(fullpath)
+        for s in pairs(entry.subscribers) do
+          if s.pattern:match(fullpath) ~= nil then
+            return true
+          end
+        end
+        return false
+      end
+    end
+
+    entry.cancel = backend(path, backend_opts, function(fullpath, change_type)
+      dispatch(entry, function(s)
+        for _, rule in ipairs(s.rules) do
+          if
+            rule.pattern:match(fullpath) ~= nil
+            and (not rule.events or vim.list_contains(rule.events, change_type))
+          then
+            s.callback(fullpath, change_type)
+            return
+          end
+        end
+      end)
+    end)
+
+    if not entry.cancel then
+      return function() end
+    end
+
+    -- Publish only after setup completes, so reentrant calls cannot reuse partial watchers.
+    shared[name][path] = shared[name][path] or {}
+    shared[name][path][entry] = true
+  end
+
+  return function()
+    if not entry.subscribers[subscriber] then
+      return
+    end
+
+    entry.subscribers[subscriber] = nil
+
+    if not next(entry.subscribers) then
+      shared[name][path][entry] = nil
+      if not next(shared[name][path]) then
+        shared[name][path] = nil
+      end
+
+      assert(entry.cancel)()
+    end
+  end
+end
+
+--- Compatible calls share a backend until their last subscription is cancelled.
+--- watch() subscriptions can share a backend with different rules.
+--- watchdirs() and inotify() subscriptions need matching rules.
+--- Comparisons match globs by value and LPeg patterns by identity.
+--- Failed or replaced roots are never reused.
+--- @param name 'watch'|'watchdirs'|'inotify'
+--- @param backend vim._watch.Backend
+--- @param path string|vim._watch.Rule[]
+--- @param opts vim._watch.watch.Opts?
+--- @param callback vim._watch.Callback
+--- @return fun()
+local function start_watch(name, backend, path, opts, callback)
+  vim.validate('path', path, { 'string', 'table' })
+  vim.validate('opts', opts, 'table', true)
+  vim.validate('callback', callback, 'function')
+
+  opts = opts or {}
+  local on_error = opts.on_error or log.error
+
+  if type(path) == 'string' then
+    path = { { path = path } }
+  end
+
+  --- @type table<string, {pattern: vim._watch.Filter?, events: vim._watch.FileChangeType[]?}[]>
+  local by_path = vim.defaulttable()
+
+  for _, rule in ipairs(path) do
+    table.insert(
+      by_path[vim.fs.normalize(rule.path)],
+      { pattern = rule.pattern, events = rule.events }
+    )
+  end
+
+  local cancels = {} --- @type (fun())[]
+
+  local function cancel_all()
+    for _, cancel in ipairs(cancels) do
+      cancel()
+    end
+  end
+
+  for root, rules in pairs(by_path) do
+    local ok, result = pcall(subscribe, name, backend, root, opts, rules, {
+      callback = callback,
+      on_error = function(err)
+        on_error(('%s (watching %s)'):format(err, root))
+      end,
+    })
+
+    if not ok then
+      cancel_all()
+      error(result, 0)
+    end
+
+    cancels[#cancels + 1] = result
+  end
+
+  return cancel_all
+end
+
+--- Decides if `path` should be skipped.
+--- @param path string
+--- @param opts vim._watch.BackendOpts
+local function skip(path, opts)
+  return opts.include.pattern:match(path) == nil
+    or (opts.exclude ~= nil and opts.exclude.pattern:match(path) ~= nil)
+end
+
+--- Initializes and starts a |uv_fs_event_t|
+---
+--- @param path string The path to watch
+--- @param opts vim._watch.BackendOpts Additional options:
+---      - uvflags (table|nil)
+---                 Same flags as accepted by |uv.fs_event_start()|
+--- @param callback vim._watch.Callback Callback for new events
+--- @return fun()? cancel Stops the watcher; nil if startup failed.
+local function watch(path, opts, callback)
+  local on_error = opts.on_error
+  local handle = assert(uv.new_fs_event())
+
+  local watching_dir = (uv.fs_stat(path) or {}).type == 'directory'
+
+  local _, start_err = handle:start(path, opts.uvflags or {}, function(err, filename, events)
+    if err then
+      -- libuv may repeat a persistent error on every loop iteration, e.g. EPERM on Windows after
+      -- the parent directory of a watched file is deleted (libuv#5399).
+      handle:stop()
+      return on_error(err)
+    end
+    local fullpath = path
+    if filename and watching_dir then
+      fullpath = vim.fs.normalize(vim.fs.joinpath(fullpath, filename))
+    end
+
+    if skip(fullpath, opts) or (opts.matches and not opts.matches(fullpath)) then
+      return
+    end
+
+    --- @type vim._watch.FileChangeType
+    local change_type
+    if events.rename then
+      local _, staterr, staterrname = uv.fs_stat(fullpath)
+      if staterrname == 'ENOENT' then
+        change_type = M.FileChangeType.Deleted
+      else
+        if staterr then
+          return on_error(staterr, fullpath)
+        end
+        change_type = M.FileChangeType.Created
+      end
+    elseif events.change then
+      change_type = M.FileChangeType.Changed
+    end
+    callback(fullpath, change_type)
+  end)
+
+  if start_err then
+    handle:close()
+    on_error(start_err)
+    return nil
+  end
+
+  return function()
+    local _, stop_err = handle:stop()
+    assert(not stop_err, stop_err)
+    local is_closing, close_err = handle:is_closing()
+    assert(not close_err, close_err)
+    if not is_closing then
+      handle:close()
+    end
+  end
+end
+
+--- @param data string
+--- @param opts vim._watch.BackendOpts
+--- @param callback vim._watch.Callback
+local function on_inotifywait_output(data, opts, callback)
+  local d = vim.split(data, '%s+')
+
+  -- only consider the last reported event
+  local path, event, file = assert(d[1]), d[2], d[#d]
+  local fullpath = vim.fs.joinpath(path, file)
+
+  if skip(fullpath, opts) then
+    return
+  end
+
+  --- @type integer
+  local change_type
+
+  if event == 'CREATE' then
+    change_type = M.FileChangeType.Created
+  elseif event == 'DELETE' then
+    change_type = M.FileChangeType.Deleted
+  elseif event == 'MODIFY' then
+    change_type = M.FileChangeType.Changed
+  elseif event == 'MOVED_FROM' then
+    change_type = M.FileChangeType.Deleted
+  elseif event == 'MOVED_TO' then
+    change_type = M.FileChangeType.Created
+  end
+
+  if change_type then
+    callback(fullpath, change_type)
+  end
+end
+
+--- @param path string The path to watch. Must refer to a directory.
+--- @param opts vim._watch.BackendOpts
+--- @param callback vim._watch.Callback Callback for new events
+--- @return fun()? cancel Stops the process; nil if startup failed.
+local function inotify(path, opts, callback)
+  local on_error = opts.on_error
+  local cancelled = false
+  local ok, obj = pcall(vim.system, {
+    'inotifywait',
+    '--quiet', -- suppress startup messages
+    '--no-dereference', -- don't follow symlinks
+    '--monitor', -- keep listening for events forever
+    '--recursive',
+    '--event',
+    'create',
+    '--event',
+    'delete',
+    '--event',
+    'modify',
+    '--event',
+    'move',
+    string.format('@%s/.git', path), -- ignore git directory
+    path,
+  }, {
+    stderr = function(err, data)
+      if err then
+        on_error(err)
+        return
+      end
+
+      if data and #vim.trim(data) > 0 then
+        if vim.fn.has('linux') == 1 and vim.startswith(data, 'Failed to watch') then
+          data = 'inotify(7) limit reached, see :h inotify-limitations for more info.'
+        end
+        on_error(data)
+      end
+    end,
+    stdout = function(err, data)
+      if err then
+        on_error(err)
+        return
+      end
+
+      for line in vim.gsplit(data or '', '\n', { plain = true, trimempty = true }) do
+        on_inotifywait_output(line, opts, callback)
+      end
+    end,
+    -- --latency is locale dependent but tostring() isn't and will always have '.' as decimal point.
+    env = { LC_NUMERIC = 'C' },
+  }, function(result)
+    if not cancelled then
+      on_error(('inotifywait exited with code %d'):format(result.code))
+    end
+  end)
+
+  if not ok then
+    on_error(obj)
+    return nil
+  end
+
+  return function()
+    cancelled = true
+    obj:kill(2)
+  end
+end
+
+--- Watches a path or set of rules. Compatible subscriptions share a backend watcher.
+--- @param path string|vim._watch.Rule[]
+--- @param opts? vim._watch.watch.Opts
+--- @param callback vim._watch.Callback
+--- @return fun() cancel Releases this subscription; the last cancellation stops the backend.
+function M.watch(path, opts, callback)
+  return start_watch('watch', watch, path, opts, callback)
+end
+
+--- Recursively watches directories. Compatible subscriptions share a backend watcher.
+--- @param path string|vim._watch.Rule[] Roots must be directories.
+--- @param opts? vim._watch.Opts
+--- @param callback vim._watch.Callback
+--- @return fun() cancel Releases this subscription; the last cancellation stops the backend.
+function M.watchdirs(path, opts, callback)
+  return start_watch('watchdirs', require('vim._watchdirs'), path, opts, callback)
+end
+
+--- Recursively watches directories using inotifywait. Compatible subscriptions share a process.
+--- @param path string|vim._watch.Rule[] Roots must be directories.
+--- @param opts? vim._watch.Opts
+--- @param callback vim._watch.Callback
+--- @return fun() cancel Releases this subscription; the last cancellation stops the backend.
+function M.inotify(path, opts, callback)
+  return start_watch('inotify', inotify, path, opts, callback)
+end
+
+return M

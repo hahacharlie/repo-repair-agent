@@ -1,0 +1,80 @@
+use uv_cache::{ARCHIVE_VERSION, ArchiveId, Cache};
+use uv_distribution_filename::WheelFilename;
+use uv_distribution_types::Hashed;
+use uv_pypi_types::{HashDigest, HashDigests};
+
+/// An archive (unzipped wheel) that exists in the local cache.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Archive {
+    /// The unique ID of the entry in the wheel's archive bucket.
+    pub id: ArchiveId,
+    /// The computed hashes of the archive.
+    pub hashes: HashDigests,
+    /// The filename of the wheel.
+    pub filename: WheelFilename,
+    /// The version of the archive bucket.
+    pub version: u8,
+    /// The size of the downloaded archive.
+    pub size: Option<u64>,
+}
+
+impl Archive {
+    /// Create a new [`Archive`] with the given ID and hashes.
+    pub(crate) fn new(
+        id: ArchiveId,
+        hashes: HashDigests,
+        filename: WheelFilename,
+        size: Option<u64>,
+    ) -> Self {
+        Self {
+            id,
+            hashes,
+            filename,
+            version: ARCHIVE_VERSION,
+            size,
+        }
+    }
+
+    /// Returns `true` if the archive exists in the cache.
+    pub(crate) fn exists(&self, cache: &Cache) -> bool {
+        self.version == ARCHIVE_VERSION && cache.archive(&self.id).exists()
+    }
+}
+
+impl Hashed for Archive {
+    fn hashes(&self) -> &[HashDigest] {
+        self.hashes.as_slice()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn round_trip_current_archive() {
+        for size in [None, Some(42)] {
+            let archive = Archive::new(
+                ArchiveId::default(),
+                HashDigests::from(
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                        .parse::<HashDigest>()
+                        .expect("valid SHA-256 digest"),
+                ),
+                WheelFilename::from_str("iniconfig-2.0.0-py3-none-any.whl")
+                    .expect("valid wheel filename"),
+                size,
+            );
+            let bytes = rmp_serde::to_vec(&archive).expect("serialize archive");
+            let parsed: Archive = rmp_serde::from_slice(&bytes).expect("deserialize archive");
+
+            assert_eq!(parsed.id, archive.id);
+            assert_eq!(parsed.hashes, archive.hashes);
+            assert_eq!(parsed.filename, archive.filename);
+            assert_eq!(parsed.version, archive.version);
+            assert_eq!(parsed.size, archive.size);
+        }
+    }
+}

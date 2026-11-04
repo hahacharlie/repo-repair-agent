@@ -1,0 +1,28 @@
+on:
+  workflow_call:
+
+env:
+  UV_LOCKED: 1
+  UV_PYTHON_DOWNLOADS_JSON_URL: ${{ github.workspace }}/crates/uv-python-managed/download-metadata.json
+
+jobs:
+  dist-plan:
+    name: "dist plan"
+    runs-on: ${{ github.repository_owner == 'astral-sh' && 'github-ubuntu-24.04-x86_64-4' || 'ubuntu-latest' }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: $/.github/actions/setup-uv-toolchain
+        with:
+          enable-cache: true
+
+      - name: Run dist plan
+        run: |
+          uv run --locked --only-dev dist plan --output-format=json > plan-dist-manifest.json
+          echo "dist plan completed successfully"
+          cat plan-dist-manifest.json

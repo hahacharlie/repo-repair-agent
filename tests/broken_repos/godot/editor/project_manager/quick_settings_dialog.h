@@ -1,0 +1,107 @@
+/**************************************************************************/
+/*  quick_settings_dialog.h                                               */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
+#pragma once
+
+#include "scene/gui/dialogs.h"
+#include "scene/gui/label.h"
+
+class Button;
+class EditorSettingsDialog;
+class MarginContainer;
+class OptionButton;
+class PanelContainer;
+class VBoxContainer;
+
+class SettingLabel : public Label {
+	GDCLASS(SettingLabel, Label);
+
+	String setting_name;
+
+public:
+	virtual Control *make_custom_tooltip(const String &p_text) const override;
+
+	SettingLabel(const String &p_text, const String &p_setting);
+};
+
+class QuickSettingsDialog : public AcceptDialog {
+	GDCLASS(QuickSettingsDialog, AcceptDialog);
+
+	Vector<String> editor_languages;
+	Vector<String> editor_styles;
+	Vector<String> editor_themes;
+	Vector<String> editor_scales;
+	Vector<String> editor_network_modes;
+	Vector<String> editor_check_for_updates;
+	Vector<String> editor_directory_naming_conventions;
+
+	void _fetch_setting_values();
+	void _update_current_values();
+
+	PanelContainer *settings_list_panel = nullptr;
+	VBoxContainer *settings_list = nullptr;
+
+	void _add_setting_control(const String &p_text, const String &p_setting, Control *p_control);
+
+	OptionButton *language_option_button = nullptr;
+	OptionButton *style_option_button = nullptr;
+	OptionButton *theme_option_button = nullptr;
+	OptionButton *scale_option_button = nullptr;
+	OptionButton *network_mode_option_button = nullptr;
+	OptionButton *check_for_update_button = nullptr;
+	OptionButton *directory_naming_convention_button = nullptr;
+
+	Label *custom_theme_label = nullptr;
+	EditorSettingsDialog *editor_settings_dialog = nullptr;
+
+	void _language_selected(int p_id);
+	void _style_selected(int p_id);
+	void _theme_selected(int p_id);
+	void _scale_selected(int p_id);
+	void _network_mode_selected(int p_id);
+	void _check_for_update_selected(int p_id);
+	void _directory_naming_convention_selected(int p_id);
+	void _set_setting_value(const String &p_setting, const Variant &p_value, bool p_restart_required = false);
+	void _show_full_settings();
+
+	Label *restart_required_label = nullptr;
+	Button *restart_required_button = nullptr;
+
+	void _request_restart();
+
+protected:
+	void _notification(int p_what);
+	static void _bind_methods();
+
+public:
+	void update_size_limits(const Size2 &p_max_popup_size);
+
+	QuickSettingsDialog();
+};
