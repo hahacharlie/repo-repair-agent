@@ -90,17 +90,20 @@ Each repair run creates a clean `.venv` inside its temporary work copy. Starting
 
 ## Docker execution
 
-The agent can run a trusted Python repair target in a resource-limited Docker
+The agent can run a trusted repair target in a resource-limited Docker
 container. The original repository is copied first; only that temporary copy is
-mounted at `/workspace`. A repository with a `Dockerfile` selects Docker in
-`--backend auto` mode, or Docker can be selected explicitly:
+mounted at `/workspace`. A repository with a `Dockerfile`, or any non-Python
+repository, selects Docker in `--backend auto` mode; Docker can also be
+selected explicitly:
 
 ```console
 uv run repo-repair-agent my-repository --backend docker
 ```
 
-Repository markers select a default image (`python`, Go, Rust, Node, Java,
-CMake, or Make); use `--docker-image` to override it. The agent checks that
+Repository markers select the toolchain and a default image: `Cargo.toml`
+(cargo, `rust:bookworm`), `go.mod` (go, `golang:bookworm`), `meson.build`,
+`SConstruct`, `CMakeLists.txt`, `configure`/`Makefile` (all `ubuntu:24.04`),
+and Python files (`python:3.12-slim`). Use `--docker-image` to override it. The agent checks that
 Docker is installed and its engine is running, then checks for the selected
 image locally. It never downloads an image silently. When the report says that
 an image is missing, review the image name and re-run with
@@ -113,12 +116,22 @@ uv run repo-repair-agent my-repository --backend docker --allow-docker-pull
 Containers have no network for application and test commands. Network is
 enabled only while installing dependencies that the caller or Judge has already
 allowed. The container runs with CPU, memory, PID, capability, filesystem, and
-temporary-directory limits. Docker execution currently repairs Python source
-only; non-Python repositories are detected and reported without modifying them.
+temporary-directory limits.
+
+For a non-Python repository the "application" step is the build command
+(`cargo build`, `go build ./...`, `cmake`, `meson`, `scons`, or
+`./configure && make`) and the test step is the matching test command
+(`cargo test`, `go test ./...`, `ctest`, `meson test`, `make check`) when test
+files or test targets are found. Dependencies are fetched once with network
+(`cargo fetch`, `go mod download`); the Fixer's `install` action maps to
+`cargo add` or `go get`. The stock `ubuntu:24.04` image has no compiler, so
+C/C++ repositories need `--docker-image` pointing at an image with their build
+tools and system libraries. Compiled builds need a long `--timeout` (minutes,
+not the 30 s default).
 
 ## Current boundaries
 
-This is the first implementation slice, not the complete milestone system. It supports root `main.py`, `app.py`, or `run.py` and standard-library unittest discovery (`test*.py`, under `tests/` when present). Pytest-only projects and non-Python repairs are not supported. Detected tests are not a guarantee of adequate functional coverage.
+This is the first implementation slice, not the complete milestone system. It supports root `main.py`, `app.py`, or `run.py` and standard-library unittest discovery (`test*.py`, under `tests/` when present). Pytest-only projects are not supported. Non-Python repairs run only in Docker. Detected tests are not a guarantee of adequate functional coverage.
 
 A temporary directory and virtual environment are **not a security sandbox**. Target programs and package installers run with your user permissions; use only trusted fixtures. Relevant source files and execution output are sent to Voyager in live mode. Do not use repositories containing secrets or private data. Reports contain source edits and command output; review before sharing.
 

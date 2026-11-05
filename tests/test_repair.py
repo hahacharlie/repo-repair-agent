@@ -188,6 +188,52 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(calls[1][0], ["python", "-m", "venv", ".venv"])
         self.assertTrue(all(not network for _, _, network in calls))
 
+    def test_cargo_repository_builds_and_tests_in_docker(self):
+        backend = DockerBackend("rust:test")
+        calls = []
+
+        def run_in_container(command, cwd, timeout, network=False):
+            calls.append((command, network))
+            # The first build fails until the Fixer's edit is applied.
+            failing = command == ["cargo", "build"] and not (
+                Path(cwd) / "src/main.rs").read_text().startswith("fn main")
+            return command_result(1 if failing else 0)
+
+        fix = {
+            "action": {
+                "action": "edit",
+                "reason": "Add missing main",
+                "files": {"src/main.rs": "fn main() {}\n"},
+            },
+            "approved": True,
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "src").mkdir()
+            (root / "tests").mkdir()
+            (root / "Cargo.toml").write_text("[package]\nname = \"demo\"\n")
+            (root / "src/main.rs").write_text("broken\n")
+            (root / "tests/cli.rs").write_text("#[test] fn ok() {}\n")
+            with patch.object(
+                    backend, "availability_status", return_value=command_result()), patch.object(
+                    backend, "image_status", return_value=command_result()), patch.object(
+                    backend, "run", side_effect=run_in_container), patch(
+                    "repair.make_backend", return_value=backend):
+                report = repair(root, ScriptedAgents([fix]), backend="auto")
+            self.assertEqual((root / "src/main.rs").read_text(), "broken\n")
+
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["execution_backend"], "docker")
+        self.assertEqual(sorted(report["fixed_files"]), ["src/main.rs"])
+        self.assertEqual(calls[:5], [
+            (["test", "-f", "Cargo.toml"], False),
+            (["mkdir", "-p", ".home/tmp"], False),
+            (["cargo", "fetch"], True),
+            (["cargo", "build"], False),
+            (["cargo", "test"], False),
+        ])
+        self.assertIn("cargo build", report["steps_to_run"])
+
 
 if __name__ == "__main__":
     unittest.main()

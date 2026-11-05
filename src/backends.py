@@ -1,6 +1,8 @@
 """Execution backends for trusted local runs and isolated Docker runs."""
 
+import os
 from pathlib import Path
+import sys
 
 from execution import run_command
 
@@ -58,10 +60,20 @@ class DockerBackend:
             # root, so a host UID cannot create the disposable environment.
             # Root has no Linux capabilities and can write only the mounted
             # temporary work copy and the container's temporary filesystem.
-            "--user", "0:0",
+            # On a Linux engine that same lack of capabilities stops root from
+            # writing the host user's folder, so use the host UID there.
+            "--user", (
+                f"{os.getuid()}:{os.getgid()}" if sys.platform == "linux"
+                else "0:0"),
             "--env", "PYTHONDONTWRITEBYTECODE=1",
             "--env", "PYTHONUNBUFFERED=1",
-            "--env", "HOME=/tmp",
+            # Cargo and Go caches are too big for the 64m /tmp, and their
+            # images point CARGO_HOME/GOPATH at read-only folders, so keep
+            # every cache inside the disposable work copy.
+            "--env", "HOME=/workspace/.home",
+            "--env", "CARGO_HOME=/workspace/.home/.cargo",
+            "--env", "GOPATH=/workspace/.home/go",
+            "--env", "GOTMPDIR=/workspace/.home/tmp",
             "--env", "PIP_NO_CACHE_DIR=1",
             "--volume", str(root) + ":/workspace:rw",
             "--workdir", "/workspace",
