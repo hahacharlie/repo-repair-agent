@@ -83,7 +83,7 @@ class AgentTests(unittest.TestCase):
             json.loads(call.args[0].data)["messages"][0]["content"]
             for call in request.call_args_list
         ]
-        self.assertIn("automatically added to requirements.txt", prompts[0])
+        self.assertIn("records it in the project manifest", prompts[0])
         self.assertIn("copying fixed_files the first step", prompts[3])
         self.assertEqual(agents.requests[0]["request_id"], "test-request")
         self.assertNotIn("private reasoning", json.dumps(agents.requests))

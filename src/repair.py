@@ -12,7 +12,8 @@ import tempfile
 from agents import ModelAgents, ModelResponseError, basic_run_steps
 from backends import DockerBackend, make_backend
 from execution import run_command
-from repository import IGNORED, inspect_repository, snapshot
+from repository import (
+    IGNORED, TOOLCHAINS, inspect_repository, snapshot, source_suffixes)
 from validation import validate_action
 
 
@@ -55,8 +56,12 @@ def select_backend(metadata, requested, docker_image=None):
     """Choose local execution unless Docker is requested or required."""
     if requested not in {"auto", "local", "docker"}:
         raise ValueError("Unsupported execution backend: " + str(requested))
+    # Compiled toolchains are only guaranteed inside their Docker images.
     if requested == "auto":
-        requested = "docker" if metadata["requires_linux"] else "local"
+        requested = (
+            "docker"
+            if metadata["requires_linux"] or metadata["language"] != "python"
+            else "local")
     image = docker_image or metadata["docker_image"]
     return make_backend(requested, image)
 
@@ -129,13 +134,13 @@ def repair(
                         + "' could not be downloaded.")
                     return report
 
-        # The repair agents currently support Python source edits only.
-        if metadata["language"] != "python":
+        if metadata["build_system"] == "unknown":
             report["reason"] = (
-                "Docker execution detected " + metadata["language"]
-                + "/" + metadata["build_system"]
-                + ", but repair agents currently support Python repositories only")
+                "No supported build system found (expected one of: "
+                + ", ".join(sorted(TOOLCHAINS)) + ")")
             return report
+        toolchain = TOOLCHAINS[metadata["build_system"]]
+        is_python = metadata["language"] == "python"
 
         def execute(command, cwd, command_timeout, network=False):
             # Keep local execution patchable by the existing test suite.
@@ -161,7 +166,22 @@ def repair(
                 return report
 
         installed_packages = []
-        has_requirements = (root / "requirements.txt").is_file()
+        has_requirements = is_python and (root / "requirements.txt").is_file()
+        # Record manifest text so tool-made dependency edits reach the patch.
+        manifests = toolchain.get("manifests", [])
+        originals = {}
+
+        def read_manifests():
+            return {
+                name: (root / name).read_text()
+                for name in manifests if (root / name).is_file()
+            }
+
+        def keep_manifest_changes(before):
+            after = read_manifests()
+            for name in set(before) | set(after):
+                if before.get(name, "") != after.get(name, ""):
+                    originals.setdefault(name, before.get(name, ""))
 
         def add_run_steps():
             # Save AI instructions, with a simple backup if that call fails.
@@ -198,7 +218,11 @@ def repair(
 
         # Start clean so old packages cannot hide missing dependencies. Docker
         # writes its environment inside the temporary work copy, never source.
-        if execution_backend.name == "docker":
+        python = None
+        if not is_python:
+            # Compiled toolchains need the cache folder named in backends.py.
+            setup = execute(["mkdir", "-p", ".home/tmp"], root, timeout)
+        elif execution_backend.name == "docker":
             python = "/workspace/.venv/bin/python"
             setup = execute(
                 ["python", "-m", "venv", ".venv"], root, timeout)
@@ -219,19 +243,30 @@ def repair(
         report["environment_setup"] = setup
         if setup["exit_code"] != 0 or setup["timeout"]:
             report["reason"] = (
-                "Docker Python environment setup failed"
+                "Docker environment setup failed"
                 if execution_backend.name == "docker"
                 else "Python environment setup failed")
             add_run_steps()
             return report
 
+        def with_python(command):
+            return [python] + command if python else command
+
+        def pip_install(package):
+            return (
+                ["uv", "pip", "install", "--python", python, package]
+                if execution_backend.name == "local"
+                else [python, "-m", "pip", "install", package])
+
         def verify():
-            # Run the app first, then run tests when they exist.
-            app = execute([python, metadata["entry"]], root, timeout)
+            # Run the app (or build) first, then run tests when they exist.
+            app = execute(
+                [python, metadata["entry"]] if is_python
+                else metadata["build_command"], root, timeout)
             tests = None
             if metadata["test_command"]:
                 tests = execute(
-                    [python] + metadata["test_command"], root, timeout)
+                    with_python(metadata["test_command"]), root, timeout)
             return {"app": app, "tests": tests}
 
         def passed(observation):
@@ -242,19 +277,15 @@ def repair(
                 if item is not None
             )
 
-        # Install listed packages only when the user allows it.
-        if allow_install and has_requirements:
-            setup = execute(
-                [
-                    *( ["uv", "pip", "install", "--python", python]
-                       if execution_backend.name == "local"
-                       else [python, "-m", "pip", "install"] ),
-                    "-r", "requirements.txt",
-                ],
-                root,
-                timeout,
-                network=True,
-            )
+        # Install listed packages only when the user allows it. Builds then
+        # run with the network off, so declared dependencies are fetched here.
+        fetch = (
+            pip_install("-r") + ["requirements.txt"] if has_requirements
+            else toolchain.get("fetch"))
+        if allow_install and fetch:
+            before_manifests = read_manifests()
+            setup = execute(fetch, root, timeout, network=True)
+            keep_manifest_changes(before_manifests)
             report["setup"] = setup
             if setup["exit_code"] != 0 or setup["timeout"]:
                 report["reason"] = "Declared dependency installation failed"
@@ -264,7 +295,6 @@ def repair(
         # Save the first app and test result before asking for a fix.
         observation = verify()
         report["initial"] = observation
-        originals = {}
         seen = set()
 
         for _ in range(rounds):
@@ -277,11 +307,12 @@ def repair(
                 # Give the Fixer the repo files, errors, and past work.
                 action = agents.propose({
                     "repository": metadata,
-                    "files": snapshot(root),
+                    "files": snapshot(root, metadata["build_system"]),
                     "observation": observation,
                     "history": report["history"][:-1],
                 })
-                validate_action(action, root)
+                validate_action(
+                    action, root, source_suffixes(metadata["build_system"]))
                 record["action"] = action
                 # Do not run the same action more than once.
                 signature = json.dumps(
@@ -303,6 +334,11 @@ def repair(
                     if not allow_install:
                         record["error"] = "Dependency installation disabled"
                         continue
+                    if not is_python and "add" not in toolchain:
+                        record["error"] = (
+                            "Dependency installation unsupported for "
+                            + metadata["build_system"])
+                        continue
                     review = agents.review_install({
                         "package": action["package"],
                         "reason": action["reason"],
@@ -312,21 +348,20 @@ def repair(
                     record["judge"] = review
                     if not review["approved"]:
                         continue
+                    before_manifests = read_manifests()
                     installation = execute(
-                        [
-                            *( ["uv", "pip", "install", "--python", python]
-                               if execution_backend.name == "local"
-                               else [python, "-m", "pip", "install"] ),
-                            action["package"],
-                        ],
+                        pip_install(action["package"]) if is_python
+                        else toolchain["add"] + [action["package"]],
                         root,
                         timeout,
                         network=True,
                     )
                     record["installation"] = installation
-                    if (installation["exit_code"] == 0
-                            and not installation["timeout"]):
+                    # cargo add and go get edit the manifest themselves.
+                    keep_manifest_changes(before_manifests)
+                    if command_passed(installation):
                         installed_packages.append(action["package"])
+                    if command_passed(installation) and is_python:
                         requirements = root / "requirements.txt"
                         old_requirements = (
                             requirements.read_text()

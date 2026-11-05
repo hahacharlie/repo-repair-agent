@@ -57,12 +57,13 @@ class BackendTests(unittest.TestCase):
         with self.subTest("go"):
             self.assertEqual(
                 detect_repository(Path("tests/broken_repos/lazygit"))[:3],
-                ("go", "go", "golang:1.22-bookworm"),
+                ("go", "go", "golang:bookworm"),
             )
             metadata = inspect_repository(
                 Path("tests/broken_repos/lazygit"))
             self.assertEqual(metadata["language"], "go")
-            self.assertIsNone(metadata["entry"])
+            self.assertEqual(metadata["entry"], "go.mod")
+            self.assertEqual(metadata["build_command"], ["go", "build", "./..."])
         with self.subTest("python"):
             metadata = inspect_repository(
                 Path("tests/broken_repos/undefined_greeting_variable"))

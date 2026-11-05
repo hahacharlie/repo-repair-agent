@@ -80,7 +80,7 @@ def main():
 
     # Read the repo path and other options from the command line.
     parser = argparse.ArgumentParser(
-        description="Repair a trusted Python repository in a temporary copy.")
+        description="Repair a trusted repository in a temporary copy.")
     parser.add_argument("repository", type=Path)
     parser.add_argument(
         "--script", type=Path, help="Offline JSON action/review sequence")
@@ -185,7 +185,8 @@ def main():
     tests = final.get("tests")
     if app:
         app_result = "passed" if app["exit_code"] == 0 and not app["timeout"] else "failed"
-        print("Application: " + app_result)
+        label = "Application: " if report["repository"]["language"] == "python" else "Build: "
+        print(label + app_result)
     if tests:
         test_result = "passed" if tests["exit_code"] == 0 and not tests["timeout"] else "failed"
         print("Tests: " + test_result)

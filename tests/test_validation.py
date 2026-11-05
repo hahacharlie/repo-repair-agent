@@ -21,6 +21,18 @@ class ValidationTests(unittest.TestCase):
                     BROKEN_REPO,
                 )
 
+    def test_source_suffixes_follow_the_repository_language(self):
+        root = Path(__file__).resolve().parent / "broken_repos" / "fzf"
+        edit = {"action": "edit", "reason": "fix", "files": {"main.go": ""}}
+        validate_action(edit, root, {".go"})
+        with self.assertRaises(ValueError):
+            validate_action(edit, root)
+        with self.assertRaises(ValueError):
+            validate_action({
+                "action": "edit", "reason": "fix",
+                "files": {"src/options_test.go": ""},
+            }, root, {".go"})
+
     def test_nested_action_is_rejected_cleanly(self):
         for action in ({"type": "edit"}, ["edit"], None, 42):
             with self.subTest(action=action), self.assertRaises(ValueError):
