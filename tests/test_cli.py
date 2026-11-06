@@ -20,6 +20,17 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertEqual(output.getvalue(), message)
 
+    def test_agent_timeout_must_be_within_cli_range(self):
+        output = io.StringIO()
+        with patch(
+                "sys.argv", [
+                    "repo-repair-agent", "unused",
+                    "--agent-timeout", "3601",
+                ]), redirect_stderr(output), self.assertRaises(SystemExit) as error:
+            main((3, 10, 0))
+        self.assertEqual(error.exception.code, 2)
+        self.assertIn("--agent-timeout must be from 1 to 3600", output.getvalue())
+
     def test_clean_repository_reports_no_error_and_returns_zero(self):
         report = {
             "status": "passed",

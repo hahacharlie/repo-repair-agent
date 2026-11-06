@@ -118,6 +118,14 @@ def main(version_info=None):
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument(
+        "--agent-timeout",
+        type=int,
+        default=ct.DEFAULT_AGENT_TIMEOUT,
+        help=(
+            "Total seconds allowed inside Fixer/Judge API calls "
+            "(default: 1200, maximum: 3600)"),
+    )
+    parser.add_argument(
         "--agent-logs",
         action="store_true",
         help="Save each Fixer and Judge prompt and response",
@@ -157,6 +165,12 @@ def main(version_info=None):
         "--output", type=Path, default=Path("results"),
         help="Folder used to save repair results")
     args = parser.parse_args()
+    if not (ct.MINIMUM_AGENT_TIMEOUT
+            <= args.agent_timeout <= ct.MAXIMUM_AGENT_TIMEOUT):
+        parser.error(
+            "--agent-timeout must be from "
+            + str(ct.MINIMUM_AGENT_TIMEOUT) + " to "
+            + str(ct.MAXIMUM_AGENT_TIMEOUT) + " seconds")
 
     try:
         repository = resolve_repository(args.repository)
@@ -195,7 +209,11 @@ def main(version_info=None):
         if script:
             agents = ScriptedAgents(json.loads(script.read_text()))
         else:
-            agents = ModelAgents(config, capture_logs=args.agent_logs)
+            agents = ModelAgents(
+                config,
+                capture_logs=args.agent_logs,
+                time_budget_seconds=args.agent_timeout,
+            )
         print("Repairing repository: " + repository.name, flush=True)
         report = repair(
             repository,

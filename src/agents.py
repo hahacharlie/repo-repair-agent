@@ -60,6 +60,27 @@ class ModelResponseError(ValueError):
     """An error that does not show the model reply."""
 
 
+class AgentTimeLimitError(ModelResponseError):
+    """The cumulative Fixer/Judge API time budget was exhausted."""
+
+
+def remaining_request_time(deadline, idle_timeout, clock):
+    remaining = deadline - clock()
+    if remaining <= 0:
+        raise AgentTimeLimitError(
+            "Fixer/Judge API time limit reached; no action was applied")
+    return min(remaining, idle_timeout)
+
+
+def set_response_timeout(response, timeout):
+    # Keep one blocking stream read inside the remaining wall-clock budget.
+    fp = getattr(response, "fp", None)
+    raw = getattr(fp, "raw", None)
+    sock = getattr(raw, "_sock", None)
+    if sock is not None:
+        sock.settimeout(max(timeout, 0.001))
+
+
 def parse_model_json(content):
     # Remove one code block when the model adds one.
     text = content.strip()
@@ -80,11 +101,18 @@ def parse_model_json(content):
     return value
 
 
-def read_model_stream(response, metrics, start):
+def read_model_stream(
+        response, metrics, start, deadline, idle_timeout, clock):
     # Join the small reply parts sent by the model server.
     content = []
     finished = None
-    for line in response:
+    while True:
+        timeout = remaining_request_time(deadline, idle_timeout, clock)
+        set_response_timeout(response, timeout)
+        line = response.readline()
+        remaining_request_time(deadline, idle_timeout, clock)
+        if not line:
+            break
         if not line.startswith(b"data:"):
             continue
         payload = line[5:].strip()
@@ -112,11 +140,13 @@ def read_model_stream(response, metrics, start):
                     ("reasoning_content", "first_reasoning_seconds"),
                     ("content", "first_content_seconds")):
                 if delta.get(field) and label not in metrics:
-                    metrics[label] = round(time.monotonic() - start, 2)
+                    metrics[label] = round(clock() - start, 2)
                     phase = "answer" if field == "content" else "reasoning"
+                    agent_name = metrics["agent"]
+                    model_name = metrics["model"]
                     print(
-                        f"[{metrics['agent']}: {metrics['model']}] Receiving {phase} "
-                        f"({metrics[label]}s)",
+                        f"[{agent_name}: {model_name}] "
+                        f"Receiving {phase} ({metrics[label]}s)",
                         file=sys.stderr,
                         flush=True,
                     )
@@ -131,13 +161,35 @@ def read_model_stream(response, metrics, start):
         "Model stream ended without [DONE]; no action was applied")
 
 
+def read_model_json(response, deadline, idle_timeout, clock):
+    # Do not let a non-streaming response evade the cumulative deadline.
+    chunks = []
+    while True:
+        timeout = remaining_request_time(deadline, idle_timeout, clock)
+        set_response_timeout(response, timeout)
+        chunk = response.read(65536)
+        remaining_request_time(deadline, idle_timeout, clock)
+        if not chunk:
+            return json.loads(b"".join(chunks))
+        chunks.append(chunk)
+
+
 class ModelAgents:
-    def __init__(self, config, capture_logs=False):
+    def __init__(
+            self, config, capture_logs=False,
+            time_budget_seconds=ct.DEFAULT_AGENT_TIMEOUT, clock=None):
         # Read the key from the local environment.
         self.config = config
         self.requests = []
         self.logs = []
         self.capture_logs = capture_logs
+        if (type(time_budget_seconds) is not int
+                or not ct.MINIMUM_AGENT_TIMEOUT
+                <= time_budget_seconds <= ct.MAXIMUM_AGENT_TIMEOUT):
+            raise ValueError("Invalid Fixer/Judge API time limit")
+        self.time_budget_seconds = time_budget_seconds
+        self.api_time_used_seconds = 0.0
+        self.clock = clock or time.monotonic
         self.key = os.environ.get(ct.API_KEY_ENV)
         if not self.key:
             raise ValueError(
@@ -151,6 +203,12 @@ class ModelAgents:
     def request(
             self, model, instruction, context,
             agent="model", purpose="request"):
+        remaining_budget = (
+            self.time_budget_seconds - self.api_time_used_seconds)
+        if remaining_budget <= 0:
+            raise AgentTimeLimitError(
+                "Fixer/Judge API time limit reached; no action was applied")
+
         # Send the rule and repo data as two separate messages.
         body = json.dumps({
             "model": model,
@@ -171,8 +229,15 @@ class ModelAgents:
             },
         )
         # Keep simple time and token data for the run report.
-        start = time.monotonic()
-        metrics = {"agent": agent, "model": model, "request_bytes": len(body)}
+        start = self.clock()
+        deadline = start + remaining_budget
+        api_end = None
+        metrics = {
+            "agent": agent,
+            "model": model,
+            "request_bytes": len(body),
+            "agent_time_budget_seconds": self.time_budget_seconds,
+        }
         self.requests.append(metrics)
         log = None
         if self.capture_logs:
@@ -193,7 +258,7 @@ class ModelAgents:
         def progress():
             # Show a short note while a model call is still running.
             while not stopped.wait(15):
-                elapsed = time.monotonic() - start
+                elapsed = self.clock() - start
                 print(
                     f"[{agent}: {model}] Request in progress ({elapsed:.0f}s)",
                     file=sys.stderr,
@@ -208,15 +273,19 @@ class ModelAgents:
         worker = threading.Thread(target=progress, daemon=True)
         worker.start()
         try:
-            timeout = self.config.get(
+            idle_timeout = self.config.get(
                 "api_timeout_seconds", ct.DEFAULT_API_TIMEOUT)
             # Read either a normal JSON reply or a streamed reply.
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                metrics["headers_seconds"] = round(time.monotonic() - start, 2)
+            with urllib.request.urlopen(
+                    request,
+                    timeout=min(idle_timeout, remaining_budget)) as response:
+                metrics["headers_seconds"] = round(self.clock() - start, 2)
                 metrics["request_id"] = response.headers.get(
                     "x-obleth-request-id")
-                if "application/json" in response.headers.get("Content-Type", ""):
-                    result = json.load(response)
+                if "application/json" in response.headers.get(
+                        "Content-Type", ""):
+                    result = read_model_json(
+                        response, deadline, idle_timeout, self.clock)
                     choice = result["choices"][0]
                     metrics["finish_reason"] = choice.get("finish_reason")
                     if choice.get("finish_reason") != "stop":
@@ -224,7 +293,15 @@ class ModelAgents:
                             "Model response incomplete; finish reason was not stop")
                     content = choice["message"]["content"]
                 else:
-                    content = read_model_stream(response, metrics, start)
+                    content = read_model_stream(
+                        response,
+                        metrics,
+                        start,
+                        deadline,
+                        idle_timeout,
+                        self.clock,
+                    )
+            api_end = self.clock()
             metrics["content_chars"] = len(content)
             if log is not None:
                 log["response_text"] = content
@@ -238,12 +315,22 @@ class ModelAgents:
                 log["error_type"] = type(error).__name__
             raise
         finally:
+            end = api_end if api_end is not None else self.clock()
+            elapsed = max(0.0, end - start)
+            self.api_time_used_seconds = min(
+                self.time_budget_seconds,
+                self.api_time_used_seconds + elapsed,
+            )
+            metrics["elapsed_seconds"] = round(elapsed, 2)
+            metrics["agent_time_used_seconds"] = round(
+                self.api_time_used_seconds, 2)
+            metrics["agent_time_remaining_seconds"] = round(
+                self.time_budget_seconds - self.api_time_used_seconds, 2)
             stopped.set()
             worker.join()
-            metrics["elapsed_seconds"] = round(time.monotonic() - start, 2)
+            elapsed_text = metrics["elapsed_seconds"]
             print(
-                f"[{agent}: {model}] Request ended "
-                f"({metrics['elapsed_seconds']}s)",
+                f"[{agent}: {model}] Request ended ({elapsed_text}s)",
                 file=sys.stderr,
                 flush=True,
             )

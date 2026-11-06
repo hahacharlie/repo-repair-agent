@@ -6,13 +6,51 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from agents import ModelAgents, ModelResponseError, parse_model_json
+from agents import (
+    AgentTimeLimitError, ModelAgents, ModelResponseError, parse_model_json,
+)
 from config import load_config
 import constants as ct
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config.json"
+
+
+class FakeClock:
+    def __init__(self):
+        self.value = 0.0
+
+    def __call__(self):
+        return self.value
+
+
+class TimedStream(io.BytesIO):
+    def __init__(self, wire, clock, seconds_per_read):
+        super().__init__(wire)
+        self.clock = clock
+        self.seconds_per_read = seconds_per_read
+        self.headers = {
+            "Content-Type": "text/event-stream",
+            "x-obleth-request-id": "timed-request",
+        }
+
+    def readline(self, size=-1):
+        line = super().readline(size)
+        self.clock.value += self.seconds_per_read
+        return line
+
+
+def timed_stream_response(content, clock, seconds_per_read):
+    chunk = {"choices": [{
+        "delta": {"content": json.dumps(content)},
+        "finish_reason": "stop",
+    }]}
+    wire = (
+        "data: " + json.dumps(chunk) + "\n"
+        "data: [DONE]\n"
+    ).encode()
+    return TimedStream(wire, clock, seconds_per_read)
 
 
 def stream_response(content, finish="stop", done=True):
@@ -109,6 +147,43 @@ class AgentTests(unittest.TestCase):
         self.assertIn("response_text", agents.logs[0])
         self.assertNotIn("test-token", json.dumps(agents.logs))
         self.assertNotIn("private reasoning", json.dumps(agents.logs))
+
+    def test_cumulative_api_budget_excludes_time_between_requests(self):
+        config = load_config(CONFIG)
+        clock = FakeClock()
+        replies = [
+            timed_stream_response(
+                {"action": "give_up", "reason": "Done"}, clock, 2),
+            timed_stream_response(
+                {"approved": True, "reason": "Valid"}, clock, 2),
+        ]
+        with patch.dict(
+                "os.environ", {ct.API_KEY_ENV: "test-token"}), patch(
+                "agents.urllib.request.urlopen",
+                side_effect=replies) as request:
+            agents = ModelAgents(
+                config, time_budget_seconds=5, clock=clock)
+            self.assertEqual(agents.propose({})["action"], "give_up")
+            self.assertEqual(agents.api_time_used_seconds, 4)
+
+            # Time outside a model request represents Docker/build work.
+            clock.value = 1004
+            with self.assertRaisesRegex(
+                    AgentTimeLimitError, "API time limit reached"):
+                agents.review_give_up({})
+            with self.assertRaises(AgentTimeLimitError):
+                agents.propose({})
+
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(agents.api_time_used_seconds, 5)
+        self.assertEqual(
+            [call.kwargs["timeout"] for call in request.call_args_list],
+            [5, 1],
+        )
+        self.assertEqual(
+            agents.requests[-1]["agent_time_remaining_seconds"], 0)
+        self.assertEqual(
+            agents.requests[-1]["error_type"], "AgentTimeLimitError")
 
     def test_stream_rejects_truncation_and_uses_custom_timeout(self):
         config = load_config(CONFIG)

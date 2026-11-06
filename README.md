@@ -54,6 +54,14 @@ The default limit is five repair rounds with 30 seconds for each command. Change
 uv run repo-repair-agent broken-repo-folder-name --rounds 8 --timeout 60
 ```
 
+Fixer and Judge API calls share a 20-minute budget by default. Increase it up
+to one hour when needed; Docker setup, builds, tests, and dependency fetching
+do not consume this budget:
+
+```console
+uv run repo-repair-agent broken-repo-folder-name --agent-timeout 1800
+```
+
 You can still provide a full path when the repository is saved somewhere else.
 
 Every run saves `report.json`. A successful repair saves the changed file
@@ -138,8 +146,9 @@ Other model behavior:
   regions before review.
 - Test edits, unsafe paths, repeated actions, and regressions are rejected.
 - Request timing and token usage are added to the run report when available.
-- `--timeout` controls target commands; `api_timeout_seconds` controls model API
-  waits.
+- `--timeout` controls target commands. `api_timeout_seconds` controls network
+  inactivity for one model request. `--agent-timeout` controls the cumulative
+  time spent inside all Fixer and Judge API calls (default 1200 seconds).
 
 ### Python environments and dependencies
 
