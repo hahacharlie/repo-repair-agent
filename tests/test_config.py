@@ -6,13 +6,26 @@ import unittest
 from unittest.mock import patch
 
 from agents import ModelAgents
-from config import load_config, load_env
+from config import create_env_file, load_config, load_env
 
 
 CONFIG = Path(__file__).resolve().parents[1] / "config.json"
 
 
 class ConfigTests(unittest.TestCase):
+    def test_missing_env_file_is_created_without_overwriting_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            self.assertTrue(create_env_file(path, "EXAMPLE_API_KEY"))
+            self.assertEqual(
+                path.read_text(),
+                "# Add your API key below, then run the command again.\n"
+                "EXAMPLE_API_KEY=\n",
+            )
+            path.write_text("EXAMPLE_API_KEY=saved-key\n")
+            self.assertFalse(create_env_file(path, "EXAMPLE_API_KEY"))
+            self.assertEqual(path.read_text(), "EXAMPLE_API_KEY=saved-key\n")
+
     def test_env_file_is_loaded_without_replacing_set_values(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"

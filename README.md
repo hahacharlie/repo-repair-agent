@@ -22,13 +22,17 @@ The offline example repairs an undefined variable and checks greeting behavior. 
 
 ## Model-backed operation
 
-Add your key to the local `.env` file:
+On the first model-backed run, the program creates `.env` in the project root
+when it does not exist and prints its location. Add your key like this:
 
 ```text
 ASU_AIR_API_KEY=your_key_here
 ```
 
-The program loads `.env` by itself. The file is ignored by Git and must not be committed. Save a broken repository under `input/broken_repos/`, then give only its folder name when running a repair:
+Run the same command again after saving the key. The program loads `.env` by
+itself. The file is ignored by Git and must not be committed. Offline `--script`
+runs do not need or create `.env`. Save a broken repository under
+`input/broken_repos/`, then give only its folder name when running a repair:
 
 ```console
 uv run repo-repair-agent broken-repo-folder-name

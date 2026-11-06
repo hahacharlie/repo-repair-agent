@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 import shutil
 
 from agents import API_KEY_ENV, ModelAgents, ScriptedAgents
-from config import load_config, load_env
+from config import create_env_file, load_config, load_env
 from repair import repair
 
 
@@ -86,9 +86,6 @@ def write_results(results_root, repo_name, report):
 
 
 def main():
-    # Load the local API key file when it is present.
-    load_env(DEFAULT_ENV)
-
     # Read the repo path and other options from the command line.
     parser = argparse.ArgumentParser(
         description="Repair a trusted repository in a temporary copy.")
@@ -153,14 +150,28 @@ def main():
     # Live model runs need a settings file and API key.
     config = None
     if not script:
+        # Create the local key file on the first model-backed run.
+        created_env = create_env_file(DEFAULT_ENV, API_KEY_ENV)
+        load_env(DEFAULT_ENV)
+        if created_env and not os.environ.get(API_KEY_ENV):
+            parser.exit(
+                2,
+                "Created .env file at:\n" + str(DEFAULT_ENV) + "\n"
+                "Add your API key in this file.\n"
+                "Then run the command again.\n",
+            )
         try:
             config = load_config(args.config)
         except (ValueError, OSError):
             parser.error(
                 "Cannot load model config; check --config path and fields")
         if not os.environ.get(API_KEY_ENV):
-            parser.error(
-                "Set " + API_KEY_ENV + " or use --script for offline operation")
+            parser.exit(
+                2,
+                "Add your API key in this file:\n"
+                + str(DEFAULT_ENV) + "\n"
+                "Then run the command again.\n",
+            )
 
     try:
         # Script mode is used for tests and does not call a model.

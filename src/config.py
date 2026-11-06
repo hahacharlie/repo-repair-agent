@@ -6,6 +6,17 @@ import re
 from urllib.parse import urlsplit
 
 
+def create_env_file(path, variable):
+    # Create a safe first-run file without adding a real key.
+    if path.exists():
+        return False
+    path.write_text(
+        "# Add your API key below, then run the command again.\n"
+        + variable + "=\n"
+    )
+    return True
+
+
 def load_env(path):
     # Do nothing when the local file is not there.
     if not path.is_file():
