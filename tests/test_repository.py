@@ -60,6 +60,28 @@ class DetectionTests(unittest.TestCase):
             self.assertIsNone(metadata["test_command"])
             self.assertEqual(metadata["tests"], [])
 
+    def test_python_version_selects_matching_docker_image(self):
+        folder, root = make_repo({
+            "main.py": "print('ok')\n",
+            ".python-version": "3.11\n",
+        })
+        with folder:
+            metadata = inspect_repository(root)
+            self.assertEqual(metadata["python_requirement"], "3.11")
+            self.assertEqual(metadata["docker_image"], "python:3.11-slim")
+
+        folder, root = make_repo({
+            "main.py": "print('ok')\n",
+            "pyproject.toml": (
+                "[project]\nname = 'demo'\n"
+                "requires-python = '>=3.10,<3.12'\n"),
+        })
+        with folder:
+            metadata = inspect_repository(root)
+            self.assertEqual(
+                metadata["python_requirement"], ">=3.10,<3.12")
+            self.assertEqual(metadata["docker_image"], "python:3.10-slim")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,7 +64,7 @@ class AgentTests(unittest.TestCase):
                 "os.environ", {API_KEY_ENV: "test-token"}, clear=True), patch(
                 "agents.urllib.request.urlopen",
                 side_effect=responses) as request:
-            agents = ModelAgents(loaded)
+            agents = ModelAgents(loaded, capture_logs=True)
             self.assertEqual(agents.propose({})["action"], "give_up")
             self.assertFalse(agents.review({})["approved"])
             self.assertTrue(agents.review_install({})["approved"])
@@ -87,6 +87,23 @@ class AgentTests(unittest.TestCase):
         self.assertIn("copying fixed_files the first step", prompts[3])
         self.assertEqual(agents.requests[0]["request_id"], "test-request")
         self.assertNotIn("private reasoning", json.dumps(agents.requests))
+        self.assertEqual(
+            [(item["agent"], item["purpose"]) for item in agents.logs],
+            [
+                ("fixer", "repair_proposal"),
+                ("judge", "code_review"),
+                ("judge", "dependency_review"),
+                ("fixer", "run_instructions"),
+            ],
+        )
+        self.assertIn("system", agents.logs[0]["prompt"])
+        self.assertEqual(
+            agents.logs[0]["response"],
+            {"action": "give_up", "reason": "Done"},
+        )
+        self.assertIn("response_text", agents.logs[0])
+        self.assertNotIn("test-token", json.dumps(agents.logs))
+        self.assertNotIn("private reasoning", json.dumps(agents.logs))
 
     def test_stream_rejects_truncation_and_uses_custom_timeout(self):
         config = load_config(CONFIG)
@@ -99,12 +116,14 @@ class AgentTests(unittest.TestCase):
                     return_value=stream_response(
                         '{"approved": true, "reason": "ok"}', finish, done),
                     ) as request:
-                agents = ModelAgents(config)
+                agents = ModelAgents(config, capture_logs=True)
                 with self.assertRaises(ModelResponseError):
                     agents.review({})
                 self.assertEqual(request.call_args.kwargs["timeout"], 450)
                 self.assertEqual(
                     agents.requests[0]["error_type"], "ModelResponseError")
+                self.assertEqual(
+                    agents.logs[0]["error_type"], "ModelResponseError")
 
     def test_json_parser_accepts_fences_but_rejects_prose(self):
         value = {"approved": False, "reason": "Keep behavior"}
@@ -133,7 +152,9 @@ class AgentTests(unittest.TestCase):
                 "os.environ", {API_KEY_ENV: "test-token"}), patch(
                 "agents.urllib.request.urlopen",
                 return_value=response):
-            self.assertFalse(ModelAgents(config).review({})["approved"])
+            agents = ModelAgents(config)
+            self.assertFalse(agents.review({})["approved"])
+            self.assertEqual(agents.logs, [])
 
     def test_api_base_url_is_normalized(self):
         config = load_config(CONFIG)

@@ -59,8 +59,19 @@ def write_results(results_root, repo_name, report):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
 
+    # Keep full model prompts and replies in a separate local debug log.
+    logs_path = result_dir / "agent_logs.json"
+    agent_logs = report.get("agent_logs")
+    if agent_logs is not None:
+        logs_path.write_text(json.dumps(agent_logs, indent=2) + "\n")
+    elif logs_path.exists():
+        logs_path.unlink()
+
     # The report lists file names, while the files hold the code.
     saved_report = dict(report)
+    saved_report.pop("agent_logs", None)
+    if agent_logs is not None:
+        saved_report["agent_log_file"] = "agent_logs.json"
     saved_report["fixed_files"] = sorted(fixed_files)
     (result_dir / "report.json").write_text(
         json.dumps(saved_report, indent=2) + "\n")
@@ -92,6 +103,11 @@ def main():
     )
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--timeout", type=int, default=30)
+    parser.add_argument(
+        "--agent-logs",
+        action="store_true",
+        help="Save each Fixer and Judge prompt and response",
+    )
     installs = parser.add_mutually_exclusive_group()
     installs.add_argument(
         "--allow-install",
@@ -151,7 +167,7 @@ def main():
         if script:
             agents = ScriptedAgents(json.loads(script.read_text()))
         else:
-            agents = ModelAgents(config)
+            agents = ModelAgents(config, capture_logs=args.agent_logs)
         print("Repairing repository: " + repository.name)
         report = repair(
             repository,
@@ -194,9 +210,16 @@ def main():
         print("Tests: none found")
 
     fixed_files = sorted(report.get("fixed_files", {}))
-    print("Fixed files: " + (", ".join(fixed_files) if fixed_files else "none"))
+    if fixed_files:
+        print("Fixed files:")
+        for name in fixed_files:
+            print("  - " + name)
+    else:
+        print("Fixed files: none")
     saved_to = result_dir / "fixed_files" if fixed_files else result_dir
     print("Results saved to: " + str(saved_to))
     if (result_dir / "steps_to_run.txt").is_file():
         print("Run instructions: " + str(result_dir / "steps_to_run.txt"))
+    if (result_dir / "agent_logs.json").is_file():
+        print("Agent logs: " + str(result_dir / "agent_logs.json"))
     return 0 if report["status"] in {"passed", "execution_only"} else 1

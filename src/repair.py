@@ -89,6 +89,8 @@ def repair(
     # Add model call data only for live model runs.
     if isinstance(agents, ModelAgents):
         report["model_requests"] = agents.requests
+        if agents.capture_logs:
+            report["agent_logs"] = agents.logs
 
     # Keep the disposable work copy beside the selected repo. Docker Desktop
     # shares project folders but does not expose macOS system temp folders.
@@ -107,32 +109,39 @@ def repair(
 
         execution_backend = select_backend(metadata, backend, docker_image)
         report["execution_backend"] = execution_backend.name
-        if isinstance(execution_backend, DockerBackend):
-            report["docker"] = {"image": execution_backend.image}
-            availability = execution_backend.availability_status(root, timeout)
+
+        def prepare_docker(candidate):
+            # Check Docker and its image before any container command.
+            report["docker"] = {"image": candidate.image}
+            availability = candidate.availability_status(root, timeout)
             report["docker"]["availability"] = availability
             if not command_passed(availability):
                 report["reason"] = (
                     "Docker is unavailable. Install and start Docker, then retry.")
-                return report
+                return False
 
-            image_status = execution_backend.image_status(root, timeout)
+            image_status = candidate.image_status(root, timeout)
             report["docker"]["image_status"] = image_status
             if not command_passed(image_status):
                 if not allow_docker_pull:
                     report["docker"]["pull_required"] = True
                     report["reason"] = (
-                        "Docker image '" + execution_backend.image
+                        "Docker image '" + candidate.image
                         + "' is not available locally. Re-run with "
                         "--allow-docker-pull to approve downloading it.")
-                    return report
-                pulled = execution_backend.pull(root, timeout)
+                    return False
+                pulled = candidate.pull(root, timeout)
                 report["docker"]["pull"] = pulled
                 if not command_passed(pulled):
                     report["reason"] = (
-                        "Docker image '" + execution_backend.image
+                        "Docker image '" + candidate.image
                         + "' could not be downloaded.")
-                    return report
+                    return False
+            return True
+
+        if (isinstance(execution_backend, DockerBackend)
+                and not prepare_docker(execution_backend)):
+            return report
 
         if metadata["build_system"] == "unknown":
             report["reason"] = (
@@ -153,7 +162,7 @@ def repair(
                 network=network,
             )
 
-        if execution_backend.name == "docker":
+        def docker_mount_available():
             # Docker Desktop can silently mount an empty folder when the host
             # path is not shared. Detect that before running the repair loop.
             mount_check = execute(
@@ -163,7 +172,12 @@ def repair(
                 report["reason"] = (
                     "Docker cannot access the temporary work copy. Share the "
                     "repository folder with Docker Desktop, then retry.")
-                return report
+                return False
+            return True
+
+        if (execution_backend.name == "docker"
+                and not docker_mount_available()):
+            return report
 
         installed_packages = []
         has_requirements = is_python and (root / "requirements.txt").is_file()
@@ -216,8 +230,38 @@ def repair(
                 report["steps_to_run"] = basic_run_steps(steps_context)
                 report["steps_source"] = "fallback"
 
-        # Start clean so old packages cannot hide missing dependencies. Docker
-        # writes its environment inside the temporary work copy, never source.
+        # Use Docker only when auto mode cannot find the requested Python.
+        python_requirement = metadata.get("python_requirement")
+        if (is_python and execution_backend.name == "local"
+                and python_requirement):
+            lookup = execute(
+                [
+                    "uv", "python", "find", "--no-project",
+                    "--no-python-downloads", python_requirement,
+                ],
+                source,
+                timeout,
+            )
+            report["python_lookup"] = lookup
+            if not command_passed(lookup):
+                if backend != "auto":
+                    report["reason"] = (
+                        "Required Python '" + python_requirement
+                        + "' is not available locally.")
+                    add_run_steps()
+                    return report
+                execution_backend = make_backend(
+                    "docker", docker_image or metadata["docker_image"])
+                report["execution_backend"] = "docker"
+                report["docker_fallback"] = (
+                    "Required Python '" + python_requirement
+                    + "' is not available locally.")
+                if (not prepare_docker(execution_backend)
+                        or not docker_mount_available()):
+                    add_run_steps()
+                    return report
+
+        # Keep local Python setup in the selected repo. Docker uses its copy.
         python = None
         if not is_python:
             # Compiled toolchains need the cache folder named in backends.py.
@@ -227,17 +271,18 @@ def repair(
             setup = execute(
                 ["python", "-m", "venv", ".venv"], root, timeout)
         else:
-            env = root / ".venv"
+            env = source / ".venv"
             env_python = env / (
                 "Scripts/python.exe" if os.name == "nt" else "bin/python")
             python = str(env_python)
             setup = execute(
                 [
                     "uv", "--no-cache", "venv", "--no-project",
-                    "--python", sys.executable, "--no-python-downloads",
+                    "--python", python_requirement or sys.executable,
+                    "--no-python-downloads",
                     "--clear", str(env),
                 ],
-                root,
+                source,
                 timeout,
             )
         report["environment_setup"] = setup

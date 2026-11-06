@@ -53,6 +53,18 @@ results/
     └── steps_to_run.txt
 ```
 
+Add `--agent-logs` when you need to debug agent behavior:
+
+```console
+uv run repo-repair-agent broken-repo-folder-name --agent-logs
+```
+
+This saves `agent_logs.json` in the repository's result folder. It records each
+Fixer and Judge prompt, response, purpose, and timing. API keys and authorization
+headers are never added. This file may contain repository source text, so Git
+ignores it by default. Without `--agent-logs`, prompts and responses are not
+collected or saved.
+
 Run the repair-agent tests with:
 
 ```console
@@ -86,7 +98,9 @@ The configuration selects ASU Voyager. Requests enable SSE streaming with usage 
 
 Answers must contain a JSON object, either plain or wrapped in a single Markdown code fence. Prose surrounding JSON, malformed JSON, truncated replies, and streams missing `[DONE]` stop the run without applying that response. Code edits require Judge approval and may change multiple existing Python source files. Test edits, path traversal, and repeated actions are rejected. Regressions in previously passing execution or tests trigger rollback.
 
-Each repair run creates a clean `.venv` inside its temporary work copy. Starting clean prevents packages from an earlier run from hiding missing dependencies, while leaving the selected broken repository unchanged. Declared `requirements.txt` dependencies are installed there automatically. Extra plain package names proposed by the Fixer are downloaded only after Judge approval. After a successful installation, the package is added to a repaired `requirements.txt` and saved under `fixed_files`. Use `--no-install` when dependency downloads must be disabled. Target dependencies remain isolated from the repair agent. Every result folder includes `steps_to_run.txt` with instructions for copying repaired files first, using `.venv`, installing dependencies, running the application, and running detected tests.
+Each local Python repair run creates a clean `.venv` inside the selected broken repository. Git ignores this folder, so it is not pushed. Docker repairs create `.venv` only inside their temporary container work copy. Declared `requirements.txt` dependencies are installed automatically. Extra plain package names proposed by the Fixer are downloaded only after Judge approval. After a successful installation, the package is added to a repaired `requirements.txt` and saved under `fixed_files`. Use `--no-install` when dependency downloads must be disabled. Target dependencies remain isolated from the repair agent. Every result folder includes `steps_to_run.txt` with instructions for copying repaired files first, using `.venv`, installing dependencies, running the application, and running detected tests.
+
+For Python repositories, `.python-version` or `requires-python` in `pyproject.toml` selects the interpreter. In automatic backend mode, the agent first looks for that version locally without downloading Python. If it is unavailable, the agent falls back to a matching Python Docker image. A missing image is downloaded only when `--allow-docker-pull` is provided. Explicit `--backend local` never falls back to Docker.
 
 ## Docker execution
 

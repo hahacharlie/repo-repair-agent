@@ -4,5 +4,6 @@ __pycache__/
 .venv/
 .env
 .env.*
+results/**/agent_logs.json
 build/
 dist/

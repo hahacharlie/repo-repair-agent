@@ -99,7 +99,7 @@ def has_tests(root, rule):
         return []
     if rule[0] == "glob":
         return sorted(
-            str(path.relative_to(root)) for path in root.glob(rule[1])
+            path.relative_to(root).as_posix() for path in root.glob(rule[1])
             if not IGNORED.intersection(path.relative_to(root).parts))
     path = root / rule[1]
     if path.is_file() and re.search(rule[2], path.read_text(errors="replace"),
@@ -108,13 +108,55 @@ def has_tests(root, rule):
     return []
 
 
+def required_python(root):
+    """Read the Python version requested by common project files."""
+    version_file = root / ".python-version"
+    if version_file.is_file():
+        for line in version_file.read_text(errors="replace").splitlines():
+            value = line.strip()
+            if value and not value.startswith("#"):
+                return value
+
+    project_file = root / "pyproject.toml"
+    if not project_file.is_file():
+        return None
+    text = project_file.read_text(errors="replace")
+    project = re.search(
+        r"(?ms)^\[project\]\s*$\n(.*?)(?=^\[|\Z)", text)
+    if not project:
+        return None
+    match = re.search(
+        r"(?m)^\s*requires-python\s*=\s*['\"]([^'\"]+)['\"]",
+        project.group(1),
+    )
+    return match.group(1).strip() if match else None
+
+
+def python_docker_image(requirement):
+    """Choose a Python image when a clear version is requested."""
+    if not requirement:
+        return TOOLCHAINS["python"]["image"]
+    match = re.fullmatch(
+        r"(?:cpython-)?(3\.\d+(?:\.\d+)?)", requirement.strip())
+    if not match:
+        match = re.search(
+            r"(?:==|~=|>=)\s*(3\.\d+(?:\.\d+)?)", requirement)
+    if not match:
+        return TOOLCHAINS["python"]["image"]
+    return "python:" + match.group(1) + "-slim"
+
+
 def inspect_repository(root):
     root = Path(root)
     language, build_system, docker_image = detect_repository(root)
+    python_requirement = required_python(root) if language == "python" else None
+    if python_requirement:
+        docker_image = python_docker_image(python_requirement)
     metadata = {
         "language": language,
         "build_system": build_system,
         "docker_image": docker_image,
+        "python_requirement": python_requirement,
         "requires_linux": (root / "Dockerfile").is_file(),
         "entry": None,
         "tests": [],
@@ -150,7 +192,7 @@ def inspect_repository(root):
             "Supported repositories require main.py, app.py, or run.py at root")
     # Find Python test files outside folders we do not use.
     tests = sorted(
-        str(path.relative_to(root))
+        path.relative_to(root).as_posix()
         for path in root.rglob("test*.py")
         if not IGNORED.intersection(path.relative_to(root).parts)
     )

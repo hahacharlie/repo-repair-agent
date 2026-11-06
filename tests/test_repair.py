@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from agents import API_KEY_ENV, ModelAgents, ScriptedAgents
-from backends import DockerBackend
+from backends import DockerBackend, LocalBackend
 from cli import resolve_repository, resolve_script, write_results
 from config import load_config
 from repair import add_requirement, repair
@@ -62,6 +62,12 @@ class RepairTests(unittest.TestCase):
             "diff": "sample patch",
             "fixed_files": {"package/tool.py": "print('fixed')\n"},
             "steps_to_run": "1. Create .venv\n2. Run the app",
+            "agent_logs": [{
+                "run": 1,
+                "agent": "fixer",
+                "prompt": {"system": "Fix it", "context": {}},
+                "response": {"action": "give_up", "reason": "Done"},
+            }],
         }
         with tempfile.TemporaryDirectory() as directory:
             results = Path(directory)
@@ -85,6 +91,11 @@ class RepairTests(unittest.TestCase):
             saved_report = json.loads(
                 (result_dir / "report.json").read_text())
             self.assertEqual(saved_report["fixed_files"], ["package/tool.py"])
+            self.assertEqual(saved_report["agent_log_file"], "agent_logs.json")
+            self.assertNotIn("agent_logs", saved_report)
+            saved_logs = json.loads(
+                (result_dir / "agent_logs.json").read_text())
+            self.assertEqual(saved_logs, report["agent_logs"])
 
     def test_timeout_is_reported_without_exposing_provider_message(self):
         config = load_config(ROOT / "config.json")
@@ -92,11 +103,14 @@ class RepairTests(unittest.TestCase):
                 "os.environ", {API_KEY_ENV: "test-token"}), patch(
                 "agents.urllib.request.urlopen",
                 side_effect=TimeoutError("private provider detail")):
-            report = repair(BROKEN_REPO, ModelAgents(config))
+            report = repair(
+                BROKEN_REPO, ModelAgents(config, capture_logs=True))
         self.assertEqual(report["status"], "failed")
         self.assertIn("TimeoutError", report["reason"])
         self.assertEqual(
             report["model_requests"][0]["error_type"], "TimeoutError")
+        self.assertEqual(
+            report["agent_logs"][0]["error_type"], "TimeoutError")
         self.assertNotIn("private provider detail", str(report))
         self.assertEqual(report["diff"], "")
 
@@ -187,6 +201,50 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(calls[0][0], ["test", "-f", "main.py"])
         self.assertEqual(calls[1][0], ["python", "-m", "venv", ".venv"])
         self.assertTrue(all(not network for _, _, network in calls))
+
+    def test_missing_required_python_falls_back_to_docker(self):
+        docker = DockerBackend("python:3.11-slim")
+        local = LocalBackend()
+        docker_calls = []
+
+        def choose_backend(name, image=None):
+            if name == "local":
+                return local
+            self.assertEqual(image, "python:3.11-slim")
+            return docker
+
+        def local_command(command, cwd, timeout):
+            self.assertEqual(command[:3], ["uv", "python", "find"])
+            self.assertIn("3.11", command)
+            return command_result(1)
+
+        def docker_command(command, cwd, timeout, network=False):
+            docker_calls.append(command)
+            return command_result()
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "main.py").write_text("print('ok')\n")
+            (root / ".python-version").write_text("3.11\n")
+            with patch(
+                    "repair.run_command", side_effect=local_command), patch(
+                    "repair.make_backend", side_effect=choose_backend), patch.object(
+                    docker, "availability_status",
+                    return_value=command_result()), patch.object(
+                    docker, "image_status",
+                    return_value=command_result()), patch.object(
+                    docker, "run", side_effect=docker_command):
+                report = repair(root, ScriptedAgents([]), backend="auto")
+
+        self.assertEqual(report["status"], "execution_only")
+        self.assertEqual(report["execution_backend"], "docker")
+        self.assertIn("3.11", report["docker_fallback"])
+        self.assertEqual(report["docker"]["image"], "python:3.11-slim")
+        self.assertEqual(docker_calls[:3], [
+            ["test", "-f", "main.py"],
+            ["python", "-m", "venv", ".venv"],
+            ["/workspace/.venv/bin/python", "main.py"],
+        ])
 
     def test_cargo_repository_builds_and_tests_in_docker(self):
         backend = DockerBackend("rust:test")

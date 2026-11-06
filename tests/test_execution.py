@@ -91,10 +91,9 @@ class ExecutionTests(unittest.TestCase):
             self.assertEqual(len(environments), 1)
             environment_command, environment_cwd = environments[0]
             self.assertIn("--clear", environment_command)
-            self.assertNotEqual(environment_cwd, root)
-            self.assertFalse((root / ".venv").exists())
-            self.assertEqual(
-                Path(environment_command[-1]).parent, environment_cwd)
+            self.assertEqual(environment_cwd, root)
+            self.assertTrue((root / ".venv").exists())
+            self.assertEqual(Path(environment_command[-1]), root / ".venv")
             self.assertEqual(len(installations), 2)
             self.assertEqual(installations[0][3], "--python")
             self.assertEqual(installations[0][4], installations[1][4])
@@ -105,7 +104,7 @@ class ExecutionTests(unittest.TestCase):
             )
             self.assertEqual(
                 Path(installations[0][4]),
-                Path(environment_command[-1]) / python_file,
+                root / ".venv" / python_file,
             )
             self.assertEqual(
                 installations[0][5:], ["-r", "requirements.txt"])

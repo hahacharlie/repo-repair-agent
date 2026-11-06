@@ -133,10 +133,12 @@ def read_model_stream(response, metrics, start):
 
 
 class ModelAgents:
-    def __init__(self, config):
+    def __init__(self, config, capture_logs=False):
         # Read the key from the local environment.
         self.config = config
         self.requests = []
+        self.logs = []
+        self.capture_logs = capture_logs
         self.key = os.environ.get(API_KEY_ENV)
         if not self.key:
             raise ValueError(
@@ -146,7 +148,9 @@ class ModelAgents:
         if not self.endpoint.endswith("/chat/completions"):
             self.endpoint += "/chat/completions"
 
-    def request(self, model, instruction, context):
+    def request(
+            self, model, instruction, context,
+            agent="model", purpose="request"):
         # Send the rule and repo data as two separate messages.
         body = json.dumps({
             "model": model,
@@ -170,6 +174,20 @@ class ModelAgents:
         start = time.monotonic()
         metrics = {"model": model, "request_bytes": len(body)}
         self.requests.append(metrics)
+        log = None
+        if self.capture_logs:
+            log = {
+                "run": len(self.logs) + 1,
+                "agent": agent,
+                "purpose": purpose,
+                "model": model,
+                "prompt": {
+                    "system": instruction,
+                    "context": json.loads(json.dumps(context)),
+                },
+                "metrics": metrics,
+            }
+            self.logs.append(log)
         stopped = threading.Event()
 
         def progress():
@@ -203,9 +221,16 @@ class ModelAgents:
                 else:
                     content = read_model_stream(response, metrics, start)
             metrics["content_chars"] = len(content)
-            return parse_model_json(content)
+            if log is not None:
+                log["response_text"] = content
+            parsed = parse_model_json(content)
+            if log is not None:
+                log["response"] = parsed
+            return parsed
         except Exception as error:
             metrics["error_type"] = type(error).__name__
+            if log is not None:
+                log["error_type"] = type(error).__name__
             raise
         finally:
             stopped.set()
@@ -235,7 +260,9 @@ class ModelAgents:
             "missing dependency, use the install action; the package manager "
             "of the build system records it in the project manifest."
         )
-        return self.request(self.config["fixer_model"], instruction, context)
+        return self.request(
+            self.config["fixer_model"], instruction, context,
+            agent="fixer", purpose="repair_proposal")
 
     def review(self, context):
         # Ask the Judge to accept or reject the code change.
@@ -245,7 +272,9 @@ class ModelAgents:
             "removing functionality or weakening checks. Return only JSON with "
             "approved (boolean) and reason (string)."
         )
-        response = self.request(self.config["judge_model"], instruction, context)
+        response = self.request(
+            self.config["judge_model"], instruction, context,
+            agent="judge", purpose="code_review")
         if (not isinstance(response, dict)
                 or type(response.get("approved")) is not bool
                 or not isinstance(response.get("reason"), str)):
@@ -260,7 +289,9 @@ class ModelAgents:
             "observed missing dependency and the Fixer's reason. Return only "
             "JSON with approved (boolean) and reason (string)."
         )
-        response = self.request(self.config["judge_model"], instruction, context)
+        response = self.request(
+            self.config["judge_model"], instruction, context,
+            agent="judge", purpose="dependency_review")
         if (not isinstance(response, dict)
                 or type(response.get("approved")) is not bool
                 or not isinstance(response.get("reason"), str)):
@@ -282,7 +313,9 @@ class ModelAgents:
             "installation. Never include an API key, absolute path, destructive "
             "command, Markdown code fence, or Docker command."
         )
-        response = self.request(self.config["fixer_model"], instruction, context)
+        response = self.request(
+            self.config["fixer_model"], instruction, context,
+            agent="fixer", purpose="run_instructions")
         if (not isinstance(response, dict)
                 or set(response) != {"steps"}
                 or not isinstance(response["steps"], str)
