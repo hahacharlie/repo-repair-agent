@@ -204,10 +204,15 @@ def _repair(
     report = {
         "status": "failed",
         "reason": "Round limit reached",
+        "pipeline": getattr(agents, "baseline_name", "proposed"),
         "history": [],
         "diff": "",
         "fixed_files": {},
     }
+    stakeholder_baseline = (
+        getattr(agents, "baseline_name", None) == "stakeholder")
+    fixer_only_baseline = (
+        getattr(agents, "baseline_name", None) == "fixer-only")
 
     def announce(message):
         if progress is not None:
@@ -352,9 +357,14 @@ def _repair(
                     raise ValueError("Run steps omit an installed package")
                 report["steps_to_run"] = steps
                 report["steps_source"] = (
-                    "fixer_model"
+                    "stakeholder_baseline"
+                    if stakeholder_baseline
+                    else "fixer_only_baseline"
+                    if fixer_only_baseline
+                    else "fixer_model"
                     if isinstance(agents, ModelAgents)
-                    else "offline")
+                    else "offline"
+                )
             except Exception:
                 # A documentation failure must not undo a working repair.
                 report["steps_to_run"] = basic_run_steps(steps_context)
@@ -537,45 +547,27 @@ def _repair(
                      if key != "reason"},
                     sort_keys=True,
                 )
-                if signature in seen:
+                if not stakeholder_baseline and signature in seen:
                     record["error"] = "Repeated action rejected"
                     report["reason"] = (
                         "Fixer repeated a previously rejected action")
                     break
                 seen.add(signature)
 
-                # The Judge must approve a terminal Fixer decision.
+                # A report stops the run without calling the edit Judge.
                 if action["action"] == "give_up":
-                    review = agents.review_give_up({
-                        "reason": action["reason"],
-                        "repository": metadata,
-                        "observation": observation,
-                        "capabilities": capabilities,
-                        "history": report["history"][:-1],
-                    })
-                    record["judge"] = review
-                    if review["approved"]:
-                        report["reason"] = action["reason"]
-                        break
-                    continue
-                # Package installs do not change source files.
+                    report["reason"] = action["reason"]
+                    break
+                # The Judge reviews code edits, not package installs.
                 if action["action"] == "install":
-                    review = agents.review_install({
-                        "package": action["package"],
-                        "reason": action["reason"],
-                        "repository": metadata,
-                        "observation": observation,
-                        "capabilities": capabilities,
-                    })
-                    record["judge"] = review
+                    record["approval_required"] = False
                     if not install_supported:
                         record["error"] = install_unavailable_reason
                         report["reason"] = install_unavailable_reason
                         break
-                    if not review["approved"]:
-                        continue
                     announce(
-                        "Installing approved dependency: " + action["package"])
+                        "Installing dependency proposed by Fixer: "
+                        + action["package"])
                     before_manifests = read_manifests()
                     installation = execute(
                         pip_install(action["package"]) if is_python
@@ -589,7 +581,8 @@ def _repair(
                     keep_manifest_changes(before_manifests)
                     if command_passed(installation):
                         installed_packages.append(action["package"])
-                    if command_passed(installation) and is_python:
+                    if (command_passed(installation) and is_python
+                            and not stakeholder_baseline):
                         requirements = root / "requirements.txt"
                         old_requirements = (
                             requirements.read_text()
@@ -609,23 +602,35 @@ def _repair(
                         name: (root / name).read_text()
                         for name in action["files"]
                     }
-                    files = preserve_cosmetic_side_changes(
-                        before, action["files"])
+                    files = (
+                        action["files"]
+                        if stakeholder_baseline
+                        else preserve_cosmetic_side_changes(
+                            before, action["files"])
+                    )
                     cosmetic_changes_removed = files != action["files"]
                     proposed_diff = diff_files(before, files)
-                    mixed_cosmetic = has_mixed_cosmetic_changes(before, files)
-                    review = agents.review({
-                        "before": before,
-                        "after": files,
-                        "diff": proposed_diff,
-                        "reason": action["reason"],
-                        "policy_findings": {
-                            "cosmetic_side_changes_removed": (
-                                cosmetic_changes_removed),
-                            "mixed_cosmetic_changes": mixed_cosmetic,
-                        },
-                    })
-                    record["judge"] = review
+                    mixed_cosmetic = (
+                        False
+                        if stakeholder_baseline
+                        else has_mixed_cosmetic_changes(before, files)
+                    )
+                    if fixer_only_baseline:
+                        review = {"approved": True}
+                        record["approval_required"] = False
+                    else:
+                        review = agents.review({
+                            "before": before,
+                            "after": files,
+                            "diff": proposed_diff,
+                            "reason": action["reason"],
+                            "policy_findings": {
+                                "cosmetic_side_changes_removed": (
+                                    cosmetic_changes_removed),
+                                "mixed_cosmetic_changes": mixed_cosmetic,
+                            },
+                        })
+                        record["judge"] = review
                     if cosmetic_changes_removed:
                         record["cosmetic_side_changes_removed"] = True
                     if mixed_cosmetic:
@@ -651,7 +656,7 @@ def _repair(
                     for key in observation
                 )
                 # Undo the edit if a command that passed now fails.
-                if regressed:
+                if regressed and not stakeholder_baseline:
                     for name, text in before.items():
                         (root / name).write_text(text)
                     record["rolled_back"] = True

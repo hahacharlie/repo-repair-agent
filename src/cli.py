@@ -9,6 +9,7 @@ import shutil
 import sys
 
 from agents import ModelAgents, ScriptedAgents
+from baselines import FixerOnlyAgents, StakeholderAgents
 from config import create_env_file, load_config, load_env
 import constants as ct
 from repair import repair
@@ -172,6 +173,11 @@ def main(version_info=None):
     parser.add_argument(
         "--script", type=Path, help="Offline JSON action/review sequence")
     parser.add_argument(
+        "--baseline",
+        choices=("stakeholder", "fixer-only"),
+        help="Run a comparison baseline instead of the proposed pipeline",
+    )
+    parser.add_argument(
         "--config",
         type=Path,
         default=ct.DEFAULT_CONFIG,
@@ -238,7 +244,13 @@ def main(version_info=None):
         repository = resolve_repository(args.repository)
     except ValueError as error:
         parser.error(str(error))
-    script = resolve_script(repository, args.script)
+    if args.baseline and args.script:
+        parser.error("--baseline cannot be combined with --script")
+    script = (
+        None
+        if args.baseline
+        else resolve_script(repository, args.script)
+    )
 
     # Live model runs need a settings file and API key.
     config = None
@@ -270,6 +282,18 @@ def main(version_info=None):
         # Script mode is used for tests and does not call a model.
         if script:
             agents = ScriptedAgents(json.loads(script.read_text()))
+        elif args.baseline == "stakeholder":
+            agents = StakeholderAgents(
+                config,
+                capture_logs=args.agent_logs,
+                time_budget_seconds=args.agent_timeout,
+            )
+        elif args.baseline == "fixer-only":
+            agents = FixerOnlyAgents(
+                config,
+                capture_logs=args.agent_logs,
+                time_budget_seconds=args.agent_timeout,
+            )
         else:
             agents = ModelAgents(
                 config,
@@ -277,6 +301,8 @@ def main(version_info=None):
                 time_budget_seconds=args.agent_timeout,
             )
         print("Repairing repository: " + repository.name, flush=True)
+        if args.baseline:
+            print("Baseline: " + args.baseline, flush=True)
         report = repair(
             repository,
             agents,

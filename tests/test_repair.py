@@ -257,7 +257,22 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(report["fixed_files"], {})
         self.assertEqual(len(report["history"]), 1)
 
-    def test_unsupported_install_is_judged_and_stops_immediately(self):
+    def test_give_up_does_not_call_judge(self):
+        action = {
+            "action": {
+                "action": "give_up",
+                "reason": "A human must update the environment",
+            },
+            "approved": False,
+        }
+
+        report = repair(BROKEN_REPO, ScriptedAgents([action]), rounds=1)
+
+        self.assertEqual(
+            report["reason"], "A human must update the environment")
+        self.assertNotIn("judge", report["history"][0])
+
+    def test_unsupported_install_stops_without_judge(self):
         backend = DockerBackend("meson:test")
 
         def run_in_container(command, cwd, timeout, network=False):
@@ -294,7 +309,8 @@ class RepairTests(unittest.TestCase):
                     root, ScriptedAgents([install]), rounds=30, backend="auto")
 
         self.assertEqual(len(report["history"]), 1)
-        self.assertTrue(report["history"][0]["judge"]["approved"])
+        self.assertNotIn("judge", report["history"][0])
+        self.assertFalse(report["history"][0]["approval_required"])
         self.assertEqual(
             report["history"][0]["error"],
             "Dependency installation unsupported for meson",

@@ -27,9 +27,13 @@ def environment_repair_passed(report):
         action = record.get("action", {})
         judge = record.get("judge", {})
         observation = record.get("observation", {})
+        approved = (
+            judge.get("approved") is True
+            or record.get("approval_required") is False
+        )
         if (
             action.get("action") == "install"
-            and judge.get("approved") is True
+            and approved
             and command_passed(record.get("installation"))
             and command_passed(observation.get("app"))
         ):

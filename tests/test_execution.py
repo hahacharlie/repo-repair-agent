@@ -110,7 +110,9 @@ class ExecutionTests(unittest.TestCase):
             self.assertEqual(
                 installations[0][5:], ["-r", "requirements.txt"])
             self.assertEqual(installations[1][5:], ["another-package"])
-            self.assertTrue(report["history"][0]["judge"]["approved"])
+            self.assertNotIn("judge", report["history"][0])
+            self.assertFalse(
+                report["history"][0]["approval_required"])
             self.assertTrue(
                 report["history"][0]["requirements_updated"])
             self.assertEqual(
@@ -123,12 +125,18 @@ class ExecutionTests(unittest.TestCase):
                 report["steps_to_run"].find("Install"),
             )
 
-    def test_judge_rejection_blocks_dependency_download(self):
+    def test_dependency_install_does_not_call_judge(self):
         installations = []
 
         def execute(command, cwd, timeout):
             if command[:3] == ["uv", "pip", "install"]:
                 installations.append(command)
+                return {
+                    "exit_code": 0,
+                    "timeout": False,
+                    "stdout": "",
+                    "stderr": "",
+                }
             return run_command(command, cwd, timeout)
 
         action = {
@@ -146,8 +154,9 @@ class ExecutionTests(unittest.TestCase):
                 rounds=1,
             )
 
-        self.assertEqual(installations, [])
-        self.assertFalse(report["history"][0]["judge"]["approved"])
+        self.assertEqual(len(installations), 1)
+        self.assertNotIn("judge", report["history"][0])
+        self.assertFalse(report["history"][0]["approval_required"])
 
 
 if __name__ == "__main__":

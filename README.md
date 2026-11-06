@@ -30,6 +30,37 @@ uv run repo-repair-agent undefined_greeting_variable
 
 The offline example repairs an undefined variable and checks greeting behavior. Its scripted approval is a fixed test run, not proof that a model Judge works well. Results are saved under `results/<repo-name>/`. CLI exit codes: 0 for passing execution, 1 for unsuccessful repair, 2 for setup errors. `execution_only` means that no tests were found. If the initial application/build and detected tests already pass, the CLI exits with code 0, prints `No errors found. No repair was needed.`, and does not call either agent.
 
+## Evaluation pipelines
+
+- Proposed pipeline (default):
+
+  ```console
+  uv run repo-repair-agent repo_name
+  ```
+
+- Stakeholder Fixer-Judge baseline:
+
+  ```console
+  uv run repo-repair-agent repo_name --baseline stakeholder
+  ```
+
+- Fixer-only baseline:
+
+  ```console
+  uv run repo-repair-agent repo_name --baseline fixer-only
+  ```
+
+The stakeholder baseline keeps the stakeholder Fixer and Judge prompts, text
+response format, model IDs, and edit-only Judge policy. It uses this project's
+shared repository execution, safety checks, result files, and metrics so runs
+can be compared under the same limits. Its source is
+`sakethreddy26/capstone-proposal` at commit
+`2b0cade1c6f7c3445e637ee83e7c247c083f5f3f`.
+
+The Fixer-only baseline uses the proposed pipeline's Fixer model and prompt but
+applies valid edits without calling the Judge. Execution settings, limits,
+results, and metrics remain the same as the proposed pipeline.
+
 ## Model-backed operation
 
 On the first model-backed run, the program creates `.env` in the project root
@@ -82,7 +113,7 @@ Metrics:
   total run time.
 - Correct repair means that the repository failed before repair, then the
   application and all detected tests passed after repair.
-- A dependency or environment repair also counts when an approved installation
+- A dependency or environment repair also counts when a Fixer-requested install
   makes the original failing command pass. Other clean exits without tests do
   not count as correct repairs.
 - `report.json`: correct repair rate, wall-clock time, model API time, request
@@ -134,7 +165,7 @@ Configuration fields:
 - `endpoint`: HTTPS API base URL or complete chat-completions URL. The client
   adds `/chat/completions` when needed.
 - `fixer_model`: model that proposes repairs and run instructions.
-- `judge_model`: separate model that reviews edits and dependency installs.
+- `judge_model`: separate model that reviews proposed code edits.
 - `api_timeout_seconds`: optional API wait limit from 1 to 3600 seconds. The
   default is 300.
 - The model names must be available through the selected endpoint.
@@ -154,8 +185,8 @@ Other model behavior:
 - Model replies must contain one JSON object. When a reply is invalid JSON, the
   same request is tried up to two more times before stopping. Incomplete model
   streams are rejected without applying them.
-- Code edits, dependency installs, and Fixer requests to give up require Judge
-  review.
+- Only code edits require Judge review. Dependency installs and Fixer requests
+  to give up do not call the Judge.
 - The Fixer receives the engine's dependency-installation capabilities and must
   not propose unsupported installs as source-code fixes.
 - The Fixer must change only lines required by the observed failure. The Judge
@@ -174,8 +205,8 @@ Other model behavior:
 - Git ignores `.venv`, so it is not pushed.
 - Docker repairs create `.venv` only inside the temporary container copy.
 - Dependencies from `requirements.txt` are installed automatically.
-- New packages require Judge approval before download.
-- Approved packages are added to the repaired `requirements.txt` and saved in
+- New package names and repository capabilities are checked before download.
+- Installed packages are added to the repaired `requirements.txt` and saved in
   `fixed_files`.
 - `--no-install` disables dependency downloads.
 - After a repair attempt, `steps_to_run.txt` explains how to apply and run the
@@ -217,8 +248,8 @@ uv run repo-repair-agent my-repository --backend docker --allow-docker-pull
 ```
 
 Containers have no network for application and test commands. Network is
-enabled only while installing dependencies that the caller or Judge has already
-allowed. The container runs with CPU, memory, PID, capability, filesystem, and
+enabled only while installing dependencies requested by the Fixer. The
+container runs with CPU, memory, PID, capability, filesystem, and
 temporary-directory limits.
 
 For a non-Python repository the "application" step is the build command

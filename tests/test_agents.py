@@ -167,8 +167,6 @@ class AgentTests(unittest.TestCase):
             for value in (
                 {"action": "give_up", "reason": "Done"},
                 {"approved": False, "reason": "Unsafe patch"},
-                {"approved": True, "reason": "Needed package"},
-                {"approved": True, "reason": "Stopping is justified"},
                 {"steps": "1. Create .venv\n2. Run the app"},
             )
         ]
@@ -179,12 +177,10 @@ class AgentTests(unittest.TestCase):
             agents = ModelAgents(loaded, capture_logs=True)
             self.assertEqual(agents.propose({})["action"], "give_up")
             self.assertFalse(agents.review({})["approved"])
-            self.assertTrue(agents.review_install({})["approved"])
-            self.assertTrue(agents.review_give_up({})["approved"])
             self.assertIn("Create .venv", agents.generate_run_steps({}))
         for call, model in zip(
                 request.call_args_list,
-                ("custom-fixer", "custom-judge", "custom-judge", "custom-judge", "custom-fixer")):
+                ("custom-fixer", "custom-judge", "custom-fixer")):
             outbound = call.args[0]
             self.assertEqual(outbound.full_url, config["endpoint"])
             self.assertEqual(json.loads(outbound.data)["model"], model)
@@ -200,10 +196,8 @@ class AgentTests(unittest.TestCase):
         self.assertIn("records it in the project manifest", prompts[0])
         self.assertIn("Preserve every unrelated line exactly", prompts[0])
         self.assertIn("Reject the entire patch", prompts[1])
-        self.assertIn("installation.supported", prompts[2])
         self.assertIn("context.policy_findings", prompts[1])
-        self.assertIn("proposal to stop", prompts[3])
-        self.assertIn("copying fixed_files the first step", prompts[4])
+        self.assertIn("copying fixed_files the first step", prompts[2])
         self.assertEqual(agents.requests[0]["request_id"], "test-request")
         self.assertNotIn("private reasoning", json.dumps(agents.requests))
         self.assertEqual(
@@ -214,8 +208,6 @@ class AgentTests(unittest.TestCase):
             [
                 ("fixer", "repair_proposal"),
                 ("judge", "code_review"),
-                ("judge", "dependency_review"),
-                ("judge", "give_up_review"),
                 ("fixer", "run_instructions"),
             ],
         )
@@ -250,7 +242,7 @@ class AgentTests(unittest.TestCase):
             clock.value = 1004
             with self.assertRaisesRegex(
                     AgentTimeLimitError, "API time limit reached"):
-                agents.review_give_up({})
+                agents.review({})
             with self.assertRaises(AgentTimeLimitError):
                 agents.propose({})
 
