@@ -9,7 +9,12 @@ from backends import DockerBackend, LocalBackend
 from cli import resolve_repository, resolve_script, write_results
 from config import load_config
 import constants as ct
-from repair import add_requirement, repair
+from repair import (
+    add_requirement,
+    has_mixed_cosmetic_changes,
+    preserve_cosmetic_side_changes,
+    repair,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +55,29 @@ class RepairTests(unittest.TestCase):
             add_requirement("PyYAML==6.0.3\n", "pyyaml"),
             "PyYAML==6.0.3\n",
         )
+
+    def test_mixed_cosmetic_changes_are_detected(self):
+        before = {"module.py": "value = broken\n\n"}
+        self.assertTrue(has_mixed_cosmetic_changes(
+            before, {"module.py": "value = fixed\n"}))
+        self.assertFalse(has_mixed_cosmetic_changes(
+            before, {"module.py": "value = fixed\n\n"}))
+        self.assertFalse(has_mixed_cosmetic_changes(
+            before, {"module.py": "value = broken\n"}))
+
+    def test_cosmetic_side_changes_are_preserved(self):
+        before = {"module.py": "value = broken\n\nnext_value = 1\n"}
+        proposed = {"module.py": "value = fixed\nnext_value = 1\n"}
+        self.assertEqual(
+            preserve_cosmetic_side_changes(before, proposed),
+            {"module.py": "value = fixed\n\nnext_value = 1\n"},
+        )
+
+    def test_pure_whitespace_fix_is_not_silently_removed(self):
+        before = {"module.py": "if ready:\nprint('yes')\n"}
+        proposed = {"module.py": "if ready:\n    print('yes')\n"}
+        self.assertEqual(
+            preserve_cosmetic_side_changes(before, proposed), proposed)
 
     def test_saved_repo_can_be_selected_by_folder_name(self):
         selected = resolve_repository(Path("undefined_greeting_variable"))
@@ -143,6 +171,19 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(
             (BROKEN_REPO / "greeting.py").read_bytes(), original)
 
+    def test_clean_repository_exits_without_agent_work(self):
+        with patch("repair.run_command", return_value=command_result()):
+            report = repair(BROKEN_REPO, ScriptedAgents([]))
+
+        self.assertEqual(report["status"], "passed")
+        self.assertTrue(report["no_repair_needed"])
+        self.assertEqual(
+            report["reason"], "No errors found; no repair was needed")
+        self.assertEqual(report["history"], [])
+        self.assertEqual(report["diff"], "")
+        self.assertEqual(report["fixed_files"], {})
+        self.assertNotIn("steps_to_run", report)
+
     def test_rejected_patch_never_applies_and_limit_stops(self):
         report = repair(
             BROKEN_REPO, ScriptedAgents([step(False)]), rounds=1)
@@ -150,6 +191,53 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(report["diff"], "")
         self.assertEqual(report["fixed_files"], {})
         self.assertEqual(len(report["history"]), 1)
+
+    def test_unsupported_install_is_judged_and_stops_immediately(self):
+        backend = DockerBackend("meson:test")
+
+        def run_in_container(command, cwd, timeout, network=False):
+            del cwd, timeout, network
+            if command == ["test", "-f", "meson.build"]:
+                return command_result()
+            if command == ["mkdir", "-p", ".home/tmp"]:
+                return command_result()
+            return {
+                **command_result(127),
+                "command": command,
+                "stderr": "sh: 1: meson: not found\n",
+            }
+
+        install = {
+            "action": {
+                "action": "install",
+                "package": "meson",
+                "reason": "Missing build dependency meson",
+            },
+            "approved": True,
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "meson.build").write_text("project('sample', 'c')\n")
+            with patch.object(
+                    backend, "availability_status",
+                    return_value=command_result()), patch.object(
+                    backend, "image_status",
+                    return_value=command_result()), patch.object(
+                    backend, "run", side_effect=run_in_container), patch(
+                    "repair.make_backend", return_value=backend):
+                report = repair(
+                    root, ScriptedAgents([install]), rounds=30, backend="auto")
+
+        self.assertEqual(len(report["history"]), 1)
+        self.assertTrue(report["history"][0]["judge"]["approved"])
+        self.assertEqual(
+            report["history"][0]["error"],
+            "Dependency installation unsupported for meson",
+        )
+        self.assertEqual(
+            report["reason"],
+            "Dependency installation unsupported for meson",
+        )
 
     def test_regression_is_rolled_back(self):
         with tempfile.TemporaryDirectory() as directory:

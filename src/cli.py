@@ -69,7 +69,7 @@ def write_results(results_root, repo_name, report):
     # Keep full model prompts and replies in a separate local debug log.
     logs_path = result_dir / "agent_logs.json"
     agent_logs = report.get("agent_logs")
-    if agent_logs is not None:
+    if agent_logs:
         logs_path.write_text(json.dumps(agent_logs, indent=2) + "\n")
     elif logs_path.exists():
         logs_path.unlink()
@@ -77,7 +77,7 @@ def write_results(results_root, repo_name, report):
     # The report lists file names, while the files hold the code.
     saved_report = dict(report)
     saved_report.pop("agent_logs", None)
-    if agent_logs is not None:
+    if agent_logs:
         saved_report["agent_log_file"] = "agent_logs.json"
     saved_report["fixed_files"] = sorted(fixed_files)
     (result_dir / "report.json").write_text(
@@ -117,7 +117,7 @@ def main(version_info=None):
         default=ct.DEFAULT_CONFIG,
         help="Model configuration JSON (default: config.json in project root)",
     )
-    parser.add_argument("--rounds", type=int, default=30)
+    parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument(
         "--agent-logs",
@@ -218,7 +218,9 @@ def main(version_info=None):
 
     # Print a short result that is easy to read.
     print()
-    if report["status"] == "passed":
+    if report.get("no_repair_needed"):
+        print("No errors found. No repair was needed.")
+    elif report["status"] == "passed":
         print("Repair completed successfully.")
     elif report["status"] == "execution_only":
         print("The app runs, but no tests were found.")

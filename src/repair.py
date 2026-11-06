@@ -30,6 +30,79 @@ def diff_files(before, after):
         if before.get(name) != after[name]
     )
 
+def has_mixed_cosmetic_changes(before, after):
+    """Return whether a functional patch also changes only whitespace."""
+    cosmetic = False
+    substantive = False
+    for name, text in after.items():
+        before_lines = before.get(name, "").splitlines(keepends=True)
+        after_lines = text.splitlines(keepends=True)
+        matcher = difflib.SequenceMatcher(None, before_lines, after_lines)
+        for tag, old_start, old_end, new_start, new_end in matcher.get_opcodes():
+            if tag == "equal":
+                continue
+            old_changed = before_lines[old_start:old_end]
+            new_changed = after_lines[new_start:new_end]
+            old_blank = sum(not line.strip() for line in old_changed)
+            new_blank = sum(not line.strip() for line in new_changed)
+            old_content = [
+                "".join(line.split()) for line in old_changed if line.strip()
+            ]
+            new_content = [
+                "".join(line.split()) for line in new_changed if line.strip()
+            ]
+            if old_blank != new_blank:
+                cosmetic = True
+            if old_content != new_content:
+                substantive = True
+            elif old_changed != new_changed:
+                cosmetic = True
+    return cosmetic and substantive
+
+
+def preserve_cosmetic_side_changes(before, after):
+    """Restore separable whitespace-only edits in a functional patch."""
+    if not has_mixed_cosmetic_changes(before, after):
+        return after
+
+    preserved = {}
+    for name, text in after.items():
+        before_lines = before.get(name, "").splitlines(keepends=True)
+        after_lines = text.splitlines(keepends=True)
+        matcher = difflib.SequenceMatcher(None, before_lines, after_lines)
+        output = []
+        for tag, old_start, old_end, new_start, new_end in matcher.get_opcodes():
+            old_changed = before_lines[old_start:old_end]
+            new_changed = after_lines[new_start:new_end]
+            if tag == "equal":
+                output.extend(old_changed)
+            elif ("".join(old_changed).split()
+                  == "".join(new_changed).split()):
+                output.extend(old_changed)
+            else:
+                old_content = [
+                    line for line in old_changed if line.strip()
+                ]
+                new_content = [
+                    line for line in new_changed if line.strip()
+                ]
+                if len(old_content) == len(new_content):
+                    replacements = iter(new_content)
+                    for old_line in old_changed:
+                        if not old_line.strip():
+                            output.append(old_line)
+                            continue
+                        new_line = next(replacements)
+                        if ("".join(old_line.split())
+                                == "".join(new_line.split())):
+                            output.append(old_line)
+                        else:
+                            output.append(new_line)
+                else:
+                    output.extend(new_changed)
+        preserved[name] = "".join(output)
+    return preserved
+
 
 def add_requirement(text, package):
     # Do not add a package that is already listed.
@@ -340,7 +413,41 @@ def repair(
         # Save the first app and test result before asking for a fix.
         observation = verify()
         report["initial"] = observation
+        if passed(observation):
+            report["final"] = observation
+            report["no_repair_needed"] = True
+            if metadata["tests"]:
+                report["status"] = "passed"
+                report["reason"] = "No errors found; no repair was needed"
+            else:
+                report["status"] = "execution_only"
+                report["reason"] = (
+                    "No execution error found; no repair was needed "
+                    "(no tests detected)")
+            return report
         seen = set()
+        install_supported = (
+            allow_install and (is_python or "add" in toolchain))
+        if not allow_install:
+            install_unavailable_reason = (
+                "Dependency installation disabled by --no-install")
+        elif not is_python and "add" not in toolchain:
+            install_unavailable_reason = (
+                "Dependency installation unsupported for "
+                + metadata["build_system"])
+        else:
+            install_unavailable_reason = None
+        capabilities = {
+            "dependency_installation": {
+                "supported": install_supported,
+                "method": (
+                    "pip" if is_python
+                    else " ".join(toolchain["add"])
+                    if "add" in toolchain else None
+                ),
+                "unavailable_reason": install_unavailable_reason,
+            },
+        }
 
         for _ in range(rounds):
             # Stop as soon as both the app and tests pass.
@@ -355,6 +462,7 @@ def repair(
                     "files": snapshot(root, metadata["build_system"]),
                     "observation": observation,
                     "history": report["history"][:-1],
+                    "capabilities": capabilities,
                 })
                 validate_action(
                     action, root, source_suffixes(metadata["build_system"]))
@@ -367,30 +475,39 @@ def repair(
                 )
                 if signature in seen:
                     record["error"] = "Repeated action rejected"
-                    continue
+                    report["reason"] = (
+                        "Fixer repeated a previously rejected action")
+                    break
                 seen.add(signature)
 
-                # The Fixer can stop when it cannot find a safe fix.
+                # The Judge must approve a terminal Fixer decision.
                 if action["action"] == "give_up":
-                    report["reason"] = action["reason"]
-                    break
+                    review = agents.review_give_up({
+                        "reason": action["reason"],
+                        "repository": metadata,
+                        "observation": observation,
+                        "capabilities": capabilities,
+                        "history": report["history"][:-1],
+                    })
+                    record["judge"] = review
+                    if review["approved"]:
+                        report["reason"] = action["reason"]
+                        break
+                    continue
                 # Package installs do not change source files.
                 if action["action"] == "install":
-                    if not allow_install:
-                        record["error"] = "Dependency installation disabled"
-                        continue
-                    if not is_python and "add" not in toolchain:
-                        record["error"] = (
-                            "Dependency installation unsupported for "
-                            + metadata["build_system"])
-                        continue
                     review = agents.review_install({
                         "package": action["package"],
                         "reason": action["reason"],
                         "repository": metadata,
                         "observation": observation,
+                        "capabilities": capabilities,
                     })
                     record["judge"] = review
+                    if not install_supported:
+                        record["error"] = install_unavailable_reason
+                        report["reason"] = install_unavailable_reason
+                        break
                     if not review["approved"]:
                         continue
                     before_manifests = read_manifests()
@@ -426,17 +543,33 @@ def repair(
                         name: (root / name).read_text()
                         for name in action["files"]
                     }
+                    files = preserve_cosmetic_side_changes(
+                        before, action["files"])
+                    cosmetic_changes_removed = files != action["files"]
+                    proposed_diff = diff_files(before, files)
+                    mixed_cosmetic = has_mixed_cosmetic_changes(before, files)
                     review = agents.review({
                         "before": before,
-                        "after": action["files"],
-                        "diff": diff_files(before, action["files"]),
+                        "after": files,
+                        "diff": proposed_diff,
                         "reason": action["reason"],
+                        "policy_findings": {
+                            "cosmetic_side_changes_removed": (
+                                cosmetic_changes_removed),
+                            "mixed_cosmetic_changes": mixed_cosmetic,
+                        },
                     })
                     record["judge"] = review
+                    if cosmetic_changes_removed:
+                        record["cosmetic_side_changes_removed"] = True
+                    if mixed_cosmetic:
+                        record["error"] = "Patch includes cosmetic side changes"
+                        report["reason"] = record["error"]
+                        continue
                     if not review["approved"]:
                         continue
                     # Save the first file text for the final patch.
-                    for name, text in action["files"].items():
+                    for name, text in files.items():
                         originals.setdefault(name, before[name])
                         (root / name).write_text(text)
 

@@ -1,6 +1,9 @@
 import io
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from cli import main, python_version_error
 
@@ -16,6 +19,36 @@ class CliTests(unittest.TestCase):
             result = main((3, 9, 18))
         self.assertEqual(result, 2)
         self.assertEqual(output.getvalue(), message)
+
+    def test_clean_repository_reports_no_error_and_returns_zero(self):
+        report = {
+            "status": "passed",
+            "reason": "No errors found; no repair was needed",
+            "no_repair_needed": True,
+            "repository": {"language": "python"},
+            "final": {
+                "app": {"exit_code": 0, "timeout": False},
+                "tests": {"exit_code": 0, "timeout": False},
+            },
+            "fixed_files": {},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "clean_repo"
+            repository.mkdir()
+            (repository / "repair.json").write_text("[]\n")
+            result_dir = Path(directory) / "results" / "clean_repo"
+            output = io.StringIO()
+            with patch(
+                    "sys.argv", ["repo-repair-agent", str(repository)]), patch(
+                    "cli.repair", return_value=report), patch(
+                    "cli.write_results", return_value=result_dir), redirect_stdout(
+                    output):
+                result = main((3, 10, 0))
+
+        self.assertEqual(result, 0)
+        self.assertIn(
+            "No errors found. No repair was needed.", output.getvalue())
+        self.assertIn("Fixed files: none", output.getvalue())
 
 
 if __name__ == "__main__":
