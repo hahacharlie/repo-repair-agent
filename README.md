@@ -128,9 +128,27 @@ Other model behavior:
 - `--timeout` controls target commands; `api_timeout_seconds` controls model API
   waits.
 
-Each local Python repair run creates a clean `.venv` inside the selected broken repository. Git ignores this folder, so it is not pushed. Docker repairs create `.venv` only inside their temporary container work copy. Declared `requirements.txt` dependencies are installed automatically. Extra plain package names proposed by the Fixer are downloaded only after Judge approval. After a successful installation, the package is added to a repaired `requirements.txt` and saved under `fixed_files`. Use `--no-install` when dependency downloads must be disabled. Target dependencies remain isolated from the repair agent. Every result folder includes `steps_to_run.txt` with instructions for copying repaired files first, using `.venv`, installing dependencies, running the application, and running detected tests.
+### Python environments and dependencies
 
-For Python repositories, `.python-version` or `requires-python` in `pyproject.toml` selects the interpreter. In automatic backend mode, the agent first looks for that version locally without downloading Python. If it is unavailable, the agent falls back to a matching Python Docker image. A missing image is downloaded only when `--allow-docker-pull` is provided. Explicit `--backend local` never falls back to Docker.
+- Local Python repairs create `.venv` inside the selected broken repository.
+- Git ignores `.venv`, so it is not pushed.
+- Docker repairs create `.venv` only inside the temporary container copy.
+- Dependencies from `requirements.txt` are installed automatically.
+- New packages require Judge approval before download.
+- Approved packages are added to the repaired `requirements.txt` and saved in
+  `fixed_files`.
+- `--no-install` disables dependency downloads.
+- `steps_to_run.txt` explains how to apply and run the repaired files.
+
+### Python version selection
+
+- `.python-version` or `requires-python` in `pyproject.toml` selects Python.
+- Automatic mode first looks for that Python version locally without
+  downloading it.
+- If the version is unavailable locally, automatic mode uses a matching Docker
+  image.
+- A missing image is downloaded only with `--allow-docker-pull`.
+- `--backend local` never falls back to Docker.
 
 ## Docker execution
 
