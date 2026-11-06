@@ -7,7 +7,8 @@ import unittest
 from unittest.mock import patch
 
 from agents import (
-    AgentTimeLimitError, ModelAgents, ModelResponseError, parse_model_json,
+    AgentTimeLimitError, LocalTokenCounter, ModelAgents, ModelResponseError,
+    parse_model_json, summarize_token_usage,
 )
 from config import load_config
 import constants as ct
@@ -74,7 +75,73 @@ def stream_response(content, finish="stop", done=True):
     return response
 
 
+class FakeTokenizer:
+    def apply_chat_template(
+            self, messages, tokenize=True, add_generation_prompt=True):
+        assert messages and tokenize and add_generation_prompt
+        return [1, 2, 3, 4]
+
+    def encode(self, text, add_special_tokens=False):
+        assert not add_special_tokens
+        return list(range(len(text.split())))
+
+
+class FakeTokenCounter:
+    def __init__(self):
+        self.responses = []
+
+    def repository_for(self, model):
+        return "test/" + model
+
+    def count_prompt(self, model, messages):
+        return 11
+
+    def count_response(self, model, text):
+        self.responses.append(text)
+        return 7
+
+
 class AgentTests(unittest.TestCase):
+    def setUp(self):
+        self.token_counter = FakeTokenCounter()
+        tokenizer = patch(
+            "agents.LocalTokenCounter", return_value=self.token_counter)
+        tokenizer.start()
+        self.addCleanup(tokenizer.stop)
+
+    def test_tokens_are_counted_locally_with_model_chat_template(self):
+        loaded = []
+        tokenizer = FakeTokenizer()
+        counter = LocalTokenCounter(
+            loader=lambda repository: loaded.append(repository) or tokenizer)
+        messages = [{"role": "user", "content": "hello"}]
+
+        self.assertEqual(counter.count_prompt(
+            "qwen3-coder-30b-a3b-instruct", messages), 4)
+        self.assertEqual(counter.count_response(
+            "qwen3-coder-30b-a3b-instruct", "three local tokens"), 3)
+        self.assertEqual(loaded, ["Qwen/Qwen3-Coder-30B-A3B-Instruct"])
+
+        usage = summarize_token_usage([
+            {"local_token_usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+            }},
+            {"local_token_usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 3,
+                "total_tokens": 8,
+            }},
+        ])
+        self.assertEqual(usage, {
+            "source": "local_transformers",
+            "available": True,
+            "prompt_tokens": 16,
+            "completion_tokens": 10,
+            "total_tokens": 26,
+        })
+
     def test_configured_models_endpoint_and_credentials_reach_requests(self):
         config = {
             "endpoint": "https://models.example.test/v1/chat/completions",
@@ -129,6 +196,9 @@ class AgentTests(unittest.TestCase):
         self.assertIn("copying fixed_files the first step", prompts[4])
         self.assertEqual(agents.requests[0]["request_id"], "test-request")
         self.assertNotIn("private reasoning", json.dumps(agents.requests))
+        self.assertEqual(
+            agents.requests[0]["local_token_usage"]["total_tokens"], 18)
+        self.assertIn("private reasoning", self.token_counter.responses[0])
         self.assertEqual(
             [(item["agent"], item["purpose"]) for item in agents.logs],
             [

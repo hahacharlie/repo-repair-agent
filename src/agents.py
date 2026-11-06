@@ -1,6 +1,7 @@
 """Fixer, Judge, and fixed test agents."""
 
 import json
+from collections.abc import Mapping
 import os
 import sys
 import threading
@@ -64,6 +65,86 @@ class AgentTimeLimitError(ModelResponseError):
     """The cumulative Fixer/Judge API time budget was exhausted."""
 
 
+def summarize_token_usage(
+        requests, usage_field="local_token_usage", source="local_transformers"):
+    """Aggregate token usage across model requests."""
+    aliases = {
+        "prompt_tokens": ("prompt_tokens", "input_tokens"),
+        "completion_tokens": ("completion_tokens", "output_tokens"),
+        "total_tokens": ("total_tokens",),
+    }
+    totals = {name: 0 for name in aliases}
+    found = {name: False for name in aliases}
+    for request in requests:
+        usage = request.get(usage_field)
+        if not isinstance(usage, dict):
+            continue
+        for name, names in aliases.items():
+            value = next((usage.get(key) for key in names
+                          if type(usage.get(key)) is int), None)
+            if value is not None and value >= 0:
+                totals[name] += value
+                found[name] = True
+    if (not found["total_tokens"]
+            and found["prompt_tokens"] and found["completion_tokens"]):
+        totals["total_tokens"] = (
+            totals["prompt_tokens"] + totals["completion_tokens"])
+        found["total_tokens"] = True
+    return {
+        "source": source,
+        "available": any(found.values()),
+        **{
+            name: totals[name] if found[name] else None
+            for name in aliases
+        },
+    }
+
+
+TOKENIZER_REPOSITORIES = {
+    "qwen3-coder-30b-a3b-instruct": (
+        "Qwen/Qwen3-Coder-30B-A3B-Instruct"),
+    "qwen3-235b-a22b": "Qwen/Qwen3-235B-A22B",
+}
+
+
+class LocalTokenCounter:
+    """Count Qwen chat tokens locally with the official tokenizer."""
+
+    def __init__(self, loader=None):
+        self.loader = loader
+        self.tokenizers = {}
+
+    def repository_for(self, model):
+        repository = TOKENIZER_REPOSITORIES.get(model.lower())
+        if repository is None:
+            raise ValueError("No local tokenizer configured for model")
+        return repository
+
+    def tokenizer_for(self, model):
+        repository = self.repository_for(model)
+        if repository not in self.tokenizers:
+            if self.loader is None:
+                os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+                from transformers import AutoTokenizer
+                tokenizer = AutoTokenizer.from_pretrained(repository)
+            else:
+                tokenizer = self.loader(repository)
+            self.tokenizers[repository] = tokenizer
+        return self.tokenizers[repository]
+
+    def count_prompt(self, model, messages):
+        tokenizer = self.tokenizer_for(model)
+        token_ids = tokenizer.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=True)
+        if isinstance(token_ids, Mapping):
+            token_ids = token_ids["input_ids"]
+        return len(token_ids)
+
+    def count_response(self, model, text):
+        tokenizer = self.tokenizer_for(model)
+        return len(tokenizer.encode(text, add_special_tokens=False))
+
+
 def remaining_request_time(deadline, idle_timeout, clock):
     remaining = deadline - clock()
     if remaining <= 0:
@@ -105,6 +186,7 @@ def read_model_stream(
         response, metrics, start, deadline, idle_timeout, clock):
     # Join the small reply parts sent by the model server.
     content = []
+    generated = []
     finished = None
     while True:
         timeout = remaining_request_time(deadline, idle_timeout, clock)
@@ -121,7 +203,7 @@ def read_model_stream(
             if finished != "stop":
                 raise ModelResponseError(
                     "Model response incomplete; finish reason was not stop")
-            return "".join(content)
+            return "".join(content), "".join(generated)
         try:
             chunk = json.loads(payload)
         except ValueError:
@@ -150,8 +232,13 @@ def read_model_stream(
                         file=sys.stderr,
                         flush=True,
                     )
+            reasoning = (
+                delta.get("reasoning") or delta.get("reasoning_content"))
+            if reasoning:
+                generated.append(reasoning)
             if delta.get("content"):
                 content.append(delta["content"])
+                generated.append(delta["content"])
             if choice.get("finish_reason"):
                 finished = choice["finish_reason"]
                 metrics["finish_reason"] = finished
@@ -177,7 +264,8 @@ def read_model_json(response, deadline, idle_timeout, clock):
 class ModelAgents:
     def __init__(
             self, config, capture_logs=False,
-            time_budget_seconds=ct.DEFAULT_AGENT_TIMEOUT, clock=None):
+            time_budget_seconds=ct.DEFAULT_AGENT_TIMEOUT, clock=None,
+            token_counter=None):
         # Read the key from the local environment.
         self.config = config
         self.requests = []
@@ -190,6 +278,7 @@ class ModelAgents:
         self.time_budget_seconds = time_budget_seconds
         self.api_time_used_seconds = 0.0
         self.clock = clock or time.monotonic
+        self.token_counter = token_counter or LocalTokenCounter()
         self.key = os.environ.get(ct.API_KEY_ENV)
         if not self.key:
             raise ValueError(
@@ -210,15 +299,29 @@ class ModelAgents:
                 "Fixer/Judge API time limit reached; no action was applied")
 
         # Send the rule and repo data as two separate messages.
+        messages = [
+            {"role": "system", "content": instruction},
+            {"role": "user", "content": json.dumps(context)},
+        ]
+        local_usage = {
+            "source": "local_transformers",
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        }
+        try:
+            local_usage["tokenizer"] = (
+                self.token_counter.repository_for(model))
+            local_usage["prompt_tokens"] = (
+                self.token_counter.count_prompt(model, messages))
+        except Exception as error:
+            local_usage["error_type"] = type(error).__name__
         body = json.dumps({
             "model": model,
             "temperature": 0,
             "stream": True,
             "stream_options": {"include_usage": True},
-            "messages": [
-                {"role": "system", "content": instruction},
-                {"role": "user", "content": json.dumps(context)},
-            ],
+            "messages": messages,
         }).encode()
         request = urllib.request.Request(
             self.endpoint,
@@ -237,6 +340,7 @@ class ModelAgents:
             "model": model,
             "request_bytes": len(body),
             "agent_time_budget_seconds": self.time_budget_seconds,
+            "local_token_usage": local_usage,
         }
         self.requests.append(metrics)
         log = None
@@ -291,9 +395,14 @@ class ModelAgents:
                     if choice.get("finish_reason") != "stop":
                         raise ModelResponseError(
                             "Model response incomplete; finish reason was not stop")
-                    content = choice["message"]["content"]
+                    message = choice["message"]
+                    content = message["content"]
+                    reasoning = (
+                        message.get("reasoning")
+                        or message.get("reasoning_content") or "")
+                    generated = reasoning + content
                 else:
-                    content = read_model_stream(
+                    content, generated = read_model_stream(
                         response,
                         metrics,
                         start,
@@ -303,6 +412,16 @@ class ModelAgents:
                     )
             api_end = self.clock()
             metrics["content_chars"] = len(content)
+            try:
+                completion_tokens = self.token_counter.count_response(
+                    model, generated)
+                local_usage["completion_tokens"] = completion_tokens
+                prompt_tokens = local_usage["prompt_tokens"]
+                if prompt_tokens is not None:
+                    local_usage["total_tokens"] = (
+                        prompt_tokens + completion_tokens)
+            except Exception as error:
+                local_usage.setdefault("error_type", type(error).__name__)
             if log is not None:
                 log["response_text"] = content
             parsed = parse_model_json(content)

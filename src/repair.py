@@ -8,8 +8,11 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 
-from agents import ModelAgents, ModelResponseError, basic_run_steps
+from agents import (
+    ModelAgents, ModelResponseError, basic_run_steps, summarize_token_usage,
+)
 from backends import DockerBackend, make_backend
 from execution import run_command
 from repository import (
@@ -140,6 +143,49 @@ def select_backend(metadata, requested, docker_image=None):
 
 
 def repair(
+        source,
+        agents,
+        rounds=5,
+        timeout=30,
+        allow_install=True,
+        backend="auto",
+        docker_image=None,
+        allow_docker_pull=False,
+        progress=None):
+    run_start = time.monotonic()
+    report = _repair(
+        source,
+        agents,
+        rounds,
+        timeout,
+        allow_install,
+        backend,
+        docker_image,
+        allow_docker_pull,
+        progress,
+    )
+    requests = agents.requests if isinstance(agents, ModelAgents) else []
+    report["metrics"] = {
+        "wall_clock_seconds": round(time.monotonic() - run_start, 2),
+        "model_api_seconds": round(
+            agents.api_time_used_seconds
+            if isinstance(agents, ModelAgents) else 0.0,
+            2,
+        ),
+        "model_request_count": len(requests),
+        "token_usage": summarize_token_usage(requests),
+        "token_usage_by_agent": {
+            agent: summarize_token_usage([
+                request for request in requests
+                if request.get("agent") == agent
+            ])
+            for agent in ("fixer", "judge")
+        },
+    }
+    return report
+
+
+def _repair(
         source,
         agents,
         rounds=5,

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import shutil
@@ -22,6 +23,48 @@ def python_version_error(version_info):
         "Repository Repair Agent requires Python 3.10 or newer.\n"
         f"Current Python version: {current[0]}.{current[1]}.\n"
     )
+
+
+def format_metrics_table(report):
+    """Return a terminal table only for complete, successful run metrics."""
+    if report.get("status") not in {"passed", "execution_only"}:
+        return None
+    metrics = report.get("metrics", {})
+    by_agent = metrics.get("token_usage_by_agent", {})
+    fixer_tokens = by_agent.get("fixer", {}).get("total_tokens")
+    judge_tokens = by_agent.get("judge", {}).get("total_tokens")
+    total_tokens = metrics.get("token_usage", {}).get("total_tokens")
+    wall_time = metrics.get("wall_clock_seconds")
+    valid_tokens = all(
+        type(value) is int and value >= 0
+        for value in (fixer_tokens, judge_tokens, total_tokens)
+    )
+    valid_time = (
+        not isinstance(wall_time, bool)
+        and isinstance(wall_time, (int, float))
+        and math.isfinite(wall_time)
+        and wall_time >= 0
+    )
+    if not valid_tokens or not valid_time:
+        return None
+
+    rows = [
+        ("Metrics Details", "Value"),
+        ("Fixer tokens", f"{fixer_tokens:,}"),
+        ("Judge tokens", f"{judge_tokens:,}"),
+        ("Total tokens", f"{total_tokens:,}"),
+        ("Total run time", f"{wall_time}s"),
+    ]
+    label_width = max(len(label) for label, _ in rows)
+    value_width = max(16, max(len(value) for _, value in rows))
+    divider = "+" + "-" * (label_width + 2)
+    divider += "+" + "-" * (value_width + 2) + "+"
+    lines = [divider]
+    for label, value in rows:
+        lines.append(
+            f"| {label:<{label_width}} | {value:<{value_width}} |")
+        lines.append(divider)
+    return "\n".join(lines)
 
 
 def resolve_repository(value):
@@ -271,4 +314,8 @@ def main(version_info=None):
         print("Run instructions: " + str(result_dir / "steps_to_run.txt"))
     if (result_dir / "agent_logs.json").is_file():
         print("Agent logs: " + str(result_dir / "agent_logs.json"))
+    metrics_table = format_metrics_table(report)
+    if metrics_table is not None:
+        print()
+        print(metrics_table)
     return 0 if report["status"] in {"passed", "execution_only"} else 1

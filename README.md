@@ -76,6 +76,16 @@ results/
     └── steps_to_run.txt   # only after a repair attempt needs run guidance
 ```
 
+Metrics:
+
+- CLI table: Fixer tokens, Judge tokens, total tokens, and total run time.
+- Printed only after successful agent-assisted runs with complete values.
+- Skipped for failed, interrupted, clean no-op, or incomplete-metric runs.
+- `report.json`: wall-clock time, model API time, request count, and combined and
+  per-agent token counts.
+- Tokens are counted locally with the configured Qwen tokenizers.
+- Tokenizer assets are downloaded once and reused from the local cache.
+
 Add `--agent-logs` when you need to debug agent behavior:
 
 ```console

@@ -37,6 +37,17 @@ def command_result(exit_code=0):
     }
 
 
+class FakeTokenCounter:
+    def repository_for(self, model):
+        return "test/" + model
+
+    def count_prompt(self, model, messages):
+        return 11
+
+    def count_response(self, model, text):
+        return 7
+
+
 def step(approved=True):
     return {
         "action": {
@@ -151,7 +162,9 @@ class RepairTests(unittest.TestCase):
                 "agents.urllib.request.urlopen",
                 side_effect=TimeoutError("private provider detail")):
             report = repair(
-                BROKEN_REPO, ModelAgents(config, capture_logs=True))
+                BROKEN_REPO, ModelAgents(
+                    config, capture_logs=True,
+                    token_counter=FakeTokenCounter()))
         self.assertEqual(report["status"], "failed")
         self.assertIn("TimeoutError", report["reason"])
         self.assertEqual(
@@ -172,7 +185,9 @@ class RepairTests(unittest.TestCase):
 
     def test_clean_repository_exits_without_agent_work(self):
         messages = []
-        with patch("repair.run_command", return_value=command_result()):
+        with patch(
+                "repair.run_command", return_value=command_result()), patch(
+                "repair.time.monotonic", side_effect=[100, 112.345]):
             report = repair(
                 BROKEN_REPO, ScriptedAgents([]), progress=messages.append)
 
@@ -184,6 +199,34 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(report["diff"], "")
         self.assertEqual(report["fixed_files"], {})
         self.assertNotIn("steps_to_run", report)
+        self.assertEqual(report["metrics"], {
+            "wall_clock_seconds": 12.34,
+            "model_api_seconds": 0.0,
+            "model_request_count": 0,
+            "token_usage": {
+                "source": "local_transformers",
+                "available": False,
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+            },
+            "token_usage_by_agent": {
+                "fixer": {
+                    "source": "local_transformers",
+                    "available": False,
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                },
+                "judge": {
+                    "source": "local_transformers",
+                    "available": False,
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                },
+            },
+        })
         self.assertEqual([message.strip() for message in messages], [
             "Preparing temporary work copy...",
             "Preparing Python environment...",

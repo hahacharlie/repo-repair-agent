@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Judge-reviewed repairs for Python repositories"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "jinja2>=3.1",
+    "transformers>=4.51.0",
+]
 
 [project.scripts]
 repo-repair-agent = "cli:main"
