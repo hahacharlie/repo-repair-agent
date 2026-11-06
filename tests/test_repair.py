@@ -13,7 +13,8 @@ from repair import add_requirement, repair
 
 ROOT = Path(__file__).resolve().parents[1]
 BROKEN_REPO = (
-    Path(__file__).resolve().parent
+    ROOT
+    / "input"
     / "broken_repos"
     / "undefined_greeting_variable"
 )

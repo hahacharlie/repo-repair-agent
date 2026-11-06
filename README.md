@@ -28,7 +28,7 @@ Add your key to the local `.env` file:
 ASU_AIR_API_KEY=your_key_here
 ```
 
-The program loads `.env` by itself. The file is ignored by Git and must not be committed. Save a broken reposiotry under `tests/broken_repos/`, and while excuting the erapir, give only its folder name:
+The program loads `.env` by itself. The file is ignored by Git and must not be committed. Save a broken repository under `input/broken_repos/`, then give only its folder name when running a repair:
 
 ```console
 uv run repo-repair-agent broken-repo-folder-name
@@ -157,7 +157,7 @@ Next milestones: Docker isolation and image selection; model-driven orchestratio
 - `.env`: local API key file; ignored by Git.
 - `config.json`: model names and the shared API endpoint.
 - `pyproject.toml`, `requirements.txt`, `uv.lock`, `.python-version`: project metadata, dependency declarations, lock file, and development Python version.
-- `tests/broken_repos/`: deliberately broken sample repositories and offline repair scripts.
+- `input/broken_repos/`: broken repositories and offline repair scripts used as repair inputs.
 - `tests/`: unit and integration checks for the repair agent.
 
 Use four-space Python indentation, descriptive snake_case names, and standard-library unittest. Run the test command above before submitting changes. Describe behavior changes, validation, and scope limitations in pull requests. Never commit API keys, local environments, or private run logs.

@@ -56,17 +56,17 @@ class BackendTests(unittest.TestCase):
     def test_repository_markers_select_language_and_image(self):
         with self.subTest("go"):
             self.assertEqual(
-                detect_repository(Path("tests/broken_repos/lazygit"))[:3],
+                detect_repository(Path("input/broken_repos/lazygit"))[:3],
                 ("go", "go", "golang:bookworm"),
             )
             metadata = inspect_repository(
-                Path("tests/broken_repos/lazygit"))
+                Path("input/broken_repos/lazygit"))
             self.assertEqual(metadata["language"], "go")
             self.assertEqual(metadata["entry"], "go.mod")
             self.assertEqual(metadata["build_command"], ["go", "build", "./..."])
         with self.subTest("python"):
             metadata = inspect_repository(
-                Path("tests/broken_repos/undefined_greeting_variable"))
+                Path("input/broken_repos/undefined_greeting_variable"))
             self.assertEqual(metadata["language"], "python")
             self.assertEqual(metadata["docker_image"], "python:3.12-slim")
 

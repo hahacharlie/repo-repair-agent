@@ -14,7 +14,7 @@ from repair import repair
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = PROJECT_ROOT / "config.json"
 DEFAULT_ENV = PROJECT_ROOT / ".env"
-BROKEN_REPOS = PROJECT_ROOT / "tests" / "broken_repos"
+BROKEN_REPOS = PROJECT_ROOT / "input" / "broken_repos"
 
 
 def resolve_repository(value):
@@ -22,7 +22,7 @@ def resolve_repository(value):
     if value.exists():
         return value.resolve()
 
-    # A folder name means a repo saved in tests/broken_repos.
+    # A folder name means a repo saved in input/broken_repos.
     if value.parent == Path("."):
         saved_repo = BROKEN_REPOS / value.name
         if saved_repo.is_dir():

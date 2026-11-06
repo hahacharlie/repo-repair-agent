@@ -11,7 +11,8 @@ from repair import repair
 
 
 BROKEN_REPO = (
-    Path(__file__).resolve().parent
+    Path(__file__).resolve().parents[1]
+    / "input"
     / "broken_repos"
     / "undefined_greeting_variable"
 )

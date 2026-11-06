@@ -5,7 +5,8 @@ from validation import validate_action
 
 
 BROKEN_REPO = (
-    Path(__file__).resolve().parent
+    Path(__file__).resolve().parents[1]
+    / "input"
     / "broken_repos"
     / "undefined_greeting_variable"
 )
@@ -22,7 +23,10 @@ class ValidationTests(unittest.TestCase):
                 )
 
     def test_source_suffixes_follow_the_repository_language(self):
-        root = Path(__file__).resolve().parent / "broken_repos" / "fzf"
+        root = (
+            Path(__file__).resolve().parents[1]
+            / "input" / "broken_repos" / "fzf"
+        )
         edit = {"action": "edit", "reason": "fix", "files": {"main.go": ""}}
         validate_action(edit, root, {".go"})
         with self.assertRaises(ValueError):
