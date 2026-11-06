@@ -231,8 +231,9 @@ class ModelAgents:
             "to complete source strings, not a list of edits. Do not include "
             "Markdown fences, commentary, or additional fields. Never edit tests. "
             "Edit or create non-test source files in the repository language "
-            "(see repository.language and repository.build_system); a path "
-            "that does not exist yet is created. For a "
+            "(see repository.language and repository.build_system). When the "
+            "error says a file is missing, create it: put the new path in "
+            "files and it is written. For a "
             "missing dependency, use the install action; the package manager "
             "of the build system records it in the project manifest."
         )

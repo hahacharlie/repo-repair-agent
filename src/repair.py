@@ -402,6 +402,14 @@ def repair(
                             (root / name).parent.mkdir(
                                 parents=True, exist_ok=True)
                         (root / name).write_text(text)
+                    # A changed manifest needs its new dependencies before
+                    # the offline build can see them.
+                    if (allow_install and fetch
+                            and set(action["files"]) & set(manifests)):
+                        before_manifests = read_manifests()
+                        record["fetch"] = execute(
+                            fetch, root, timeout, network=True)
+                        keep_manifest_changes(before_manifests)
 
                 # Run the app and tests again after the action.
                 updated = verify()

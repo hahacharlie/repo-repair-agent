@@ -234,6 +234,39 @@ class RepairTests(unittest.TestCase):
         ])
         self.assertIn("cargo build", report["steps_to_run"])
 
+    def test_manifest_edit_refetches_dependencies_before_building(self):
+        backend = DockerBackend("rust:test")
+        calls = []
+
+        def run(command, cwd, timeout, network=False):
+            calls.append((command, network))
+            # The build fails until the edited manifest was fetched again.
+            failing = command == ["cargo", "build"] and (
+                calls.count((["cargo", "fetch"], True)) < 2)
+            return command_result(1 if failing else 0)
+
+        edit = {
+            "action": {
+                "action": "edit",
+                "reason": "Add serde",
+                "files": {"Cargo.toml": "[dependencies]\nserde = \"1\"\n"},
+            },
+            "approved": True,
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "Cargo.toml").write_text("[dependencies]\n")
+            with patch.object(
+                    backend, "availability_status", return_value=command_result()), patch.object(
+                    backend, "image_status", return_value=command_result()), patch.object(
+                    backend, "run", side_effect=run), patch(
+                    "repair.make_backend", return_value=backend):
+                report = repair(root, ScriptedAgents([edit]), backend="docker", rounds=1)
+
+        self.assertEqual(report["status"], "execution_only")
+        self.assertEqual(calls.count((["cargo", "fetch"], True)), 2)
+        self.assertTrue(report["history"][0]["fetch"])
+
     def test_created_file_is_kept_on_success_and_removed_on_regression(self):
         script = "fn main() {}\n"
         create = {
