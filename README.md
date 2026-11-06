@@ -1,6 +1,6 @@
 # Repository Repair Agent
 
-An initial Python implementation of the repository-repair capstone design. It finds a Python start file, copies the repository into a temporary folder, creates a Python environment inside the selected broken repository, runs the app and its unittest tests, and works through Fixer proposals and Judge reviews. The original source files stay unchanged.
+An implementation of the repository-repair capstone design for Python and selected compiled-language repositories. It copies the repository into a temporary folder, runs the detected application or build and tests, and works through Fixer proposals and independent Judge reviews. Repairs are restricted to the lines required to resolve the observed blocker; unrelated cleanup and cosmetic edits are rejected or removed. The original source files stay unchanged.
 
 ## Requirements and quick start
 
@@ -28,7 +28,7 @@ Run the offline sample without an API key:
 uv run repo-repair-agent undefined_greeting_variable
 ```
 
-The offline example repairs an undefined variable and checks greeting behavior. Its scripted approval is a fixed test run, not proof that a model Judge works well. Results are saved under `results/<repo-name>/`. CLI exit codes: 0 for passing execution, 1 for unsuccessful repair, 2 for setup errors. `execution_only` means that no tests were found.
+The offline example repairs an undefined variable and checks greeting behavior. Its scripted approval is a fixed test run, not proof that a model Judge works well. Results are saved under `results/<repo-name>/`. CLI exit codes: 0 for passing execution, 1 for unsuccessful repair, 2 for setup errors. `execution_only` means that no tests were found. If the initial application/build and detected tests already pass, the CLI exits with code 0, prints `No errors found. No repair was needed.`, and does not call either agent.
 
 ## Model-backed operation
 
@@ -56,15 +56,16 @@ uv run repo-repair-agent broken-repo-folder-name --rounds 8 --timeout 60
 
 You can still provide a full path when the repository is saved somewhere else.
 
-Every run saves a patch and report. After a successful repair, it also saves only the changed files:
+Every run saves `report.json`. A successful repair saves the changed file
+contents and run instructions. Clean runs and failures with no source changes
+do not create fixed-file artifacts:
 
 ```text
 results/
 └── repo-name/
-    ├── fixed_files/
-    ├── repair.patch
+    ├── fixed_files/       # successful repairs with changed files only
     ├── report.json
-    └── steps_to_run.txt
+    └── steps_to_run.txt   # only after a repair attempt needs run guidance
 ```
 
 Add `--agent-logs` when you need to debug agent behavior:
@@ -77,7 +78,12 @@ This saves `agent_logs.json` in the repository's result folder. It records each
 Fixer and Judge prompt, response, purpose, and timing. API keys and authorization
 headers are never added. This file may contain repository source text, so Git
 ignores it by default. Without `--agent-logs`, prompts and responses are not
-collected or saved.
+collected or saved. A clean no-op run makes no agent requests and does not save
+an empty agent log. Live request messages identify both roles, for example
+`[fixer: model-name]` and `[judge: model-name]`.
+
+The CLI prints concise progress lines before potentially slow setup, dependency,
+build, and test phases so a quiet command does not appear stuck.
 
 Run the repair-agent tests with:
 
@@ -122,7 +128,14 @@ Other model behavior:
 - Offline `--script` mode does not load model configuration or require a key.
 - Model replies must contain one JSON object. Invalid or incomplete replies are
   rejected without applying them.
-- Code edits and dependency installs require Judge approval.
+- Code edits, dependency installs, and Fixer requests to give up require Judge
+  review.
+- The Fixer receives the engine's dependency-installation capabilities and must
+  not propose unsupported installs as source-code fixes.
+- The Fixer must change only lines required by the observed failure. The Judge
+  rejects unrelated cleanup, formatting, blank-line, comment, import, and
+  latent-issue changes. The engine also preserves separable cosmetic-only
+  regions before review.
 - Test edits, unsafe paths, repeated actions, and regressions are rejected.
 - Request timing and token usage are added to the run report when available.
 - `--timeout` controls target commands; `api_timeout_seconds` controls model API
@@ -138,7 +151,8 @@ Other model behavior:
 - Approved packages are added to the repaired `requirements.txt` and saved in
   `fixed_files`.
 - `--no-install` disables dependency downloads.
-- `steps_to_run.txt` explains how to apply and run the repaired files.
+- After a repair attempt, `steps_to_run.txt` explains how to apply and run the
+  repaired files. It is not generated for an already-clean repository.
 
 ### Python version selection
 
@@ -197,7 +211,7 @@ This is the first implementation slice, not the complete milestone system. It su
 
 A temporary directory and virtual environment are **not a security sandbox**. Target programs and package installers run with your user permissions; use only trusted fixtures. Relevant source files and execution output are sent to Voyager in live mode. Do not use repositories containing secrets or private data. Reports contain source edits and command output; review before sharing.
 
-Next milestones: Docker isolation and image selection; model-driven orchestration and context selection; broader project detection; validated GitHub PR publishing; benchmark tasks, hidden functional checks, labeled Judge patches, and comparisons against the two-agent and single-call baselines. The current loop is deterministic orchestration and has no Main Orchestrator model. No PRs are created or pushed.
+Possible next milestones include broader project detection, validated GitHub PR publishing, benchmark tasks, hidden functional checks, labeled Judge patches, and comparisons against two-agent and single-call baselines. The current loop uses deterministic orchestration around separate Fixer and Judge models; it has no Main Orchestrator model. No PRs are created or pushed.
 
 ## Layout and contribution
 

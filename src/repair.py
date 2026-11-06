@@ -147,7 +147,8 @@ def repair(
         allow_install=True,
         backend="auto",
         docker_image=None,
-        allow_docker_pull=False):
+        allow_docker_pull=False,
+        progress=None):
     # Stop bad limits before any work starts.
     if rounds < 1 or timeout <= 0:
         raise ValueError("Rounds and timeout must be positive")
@@ -159,6 +160,11 @@ def repair(
         "diff": "",
         "fixed_files": {},
     }
+
+    def announce(message):
+        if progress is not None:
+            progress(message)
+
     # Add model call data only for live model runs.
     if isinstance(agents, ModelAgents):
         report["model_requests"] = agents.requests
@@ -170,6 +176,7 @@ def repair(
     with tempfile.TemporaryDirectory(
             prefix=".repo-repair-", dir=source.parent) as temporary:
         root = Path(temporary) / "repo"
+        announce("\nPreparing temporary work copy...")
 
         # Links may point outside the work copy, so do not allow them.
         if any(path.is_symlink() for path in source.rglob("*")
@@ -185,6 +192,7 @@ def repair(
 
         def prepare_docker(candidate):
             # Check Docker and its image before any container command.
+            announce("Checking Docker image: " + candidate.image)
             report["docker"] = {"image": candidate.image}
             availability = candidate.availability_status(root, timeout)
             report["docker"]["availability"] = availability
@@ -203,6 +211,7 @@ def repair(
                         + "' is not available locally. Re-run with "
                         "--allow-docker-pull to approve downloading it.")
                     return False
+                announce("Pulling Docker image: " + candidate.image)
                 pulled = candidate.pull(root, timeout)
                 report["docker"]["pull"] = pulled
                 if not command_passed(pulled):
@@ -336,6 +345,9 @@ def repair(
 
         # Keep local Python setup in the selected repo. Docker uses its copy.
         python = None
+        announce(
+            "Preparing Python environment..."
+            if is_python else "Preparing build environment...")
         if not is_python:
             # Compiled toolchains need the cache folder named in backends.py.
             setup = execute(["mkdir", "-p", ".home/tmp"], root, timeout)
@@ -378,11 +390,14 @@ def repair(
 
         def verify():
             # Run the app (or build) first, then run tests when they exist.
+            announce(
+                "Running application..." if is_python else "Running build...")
             app = execute(
                 [python, metadata["entry"]] if is_python
                 else metadata["build_command"], root, timeout)
             tests = None
             if metadata["test_command"]:
+                announce("Running tests...\n")
                 tests = execute(
                     with_python(metadata["test_command"]), root, timeout)
             return {"app": app, "tests": tests}
@@ -401,6 +416,7 @@ def repair(
             pip_install("-r") + ["requirements.txt"] if has_requirements
             else toolchain.get("fetch"))
         if allow_install and fetch:
+            announce("Fetching declared dependencies...")
             before_manifests = read_manifests()
             setup = execute(fetch, root, timeout, network=True)
             keep_manifest_changes(before_manifests)
@@ -510,6 +526,8 @@ def repair(
                         break
                     if not review["approved"]:
                         continue
+                    announce(
+                        "Installing approved dependency: " + action["package"])
                     before_manifests = read_manifests()
                     installation = execute(
                         pip_install(action["package"]) if is_python

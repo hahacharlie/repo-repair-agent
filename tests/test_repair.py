@@ -112,8 +112,7 @@ class RepairTests(unittest.TestCase):
                 (result_dir / "fixed_files/package/tool.py").read_text(),
                 "print('fixed')\n",
             )
-            self.assertEqual(
-                (result_dir / "repair.patch").read_text(), "sample patch")
+            self.assertFalse((result_dir / "repair.patch").exists())
             self.assertEqual(
                 (result_dir / "steps_to_run.txt").read_text(),
                 "1. Create .venv\n2. Run the app\n",
@@ -127,11 +126,11 @@ class RepairTests(unittest.TestCase):
                 (result_dir / "agent_logs.json").read_text())
             self.assertEqual(saved_logs, report["agent_logs"])
 
-    def test_results_do_not_save_an_empty_patch(self):
+    def test_results_remove_a_legacy_patch(self):
         report = {
             "status": "failed",
             "reason": "Docker image is unavailable",
-            "diff": "",
+            "diff": "sample patch",
             "fixed_files": {},
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -172,8 +171,10 @@ class RepairTests(unittest.TestCase):
             (BROKEN_REPO / "greeting.py").read_bytes(), original)
 
     def test_clean_repository_exits_without_agent_work(self):
+        messages = []
         with patch("repair.run_command", return_value=command_result()):
-            report = repair(BROKEN_REPO, ScriptedAgents([]))
+            report = repair(
+                BROKEN_REPO, ScriptedAgents([]), progress=messages.append)
 
         self.assertEqual(report["status"], "passed")
         self.assertTrue(report["no_repair_needed"])
@@ -183,6 +184,12 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(report["diff"], "")
         self.assertEqual(report["fixed_files"], {})
         self.assertNotIn("steps_to_run", report)
+        self.assertEqual([message.strip() for message in messages], [
+            "Preparing temporary work copy...",
+            "Preparing Python environment...",
+            "Running application...",
+            "Running tests...",
+        ])
 
     def test_rejected_patch_never_applies_and_limit_stops(self):
         report = repair(

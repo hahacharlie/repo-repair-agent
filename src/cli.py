@@ -82,11 +82,9 @@ def write_results(results_root, repo_name, report):
     saved_report["fixed_files"] = sorted(fixed_files)
     (result_dir / "report.json").write_text(
         json.dumps(saved_report, indent=2) + "\n")
+    # Remove the legacy patch artifact; changed files are saved above.
     patch_path = result_dir / "repair.patch"
-    repair_diff = report.get("diff", "")
-    if repair_diff:
-        patch_path.write_text(repair_diff)
-    elif patch_path.exists():
+    if patch_path.exists():
         patch_path.unlink()
     steps_path = result_dir / "steps_to_run.txt"
     steps = report.get("steps_to_run")
@@ -198,7 +196,7 @@ def main(version_info=None):
             agents = ScriptedAgents(json.loads(script.read_text()))
         else:
             agents = ModelAgents(config, capture_logs=args.agent_logs)
-        print("Repairing repository: " + repository.name)
+        print("Repairing repository: " + repository.name, flush=True)
         report = repair(
             repository,
             agents,
@@ -208,6 +206,7 @@ def main(version_info=None):
             args.backend,
             args.docker_image,
             args.allow_docker_pull,
+            progress=lambda message: print(message, flush=True),
         )
     except Exception as error:
         raise
