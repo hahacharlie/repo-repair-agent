@@ -1,6 +1,6 @@
 # Repository Repair Agent
 
-An implementation of the repository-repair capstone design for Python and selected compiled-language repositories. It copies the repository into a temporary folder, runs the detected application or build and tests, and works through Fixer proposals and independent Judge reviews. Repairs are restricted to the lines required to resolve the observed blocker; unrelated cleanup and cosmetic edits are rejected or removed. The original source files stay unchanged.
+An implementation of the repository-repair capstone design for Python and selected compiled-language repositories. It copies the repository into a temporary folder, runs the detected application or build and tests, and works through Fixer proposals. The proposed pipeline sends code edits to an independent Judge. Repairs are restricted to the lines required to resolve the observed blocker; unrelated cleanup and cosmetic edits are rejected or removed. The original source files stay unchanged.
 
 ## Requirements and quick start
 
@@ -11,7 +11,8 @@ Minimum requirements:
 - Docker Desktop on Windows/macOS or Docker Engine on Linux, with Docker
   running. Docker is required for non-Python repositories and as a fallback
   when the required Python version is not installed locally.
-- An ASU AI API key for model-backed repairs. Offline scripted repairs do   not need an API key.
+- An ASU AI API key for model-backed repairs. Offline scripted repairs do not
+  need an API key.
 
 The commands below use the same form on Windows, macOS, and Linux. If your
 system uses `python3` instead of `python`, use `python3` in the setup command.
@@ -57,9 +58,17 @@ can be compared under the same limits. Its source is
 `sakethreddy26/capstone-proposal` at commit
 `2b0cade1c6f7c3445e637ee83e7c247c083f5f3f`.
 
+- Stakeholder Fixer model: `qwen3-coder-30b-a3b-instruct`
+- Stakeholder Judge model: `qwen3-235b-a22b-instruct-2507`
+
 The Fixer-only baseline uses the proposed pipeline's Fixer model and prompt but
 applies valid edits without calling the Judge. Execution settings, limits,
 results, and metrics remain the same as the proposed pipeline.
+
+`--baseline` cannot be combined with `--script`. Runs for the same repository
+replace its previous result folder, so use separate output folders when keeping
+all three evaluation results, for example `--output results/proposed`,
+`--output results/stakeholder`, and `--output results/fixer-only`.
 
 ## Model-backed operation
 
@@ -101,10 +110,10 @@ do not create fixed-file artifacts:
 
 ```text
 results/
-└── repo-name/
-    ├── fixed_files/       # successful repairs with changed files only
-    ├── report.json
-    └── steps_to_run.txt   # only after a repair attempt needs run guidance
+`-- repo-name/
+    |-- fixed_files/       # successful repairs with changed files only
+    |-- report.json
+    `-- steps_to_run.txt   # only after a repair attempt needs run guidance
 ```
 
 Metrics:
@@ -164,8 +173,10 @@ Configuration fields:
 
 - `endpoint`: HTTPS API base URL or complete chat-completions URL. The client
   adds `/chat/completions` when needed.
-- `fixer_model`: model that proposes repairs and run instructions.
-- `judge_model`: separate model that reviews proposed code edits.
+- `fixer_model`: model that proposes repairs and run instructions in the
+  proposed and Fixer-only modes.
+- `judge_model`: model that reviews proposed code edits in the proposed mode.
+  The stakeholder baseline uses its fixed model IDs listed above.
 - `api_timeout_seconds`: optional API wait limit from 1 to 3600 seconds. The
   default is 300.
 - The model names must be available through the selected endpoint.
@@ -182,18 +193,21 @@ Other model behavior:
 - The project-root `config.json` is used by default. `--config` selects another
   file.
 - Offline `--script` mode does not load model configuration or require a key.
-- Model replies must contain one JSON object. When a reply is invalid JSON, the
-  same request is tried up to two more times before stopping. Incomplete model
-  streams are rejected without applying them.
-- Only code edits require Judge review. Dependency installs and Fixer requests
-  to give up do not call the Judge.
+- Proposed and Fixer-only model replies must contain one JSON object. When a
+  reply is invalid JSON, the same request is tried up to two more times before
+  stopping. The stakeholder baseline uses its original text response format.
+  Incomplete model streams are rejected without applying them.
+- In the proposed pipeline and stakeholder baseline, only code edits require
+  Judge review. The Fixer-only baseline never calls the Judge. Dependency
+  installs and Fixer requests to give up do not call the Judge in any mode.
 - The Fixer receives the engine's dependency-installation capabilities and must
   not propose unsupported installs as source-code fixes.
-- The Fixer must change only lines required by the observed failure. The Judge
-  rejects unrelated cleanup, formatting, blank-line, comment, import, and
-  latent-issue changes. The engine also preserves separable cosmetic-only
+- The proposed Fixer must change only lines required by the observed failure.
+  Its Judge rejects unrelated cleanup, formatting, blank-line, comment, import,
+  and latent-issue changes. The engine also preserves separable cosmetic-only
   regions before review.
-- Test edits, unsafe paths, repeated actions, and regressions are rejected.
+- Test edits and unsafe paths are rejected in every mode. Repeated actions and
+  regressions are also rejected in the proposed and Fixer-only modes.
 - Request timing and token usage are added to the run report when available.
 - `--timeout` controls target commands. `api_timeout_seconds` controls network
   inactivity for one model request. `--agent-timeout` controls the cumulative
@@ -206,8 +220,10 @@ Other model behavior:
 - Docker repairs create `.venv` only inside the temporary container copy.
 - Dependencies from `requirements.txt` are installed automatically.
 - New package names and repository capabilities are checked before download.
-- Installed packages are added to the repaired `requirements.txt` and saved in
-  `fixed_files`.
+- In the proposed and Fixer-only modes, installed packages are added to the
+  repaired `requirements.txt` and saved in `fixed_files`. The stakeholder
+  baseline keeps its original behavior and lists install commands in
+  `steps_to_run.txt` instead.
 - `--no-install` disables dependency downloads.
 - After a repair attempt, `steps_to_run.txt` explains how to apply and run the
   repaired files. It is not generated for an already-clean repository.
@@ -248,9 +264,9 @@ uv run repo-repair-agent my-repository --backend docker --allow-docker-pull
 ```
 
 Containers have no network for application and test commands. Network is
-enabled only while installing dependencies requested by the Fixer. The
-container runs with CPU, memory, PID, capability, filesystem, and
-temporary-directory limits.
+enabled only while fetching declared dependencies or installing a dependency
+requested by the Fixer. The container runs with CPU, memory, PID, capability,
+filesystem, and temporary-directory limits.
 
 For a non-Python repository the "application" step is the build command
 (`cargo build`, `go build ./...`, `cmake`, `meson`, `scons`, or
@@ -269,7 +285,7 @@ This is the first implementation slice, not the complete milestone system. It su
 
 A temporary directory and virtual environment are **not a security sandbox**. Target programs and package installers run with your user permissions; use only trusted fixtures. Relevant source files and execution output are sent to Voyager in live mode. Do not use repositories containing secrets or private data. Reports contain source edits and command output; review before sharing.
 
-Possible next milestones include broader project detection, validated GitHub PR publishing, benchmark tasks, hidden functional checks, labeled Judge patches, and comparisons against two-agent and single-call baselines. The current loop uses deterministic orchestration around separate Fixer and Judge models; it has no Main Orchestrator model. No PRs are created or pushed.
+Possible next milestones include broader project detection, validated GitHub PR publishing, benchmark automation, hidden functional checks, and labeled Judge patches. The proposed pipeline uses deterministic orchestration around separate Fixer and Judge models; it has no Main Orchestrator model. The stakeholder and Fixer-only comparison baselines are implemented. No PRs are created or pushed.
 
 ## Layout and contribution
 
