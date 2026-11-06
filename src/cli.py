@@ -82,7 +82,12 @@ def write_results(results_root, repo_name, report):
     saved_report["fixed_files"] = sorted(fixed_files)
     (result_dir / "report.json").write_text(
         json.dumps(saved_report, indent=2) + "\n")
-    (result_dir / "repair.patch").write_text(report["diff"])
+    patch_path = result_dir / "repair.patch"
+    repair_diff = report.get("diff", "")
+    if repair_diff:
+        patch_path.write_text(repair_diff)
+    elif patch_path.exists():
+        patch_path.unlink()
     steps_path = result_dir / "steps_to_run.txt"
     steps = report.get("steps_to_run")
     if steps:
@@ -112,7 +117,7 @@ def main(version_info=None):
         default=ct.DEFAULT_CONFIG,
         help="Model configuration JSON (default: config.json in project root)",
     )
-    parser.add_argument("--rounds", type=int, default=5)
+    parser.add_argument("--rounds", type=int, default=30)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument(
         "--agent-logs",

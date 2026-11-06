@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .env
 .env.*
+input/broken_repos/.repo-repair-*/
 results/**/agent_logs.json
 build/
 dist/

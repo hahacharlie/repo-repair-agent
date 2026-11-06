@@ -99,6 +99,24 @@ class RepairTests(unittest.TestCase):
                 (result_dir / "agent_logs.json").read_text())
             self.assertEqual(saved_logs, report["agent_logs"])
 
+    def test_results_do_not_save_an_empty_patch(self):
+        report = {
+            "status": "failed",
+            "reason": "Docker image is unavailable",
+            "diff": "",
+            "fixed_files": {},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            results = Path(directory)
+            patch_path = results / "sample" / "repair.patch"
+            patch_path.parent.mkdir(parents=True)
+            patch_path.write_text("stale patch")
+
+            result_dir = write_results(results, "sample", report)
+
+            self.assertFalse((result_dir / "repair.patch").exists())
+            self.assertTrue((result_dir / "report.json").is_file())
+
     def test_timeout_is_reported_without_exposing_provider_message(self):
         config = load_config(ROOT / "config.json")
         with patch.dict(
