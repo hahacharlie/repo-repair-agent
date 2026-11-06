@@ -37,15 +37,16 @@ def validate_action(action, root, suffixes=frozenset({".py"})):
         target = (root / name).resolve()
         if root.resolve() not in target.parents:
             raise ValueError("Edit escapes working copy")
-        # Only allow edits to source code that is not a test file. Test names
-        # look like test_x.py, tests/, foo_test.go, or integration_tests.rs.
+        # Only allow source code that is not a test file; a new file may be
+        # created. Test names look like test_x.py, tests/, foo_test.go, or
+        # integration_tests.rs.
         if ((target.suffix not in suffixes and target.name not in suffixes)
-                or not target.is_file()
+                or (target.exists() and not target.is_file())
                 or any(re.search(r"(^|_)tests?($|[._])", part.lower())
                        for part in path.parts)
                 or any(part.startswith(".") for part in path.parts)
                 or IGNORED.intersection(path.parts)):
             raise ValueError(
-                "Only existing non-test source files may be edited")
+                "Only non-test source files may be edited or created")
         if len(content) > 100000:
             raise ValueError("Proposed file exceeds size limit")

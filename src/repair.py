@@ -296,6 +296,7 @@ def repair(
         observation = verify()
         report["initial"] = observation
         seen = set()
+        created = set()
 
         for _ in range(rounds):
             # Stop as soon as both the app and tests pass.
@@ -377,9 +378,11 @@ def repair(
                             record["requirements_updated"] = True
                 else:
                     # Send every code edit to the Judge before writing it.
+                    # A file that does not exist yet is left out of before.
                     before = {
                         name: (root / name).read_text()
                         for name in action["files"]
+                        if (root / name).is_file()
                     }
                     review = agents.review({
                         "before": before,
@@ -392,7 +395,12 @@ def repair(
                         continue
                     # Save the first file text for the final patch.
                     for name, text in action["files"].items():
-                        originals.setdefault(name, before[name])
+                        if name in before:
+                            originals.setdefault(name, before[name])
+                        else:
+                            created.add(name)
+                            (root / name).parent.mkdir(
+                                parents=True, exist_ok=True)
                         (root / name).write_text(text)
 
                 # Run the app and tests again after the action.
@@ -410,6 +418,9 @@ def repair(
                 if regressed:
                     for name, text in before.items():
                         (root / name).write_text(text)
+                    for name in set(action["files"]) - set(before):
+                        (root / name).unlink()
+                        created.discard(name)
                     record["rolled_back"] = True
                 else:
                     observation = updated
@@ -437,7 +448,7 @@ def repair(
                     "(no tests detected)")
         final_files = {
             name: (root / name).read_text()
-            for name in originals
+            for name in set(originals) | created
         }
         report["diff"] = diff_files(originals, final_files)
 
@@ -446,7 +457,7 @@ def repair(
             report["fixed_files"] = {
                 name: text
                 for name, text in final_files.items()
-                if originals[name] != text
+                if originals.get(name) != text
             }
 
         add_run_steps()

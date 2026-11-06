@@ -33,6 +33,18 @@ class ValidationTests(unittest.TestCase):
                 "files": {"src/options_test.go": ""},
             }, root, {".go"})
 
+    def test_new_source_files_are_allowed_outside_tests(self):
+        root = Path(__file__).resolve().parent / "broken_repos" / "bat"
+        validate_action({
+            "action": "edit", "reason": "add build script",
+            "files": {"build/main.rs": "fn main() {}\n"},
+        }, root, {".rs"})
+        for name in ("tests/new_test.rs", "build/notes.md", "src"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                validate_action({
+                    "action": "edit", "reason": "bad", "files": {name: ""},
+                }, root, {".rs"})
+
     def test_nested_action_is_rejected_cleanly(self):
         for action in ({"type": "edit"}, ["edit"], None, 42):
             with self.subTest(action=action), self.assertRaises(ValueError):

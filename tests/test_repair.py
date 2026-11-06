@@ -234,6 +234,56 @@ class RepairTests(unittest.TestCase):
         ])
         self.assertIn("cargo build", report["steps_to_run"])
 
+    def test_created_file_is_kept_on_success_and_removed_on_regression(self):
+        script = "fn main() {}\n"
+        create = {
+            "action": {
+                "action": "edit",
+                "reason": "Add the build script Cargo.toml names",
+                "files": {"build/main.rs": script},
+            },
+            "approved": True,
+        }
+
+        def repair_with(root, build_passes):
+            backend = DockerBackend("rust:test")
+
+            def run(command, cwd, timeout, network=False):
+                # Tests always fail; only the build depends on the new file.
+                if command == ["cargo", "test"]:
+                    return command_result(1)
+                if command != ["cargo", "build"]:
+                    return command_result()
+                return command_result(
+                    0 if build_passes((Path(cwd) / "build/main.rs").is_file())
+                    else 1)
+
+            with patch.object(
+                    backend, "availability_status", return_value=command_result()), patch.object(
+                    backend, "image_status", return_value=command_result()), patch.object(
+                    backend, "run", side_effect=run), patch(
+                    "repair.make_backend", return_value=backend):
+                return repair(
+                    root, ScriptedAgents([create]), backend="docker", rounds=1)
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "Cargo.toml").write_text("[package]\nbuild = \"build/main.rs\"\n")
+            report = repair_with(root, build_passes=lambda created: created)
+            self.assertFalse((root / "build").exists())
+        self.assertEqual(report["status"], "execution_only")
+        self.assertEqual(report["fixed_files"], {"build/main.rs": script})
+        self.assertIn("--- /dev/null\n+++ b/build/main.rs", report["diff"])
+
+        # A new file that breaks a passing build is deleted again.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "Cargo.toml").write_text("[package]\n")
+            (root / "tests").mkdir()
+            (root / "tests/cli.rs").write_text("#[test] fn fails() {}\n")
+            report = repair_with(root, build_passes=lambda created: not created)
+        self.assertTrue(report["history"][0]["rolled_back"])
+        self.assertEqual(report["diff"], "")
 
 if __name__ == "__main__":
     unittest.main()

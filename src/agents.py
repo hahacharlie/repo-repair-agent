@@ -230,8 +230,9 @@ class ModelAgents:
             "be a string, never an object or array. files must map relative paths "
             "to complete source strings, not a list of edits. Do not include "
             "Markdown fences, commentary, or additional fields. Never edit tests. "
-            "Use only existing non-test source files in the repository language "
-            "(see repository.language and repository.build_system). For a "
+            "Edit or create non-test source files in the repository language "
+            "(see repository.language and repository.build_system); a path "
+            "that does not exist yet is created. For a "
             "missing dependency, use the install action; the package manager "
             "of the build system records it in the project manifest."
         )
