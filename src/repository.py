@@ -3,6 +3,8 @@
 from pathlib import Path
 import re
 
+import constants as ct
+
 
 IGNORED = {".git", ".venv", "venv", "__pycache__", "node_modules", "results",
            ".home"}
@@ -60,7 +62,7 @@ TOOLCHAINS = {
         "tests": ("content", "Makefile", r"^check\s*:"),
     },
     "python": {
-        "image": "python:3.12-slim",
+        "image": ct.DEFAULT_PYTHON_IMAGE,
         "sources": {".py", ".md", ".txt", ".toml", ".cfg", ".ini"},
         "manifests": ["requirements.txt"],
     },
@@ -86,9 +88,9 @@ def detect_repository(root):
 
     python_markers = ("pyproject.toml", "requirements.txt", "setup.py")
     if any((root / marker).is_file() for marker in python_markers):
-        return "python", "python", "python:3.12-slim"
+        return "python", "python", ct.DEFAULT_PYTHON_IMAGE
     if any(root.glob("*.py")):
-        return "python", "python", "python:3.12-slim"
+        return "python", "python", ct.DEFAULT_PYTHON_IMAGE
     if (root / "Makefile").is_file():
         return "c", "make", TOOLCHAINS["make"]["image"]
     return "unknown", "unknown", "ubuntu:24.04"

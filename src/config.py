@@ -5,6 +5,8 @@ import os
 import re
 from urllib.parse import urlsplit
 
+import constants as ct
+
 
 def create_env_file(path, variable):
     # Create a safe first-run file without adding a real key.
@@ -59,9 +61,15 @@ def load_config(path):
         raise ValueError("Config values must be non-empty strings")
 
     # Keep the wait time between 1 second and 1 hour.
-    timeout = config.get("api_timeout_seconds", 300)
-    if type(timeout) is not int or not 1 <= timeout <= 3600:
-        raise ValueError("api_timeout_seconds must be an integer from 1 to 3600")
+    timeout = config.get("api_timeout_seconds", ct.DEFAULT_API_TIMEOUT)
+    if (type(timeout) is not int
+            or not ct.MINIMUM_API_TIMEOUT
+            <= timeout <= ct.MAXIMUM_API_TIMEOUT):
+        raise ValueError(
+            "api_timeout_seconds must be an integer from "
+            + str(ct.MINIMUM_API_TIMEOUT) + " to "
+            + str(ct.MAXIMUM_API_TIMEOUT)
+        )
 
     # Only allow a safe HTTPS model URL with no key in the URL.
     endpoint = urlsplit(config["endpoint"])

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 
+import constants as ct
 from execution import run_command
 
 
@@ -22,7 +23,7 @@ class DockerBackend:
 
     name = "docker"
 
-    def __init__(self, image="python:3.12-slim"):
+    def __init__(self, image=ct.DEFAULT_PYTHON_IMAGE):
         self.image = image
 
     def image_status(self, cwd, timeout):
@@ -86,7 +87,7 @@ class DockerBackend:
             self.command(command, cwd, network=network), cwd, timeout)
 
 
-def make_backend(name, image="python:3.12-slim"):
+def make_backend(name, image=ct.DEFAULT_PYTHON_IMAGE):
     if name == "local":
         return LocalBackend()
     if name == "docker":

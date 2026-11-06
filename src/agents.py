@@ -7,8 +7,7 @@ import threading
 import time
 import urllib.request
 
-
-API_KEY_ENV = "ASU_AIR_API_KEY"
+import constants as ct
 
 
 def basic_run_steps(context):
@@ -139,10 +138,11 @@ class ModelAgents:
         self.requests = []
         self.logs = []
         self.capture_logs = capture_logs
-        self.key = os.environ.get(API_KEY_ENV)
+        self.key = os.environ.get(ct.API_KEY_ENV)
         if not self.key:
             raise ValueError(
-                "Set " + API_KEY_ENV + " or use --script for offline operation")
+                "Set " + ct.API_KEY_ENV
+                + " or use --script for offline operation")
         # Add the chat path when the base URL is given.
         self.endpoint = config["endpoint"].rstrip("/")
         if not self.endpoint.endswith("/chat/completions"):
@@ -204,7 +204,8 @@ class ModelAgents:
         worker = threading.Thread(target=progress, daemon=True)
         worker.start()
         try:
-            timeout = self.config.get("api_timeout_seconds", 300)
+            timeout = self.config.get(
+                "api_timeout_seconds", ct.DEFAULT_API_TIMEOUT)
             # Read either a normal JSON reply or a streamed reply.
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 metrics["headers_seconds"] = round(time.monotonic() - start, 2)

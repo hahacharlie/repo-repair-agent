@@ -4,10 +4,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from agents import API_KEY_ENV, ModelAgents, ScriptedAgents
+from agents import ModelAgents, ScriptedAgents
 from backends import DockerBackend, LocalBackend
 from cli import resolve_repository, resolve_script, write_results
 from config import load_config
+import constants as ct
 from repair import add_requirement, repair
 
 
@@ -101,7 +102,7 @@ class RepairTests(unittest.TestCase):
     def test_timeout_is_reported_without_exposing_provider_message(self):
         config = load_config(ROOT / "config.json")
         with patch.dict(
-                "os.environ", {API_KEY_ENV: "test-token"}), patch(
+                "os.environ", {ct.API_KEY_ENV: "test-token"}), patch(
                 "agents.urllib.request.urlopen",
                 side_effect=TimeoutError("private provider detail")):
             report = repair(

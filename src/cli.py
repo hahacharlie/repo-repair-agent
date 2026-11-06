@@ -5,16 +5,23 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import sys
 
-from agents import API_KEY_ENV, ModelAgents, ScriptedAgents
+from agents import ModelAgents, ScriptedAgents
 from config import create_env_file, load_config, load_env
+import constants as ct
 from repair import repair
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG = PROJECT_ROOT / "config.json"
-DEFAULT_ENV = PROJECT_ROOT / ".env"
-BROKEN_REPOS = PROJECT_ROOT / "input" / "broken_repos"
+def python_version_error(version_info):
+    # Stop early when this agent cannot safely run on the installed Python.
+    current = tuple(version_info[:2])
+    if current >= ct.MINIMUM_PYTHON:
+        return None
+    return (
+        "Repository Repair Agent requires Python 3.10 or newer.\n"
+        f"Current Python version: {current[0]}.{current[1]}.\n"
+    )
 
 
 def resolve_repository(value):
@@ -24,7 +31,7 @@ def resolve_repository(value):
 
     # A folder name means a repo saved in input/broken_repos.
     if value.parent == Path("."):
-        saved_repo = BROKEN_REPOS / value.name
+        saved_repo = ct.BROKEN_REPOS / value.name
         if saved_repo.is_dir():
             return saved_repo.resolve()
     raise ValueError("Repo not found: " + str(value))
@@ -85,7 +92,14 @@ def write_results(results_root, repo_name, report):
     return result_dir
 
 
-def main():
+def main(version_info=None):
+    # Check Python before reading files or starting a repair.
+    error = python_version_error(
+        sys.version_info if version_info is None else version_info)
+    if error:
+        print(error, end="", file=sys.stderr)
+        return 2
+
     # Read the repo path and other options from the command line.
     parser = argparse.ArgumentParser(
         description="Repair a trusted repository in a temporary copy.")
@@ -95,7 +109,7 @@ def main():
     parser.add_argument(
         "--config",
         type=Path,
-        default=DEFAULT_CONFIG,
+        default=ct.DEFAULT_CONFIG,
         help="Model configuration JSON (default: config.json in project root)",
     )
     parser.add_argument("--rounds", type=int, default=5)
@@ -151,12 +165,12 @@ def main():
     config = None
     if not script:
         # Create the local key file on the first model-backed run.
-        created_env = create_env_file(DEFAULT_ENV, API_KEY_ENV)
-        load_env(DEFAULT_ENV)
-        if created_env and not os.environ.get(API_KEY_ENV):
+        created_env = create_env_file(ct.DEFAULT_ENV, ct.API_KEY_ENV)
+        load_env(ct.DEFAULT_ENV)
+        if created_env and not os.environ.get(ct.API_KEY_ENV):
             parser.exit(
                 2,
-                "Created .env file at:\n" + str(DEFAULT_ENV) + "\n"
+                "Created .env file at:\n" + str(ct.DEFAULT_ENV) + "\n"
                 "Add your API key in this file.\n"
                 "Then run the command again.\n",
             )
@@ -165,11 +179,11 @@ def main():
         except (ValueError, OSError):
             parser.error(
                 "Cannot load model config; check --config path and fields")
-        if not os.environ.get(API_KEY_ENV):
+        if not os.environ.get(ct.API_KEY_ENV):
             parser.exit(
                 2,
                 "Add your API key in this file:\n"
-                + str(DEFAULT_ENV) + "\n"
+                + str(ct.DEFAULT_ENV) + "\n"
                 "Then run the command again.\n",
             )
 

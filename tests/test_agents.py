@@ -6,13 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from agents import (
-    API_KEY_ENV,
-    ModelAgents,
-    ModelResponseError,
-    parse_model_json,
-)
+from agents import ModelAgents, ModelResponseError, parse_model_json
 from config import load_config
+import constants as ct
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,7 +57,7 @@ class AgentTests(unittest.TestCase):
             )
         ]
         with patch.dict(
-                "os.environ", {API_KEY_ENV: "test-token"}, clear=True), patch(
+                "os.environ", {ct.API_KEY_ENV: "test-token"}, clear=True), patch(
                 "agents.urllib.request.urlopen",
                 side_effect=responses) as request:
             agents = ModelAgents(loaded, capture_logs=True)
@@ -111,7 +107,7 @@ class AgentTests(unittest.TestCase):
         for finish, done in (
                 ("length", True), ("stop", False), ("content_filter", True)):
             with self.subTest(finish=finish, done=done), patch.dict(
-                    "os.environ", {API_KEY_ENV: "test-token"}), patch(
+                    "os.environ", {ct.API_KEY_ENV: "test-token"}), patch(
                     "agents.urllib.request.urlopen",
                     return_value=stream_response(
                         '{"approved": true, "reason": "ok"}', finish, done),
@@ -149,7 +145,7 @@ class AgentTests(unittest.TestCase):
         response = io.BytesIO(json.dumps(payload).encode())
         response.headers = {"Content-Type": "application/json"}
         with patch.dict(
-                "os.environ", {API_KEY_ENV: "test-token"}), patch(
+                "os.environ", {ct.API_KEY_ENV: "test-token"}), patch(
                 "agents.urllib.request.urlopen",
                 return_value=response):
             agents = ModelAgents(config)
@@ -159,7 +155,7 @@ class AgentTests(unittest.TestCase):
     def test_api_base_url_is_normalized(self):
         config = load_config(CONFIG)
         with patch.dict(
-                os.environ, {API_KEY_ENV: "test-token"}):
+                os.environ, {ct.API_KEY_ENV: "test-token"}):
             for endpoint in (
                     "https://example.test/v1",
                     "https://example.test/v1/",

@@ -4,9 +4,19 @@ An initial Python implementation of the repository-repair capstone design. It fi
 
 ## Requirements and quick start
 
-The commands below use the same form on Windows, macOS, and Linux. If your system uses `python3` instead of `python`, use `python3` in the setup command.
+Minimum requirements:
 
-Install Python 3.10 or newer. Run this one time from the project folder:
+- Python 3.10 or newer with `pip`. The CLI checks this at startup and stops
+  before setup when the installed Python is too old.
+- Docker Desktop on Windows/macOS or Docker Engine on Linux, with Docker
+  running. Docker is required for non-Python repositories and as a fallback
+  when the required Python version is not installed locally.
+- An ASU AI API key for model-backed repairs. Offline scripted repairs do   not need an API key.
+
+The commands below use the same form on Windows, macOS, and Linux. If your
+system uses `python3` instead of `python`, use `python3` in the setup command.
+
+Install the project runner one time from the project folder:
 
 ```console
 python -m pip install -r requirements.txt
@@ -88,7 +98,16 @@ Edit `config.json` to select the Fixer and Judge models:
 }
 ```
 
-`endpoint` is an HTTPS API base URL (such as `https://openai.rc.asu.edu/v1`) or a complete chat-completions URL, shared by both agents. The client appends `/chat/completions` to base URLs. The API key is always read from `ASU_AIR_API_KEY` in `.env`; never put the key in this file. Model names must be available through the selected endpoint. Use different Fixer and Judge models for independent review. The Main Orchestrator is not yet model-driven and has no model setting.
+Configuration fields:
+
+- `endpoint`: HTTPS API base URL or complete chat-completions URL. The client
+  adds `/chat/completions` when needed.
+- `fixer_model`: model that proposes repairs and run instructions.
+- `judge_model`: separate model that reviews edits and dependency installs.
+- `api_timeout_seconds`: optional API wait limit from 1 to 3600 seconds. The
+  default is 300.
+- The model names must be available through the selected endpoint.
+- Keep the API key in `.env`, never in `config.json`.
 
 Use a separate configuration with:
 
@@ -96,11 +115,18 @@ Use a separate configuration with:
 uv run repo-repair-agent "<repo-path>" --config "<config-path>"
 ```
 
-By default, the runner loads `config.json` from the project root, regardless of the current working directory. The endpoint and two model fields are required. `api_timeout_seconds` is optional and defaults to 300 (integer, 1–3600). It controls socket waits, including the wait for initial response headers; it is not a total wall-clock deadline for an active stream. The CLI `--timeout` separately limits each target execution or installation command. Unknown fields are rejected. Offline `--script` mode does not load model configuration or require a key.
+Other model behavior:
 
-The configuration selects ASU Voyager. Requests enable SSE streaming with usage reporting. Progress goes to stderr every 15 seconds while waiting and when reasoning or answer generation begins; model reasoning and answer text are not printed. The run report records per-request timing, request IDs, finish reasons, and token usage when provided. A server that returns a regular JSON completion instead is also accepted.
-
-Answers must contain a JSON object, either plain or wrapped in a single Markdown code fence. Prose surrounding JSON, malformed JSON, truncated replies, and streams missing `[DONE]` stop the run without applying that response. Code edits require Judge approval and may change multiple existing Python source files. Test edits, path traversal, and repeated actions are rejected. Regressions in previously passing execution or tests trigger rollback.
+- The project-root `config.json` is used by default. `--config` selects another
+  file.
+- Offline `--script` mode does not load model configuration or require a key.
+- Model replies must contain one JSON object. Invalid or incomplete replies are
+  rejected without applying them.
+- Code edits and dependency installs require Judge approval.
+- Test edits, unsafe paths, repeated actions, and regressions are rejected.
+- Request timing and token usage are added to the run report when available.
+- `--timeout` controls target commands; `api_timeout_seconds` controls model API
+  waits.
 
 Each local Python repair run creates a clean `.venv` inside the selected broken repository. Git ignores this folder, so it is not pushed. Docker repairs create `.venv` only inside their temporary container work copy. Declared `requirements.txt` dependencies are installed automatically. Extra plain package names proposed by the Fixer are downloaded only after Judge approval. After a successful installation, the package is added to a repaired `requirements.txt` and saved under `fixed_files`. Use `--no-install` when dependency downloads must be disabled. Target dependencies remain isolated from the repair agent. Every result folder includes `steps_to_run.txt` with instructions for copying repaired files first, using `.venv`, installing dependencies, running the application, and running detected tests.
 
