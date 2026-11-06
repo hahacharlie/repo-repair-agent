@@ -78,13 +78,20 @@ results/
 
 Metrics:
 
-- CLI table: Fixer tokens, Judge tokens, total tokens, and total run time.
-- Printed only after successful agent-assisted runs with complete values.
-- Skipped for failed, interrupted, clean no-op, or incomplete-metric runs.
-- `report.json`: wall-clock time, model API time, request count, and combined and
-  per-agent token counts.
-- Tokens are counted locally with the configured Qwen tokenizers.
-- Tokenizer assets are downloaded once and reused from the local cache.
+- CLI table: correct repair rate, Fixer tokens, Judge tokens, total tokens, and
+  total run time.
+- Correct repair means that the repository failed before repair, then the
+  application and all detected tests passed after repair.
+- A dependency or environment repair also counts when an approved installation
+  makes the original failing command pass. Other clean exits without tests do
+  not count as correct repairs.
+- `report.json`: correct repair rate, wall-clock time, model API time, request
+  count, and combined and per-agent token counts.
+- Tokens are estimated locally with the `tiktoken` `cl100k_base` encoding. If
+  that encoding cannot load, a simple local estimate is used instead. No Qwen
+  tokenizer download is needed. These are estimates for the configured models.
+- Offline scripted runs make no model requests and therefore report zero model
+  tokens.
 
 Add `--agent-logs` when you need to debug agent behavior:
 
@@ -144,8 +151,9 @@ Other model behavior:
 - The project-root `config.json` is used by default. `--config` selects another
   file.
 - Offline `--script` mode does not load model configuration or require a key.
-- Model replies must contain one JSON object. Invalid or incomplete replies are
-  rejected without applying them.
+- Model replies must contain one JSON object. When a reply is invalid JSON, the
+  same request is tried up to two more times before stopping. Incomplete model
+  streams are rejected without applying them.
 - Code edits, dependency installs, and Fixer requests to give up require Judge
   review.
 - The Fixer receives the engine's dependency-installation capabilities and must

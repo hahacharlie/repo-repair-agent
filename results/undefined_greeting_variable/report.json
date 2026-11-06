@@ -48,9 +48,13 @@
   ],
   "repository": {
     "language": "python",
+    "build_system": "python",
+    "docker_image": "python:3.12-slim",
+    "python_requirement": null,
+    "requires_linux": false,
     "entry": "main.py",
     "tests": [
-      "tests\\test_greeting.py"
+      "tests/test_greeting.py"
     ],
     "test_command": [
       "-m",
@@ -60,6 +64,7 @@
       "tests"
     ]
   },
+  "execution_backend": "local",
   "environment_setup": {
     "command": [
       "uv",
@@ -69,11 +74,12 @@
       "--python",
       "<python>",
       "--no-python-downloads",
-      "<environment>"
+      "--clear",
+      "<path>"
     ],
     "exit_code": 0,
     "stdout": "",
-    "stderr": "Using CPython 3.10.22 interpreter at: <python>\nCreating virtual environment at: <environment>\nActivate with: <environment>\\Scripts\\activate\n",
+    "stderr": "Using CPython 3.10.22 interpreter at: <python>\nCreating virtual environment at: .venv\nActivate with: .venv\\Scripts\\activate\n",
     "timeout": false
   },
   "initial": {
@@ -126,6 +132,41 @@
       "stdout": "",
       "stderr": ".\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n",
       "timeout": false
+    }
+  },
+  "steps_to_run": "Run these commands from the repository root.\n\n1. Copy the files from fixed_files into the same paths in your repository.\n2. Create a virtual environment: python -m venv .venv\n3. Activate it with .venv\\Scripts\\Activate.ps1 on Windows PowerShell, or source .venv/bin/activate on macOS and Linux\n4. Run the application: python main.py\n5. Run the tests: python -m unittest discover -s tests",
+  "steps_source": "offline",
+  "metrics": {
+    "wall_clock_seconds": 1.25,
+    "model_api_seconds": 0.0,
+    "model_request_count": 0,
+    "token_usage": {
+      "source": "no_model_requests",
+      "available": true,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "token_usage_by_agent": {
+      "fixer": {
+        "source": "no_model_requests",
+        "available": true,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "judge": {
+        "source": "no_model_requests",
+        "available": true,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      }
+    },
+    "correct_repair_rate": {
+      "correct_repairs": 1,
+      "evaluated_runs": 1,
+      "percentage": 100.0
     }
   }
 }

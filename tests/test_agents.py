@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from agents import (
-    AgentTimeLimitError, LocalTokenCounter, ModelAgents, ModelResponseError,
+    AgentTimeLimitError, ModelAgents, ModelResponseError, TiktokenCounter,
     parse_model_json, summarize_token_usage,
 )
 from config import load_config
@@ -75,23 +75,19 @@ def stream_response(content, finish="stop", done=True):
     return response
 
 
-class FakeTokenizer:
-    def apply_chat_template(
-            self, messages, tokenize=True, add_generation_prompt=True):
-        assert messages and tokenize and add_generation_prompt
-        return [1, 2, 3, 4]
+class FakeEncoding:
+    name = "test_encoding"
 
-    def encode(self, text, add_special_tokens=False):
-        assert not add_special_tokens
-        return list(range(len(text.split())))
+    def encode(self, text):
+        return list(text.encode())
 
 
 class FakeTokenCounter:
     def __init__(self):
         self.responses = []
 
-    def repository_for(self, model):
-        return "test/" + model
+    def encoding_name(self):
+        return "test_encoding"
 
     def count_prompt(self, model, messages):
         return 11
@@ -104,23 +100,20 @@ class FakeTokenCounter:
 class AgentTests(unittest.TestCase):
     def setUp(self):
         self.token_counter = FakeTokenCounter()
-        tokenizer = patch(
-            "agents.LocalTokenCounter", return_value=self.token_counter)
-        tokenizer.start()
-        self.addCleanup(tokenizer.stop)
+        counter_patch = patch(
+            "agents.TiktokenCounter", return_value=self.token_counter)
+        counter_patch.start()
+        self.addCleanup(counter_patch.stop)
 
-    def test_tokens_are_counted_locally_with_model_chat_template(self):
-        loaded = []
-        tokenizer = FakeTokenizer()
-        counter = LocalTokenCounter(
-            loader=lambda repository: loaded.append(repository) or tokenizer)
+    def test_tokens_are_estimated_locally_with_tiktoken(self):
+        counter = TiktokenCounter(encoding=FakeEncoding())
         messages = [{"role": "user", "content": "hello"}]
 
-        self.assertEqual(counter.count_prompt(
-            "qwen3-coder-30b-a3b-instruct", messages), 4)
+        self.assertGreater(counter.count_prompt(
+            "qwen3-coder-30b-a3b-instruct", messages), 5)
         self.assertEqual(counter.count_response(
-            "qwen3-coder-30b-a3b-instruct", "three local tokens"), 3)
-        self.assertEqual(loaded, ["Qwen/Qwen3-Coder-30B-A3B-Instruct"])
+            "qwen3-coder-30b-a3b-instruct", "reply"), 5)
+        self.assertEqual(counter.encoding_name(), "test_encoding")
 
         usage = summarize_token_usage([
             {"local_token_usage": {
@@ -135,12 +128,29 @@ class AgentTests(unittest.TestCase):
             }},
         ])
         self.assertEqual(usage, {
-            "source": "local_transformers",
+            "source": "mixed",
             "available": True,
             "prompt_tokens": 16,
             "completion_tokens": 10,
             "total_tokens": 26,
         })
+
+        self.assertEqual(summarize_token_usage([]), {
+            "source": "no_model_requests",
+            "available": True,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        })
+
+    def test_token_count_has_a_simple_fallback(self):
+        counter = TiktokenCounter()
+        with patch("tiktoken.get_encoding", side_effect=OSError("offline")):
+            count = counter.count_response("model", "hello, world")
+
+        self.assertEqual(count, 3)
+        self.assertEqual(counter.encoding_name(), "simple_python_fallback")
+        self.assertEqual(counter.source_name(), "simple_python_estimate")
 
     def test_configured_models_endpoint_and_credentials_reach_requests(self):
         config = {
@@ -287,6 +297,46 @@ class AgentTests(unittest.TestCase):
                 "[]", "", '{"approved":'):
             with self.subTest(text=text), self.assertRaises(ModelResponseError):
                 parse_model_json(text)
+
+    def test_invalid_json_is_retried_twice_then_succeeds(self):
+        config = load_config(CONFIG)
+        replies = [
+            stream_response("not json"),
+            stream_response('{"approved":'),
+            stream_response('{"approved": true, "reason": "Valid"}'),
+        ]
+        with patch.dict(
+                "os.environ", {ct.API_KEY_ENV: "test-token"}), patch(
+                "agents.urllib.request.urlopen",
+                side_effect=replies) as request:
+            agents = ModelAgents(config, capture_logs=True)
+            result = agents.review({})
+
+        self.assertTrue(result["approved"])
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(len(agents.requests), 3)
+        retry_prompts = [
+            json.loads(call.args[0].data)["messages"][0]["content"]
+            for call in request.call_args_list[1:]
+        ]
+        self.assertTrue(all(
+            "previous response was invalid" in prompt
+            for prompt in retry_prompts
+        ))
+
+    def test_invalid_json_stops_after_three_attempts(self):
+        config = load_config(CONFIG)
+        with patch.dict(
+                "os.environ", {ct.API_KEY_ENV: "test-token"}), patch(
+                "agents.urllib.request.urlopen",
+                side_effect=[stream_response("not json") for _ in range(3)],
+                ) as request:
+            agents = ModelAgents(config)
+            with self.assertRaisesRegex(
+                    ModelResponseError, "invalid JSON after 3 attempts"):
+                agents.review({})
+
+        self.assertEqual(request.call_count, 3)
 
     def test_nonstreaming_provider_fallback(self):
         config = load_config(CONFIG)

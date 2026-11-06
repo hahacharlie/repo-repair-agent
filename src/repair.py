@@ -15,6 +15,7 @@ from agents import (
 )
 from backends import DockerBackend, make_backend
 from execution import run_command
+from metrics import summarize_repair_rate
 from repository import (
     IGNORED, TOOLCHAINS, inspect_repository, snapshot, source_suffixes)
 from validation import validate_action
@@ -182,6 +183,7 @@ def repair(
             for agent in ("fixer", "judge")
         },
     }
+    report["metrics"]["correct_repair_rate"] = summarize_repair_rate([report])
     return report
 
 
@@ -437,7 +439,7 @@ def _repair(
         def verify():
             # Run the app (or build) first, then run tests when they exist.
             announce(
-                "Running application..." if is_python else "Running build...")
+                "Running application...\n" if is_python else "Running build...\n")
             app = execute(
                 [python, metadata["entry"]] if is_python
                 else metadata["build_command"], root, timeout)

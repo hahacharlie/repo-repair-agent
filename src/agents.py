@@ -1,8 +1,8 @@
 """Fixer, Judge, and fixed test agents."""
 
 import json
-from collections.abc import Mapping
 import os
+import re
 import sys
 import threading
 import time
@@ -61,13 +61,24 @@ class ModelResponseError(ValueError):
     """An error that does not show the model reply."""
 
 
+class InvalidModelJSONError(ModelResponseError):
+    """The model reply was not one JSON object."""
+
+
 class AgentTimeLimitError(ModelResponseError):
     """The cumulative Fixer/Judge API time budget was exhausted."""
 
 
-def summarize_token_usage(
-        requests, usage_field="local_token_usage", source="local_transformers"):
+def summarize_token_usage(requests, usage_field="local_token_usage", source=None):
     """Aggregate token usage across model requests."""
+    if not requests:
+        return {
+            "source": "no_model_requests",
+            "available": True,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
     aliases = {
         "prompt_tokens": ("prompt_tokens", "input_tokens"),
         "completion_tokens": ("completion_tokens", "output_tokens"),
@@ -75,10 +86,13 @@ def summarize_token_usage(
     }
     totals = {name: 0 for name in aliases}
     found = {name: False for name in aliases}
+    sources = set()
     for request in requests:
         usage = request.get(usage_field)
         if not isinstance(usage, dict):
             continue
+        if isinstance(usage.get("source"), str):
+            sources.add(usage["source"])
         for name, names in aliases.items():
             value = next((usage.get(key) for key in names
                           if type(usage.get(key)) is int), None)
@@ -91,7 +105,8 @@ def summarize_token_usage(
             totals["prompt_tokens"] + totals["completion_tokens"])
         found["total_tokens"] = True
     return {
-        "source": source,
+        "source": source or (
+            next(iter(sources)) if len(sources) == 1 else "mixed"),
         "available": any(found.values()),
         **{
             name: totals[name] if found[name] else None
@@ -100,49 +115,51 @@ def summarize_token_usage(
     }
 
 
-TOKENIZER_REPOSITORIES = {
-    "qwen3-coder-30b-a3b-instruct": (
-        "Qwen/Qwen3-Coder-30B-A3B-Instruct"),
-    "qwen3-235b-a22b": "Qwen/Qwen3-235B-A22B",
-}
+class TiktokenCounter:
+    """Estimate prompt and response tokens without a model download."""
 
+    def __init__(self, encoding=None):
+        self.encoding = encoding
+        self.load_attempted = encoding is not None
+        self.simple_fallback = False
 
-class LocalTokenCounter:
-    """Count Qwen chat tokens locally with the official tokenizer."""
+    def get_encoding(self):
+        if not self.load_attempted:
+            self.load_attempted = True
+            try:
+                import tiktoken
+                self.encoding = tiktoken.get_encoding("cl100k_base")
+            except Exception:
+                self.simple_fallback = True
+        return self.encoding
 
-    def __init__(self, loader=None):
-        self.loader = loader
-        self.tokenizers = {}
+    def encoding_name(self):
+        if self.simple_fallback:
+            return "simple_python_fallback"
+        return getattr(self.encoding, "name", "cl100k_base")
 
-    def repository_for(self, model):
-        repository = TOKENIZER_REPOSITORIES.get(model.lower())
-        if repository is None:
-            raise ValueError("No local tokenizer configured for model")
-        return repository
+    def source_name(self):
+        return (
+            "simple_python_estimate"
+            if self.simple_fallback
+            else "tiktoken_cl100k_base_estimate"
+        )
 
-    def tokenizer_for(self, model):
-        repository = self.repository_for(model)
-        if repository not in self.tokenizers:
-            if self.loader is None:
-                os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-                from transformers import AutoTokenizer
-                tokenizer = AutoTokenizer.from_pretrained(repository)
-            else:
-                tokenizer = self.loader(repository)
-            self.tokenizers[repository] = tokenizer
-        return self.tokenizers[repository]
+    def count_text(self, text):
+        encoding = self.get_encoding()
+        if encoding is not None:
+            return len(encoding.encode(text))
+        # Keep a number available when tiktoken cannot load its encoding.
+        return len(re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE))
 
     def count_prompt(self, model, messages):
-        tokenizer = self.tokenizer_for(model)
-        token_ids = tokenizer.apply_chat_template(
-            messages, tokenize=True, add_generation_prompt=True)
-        if isinstance(token_ids, Mapping):
-            token_ids = token_ids["input_ids"]
-        return len(token_ids)
+        del model
+        text = json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
+        return self.count_text(text)
 
     def count_response(self, model, text):
-        tokenizer = self.tokenizer_for(model)
-        return len(tokenizer.encode(text, add_special_tokens=False))
+        del model
+        return self.count_text(text)
 
 
 def remaining_request_time(deadline, idle_timeout, clock):
@@ -175,10 +192,11 @@ def parse_model_json(content):
     try:
         value = json.loads(text)
     except ValueError:
-        raise ModelResponseError(
+        raise InvalidModelJSONError(
             "Model returned invalid JSON; no action was applied") from None
     if not isinstance(value, dict):
-        raise ModelResponseError("Model response must be a JSON object")
+        raise InvalidModelJSONError(
+            "Model response must be a JSON object")
     return value
 
 
@@ -278,7 +296,7 @@ class ModelAgents:
         self.time_budget_seconds = time_budget_seconds
         self.api_time_used_seconds = 0.0
         self.clock = clock or time.monotonic
-        self.token_counter = token_counter or LocalTokenCounter()
+        self.token_counter = token_counter or TiktokenCounter()
         self.key = os.environ.get(ct.API_KEY_ENV)
         if not self.key:
             raise ValueError(
@@ -290,6 +308,39 @@ class ModelAgents:
             self.endpoint += "/chat/completions"
 
     def request(
+            self, model, instruction, context,
+            agent="model", purpose="request"):
+        """Retry twice when the model does not return one JSON object."""
+        retry_instruction = instruction
+        for attempt in range(ct.MODEL_JSON_MAX_ATTEMPTS):
+            try:
+                return self._request_once(
+                    model,
+                    retry_instruction,
+                    context,
+                    agent=agent,
+                    purpose=purpose,
+                )
+            except InvalidModelJSONError:
+                if attempt + 1 == ct.MODEL_JSON_MAX_ATTEMPTS:
+                    raise ModelResponseError(
+                        "Model returned invalid JSON after 3 attempts; "
+                        "no action was applied") from None
+                retry_number = attempt + 1
+                print(
+                    "Invalid model JSON. Retrying "
+                    f"({retry_number}/2)...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                retry_instruction = (
+                    instruction
+                    + " Your previous response was invalid. Return only one "
+                    "complete JSON object. Do not include Markdown or any text "
+                    "before or after the JSON."
+                )
+
+    def _request_once(
             self, model, instruction, context,
             agent="model", purpose="request"):
         remaining_budget = (
@@ -304,16 +355,20 @@ class ModelAgents:
             {"role": "user", "content": json.dumps(context)},
         ]
         local_usage = {
-            "source": "local_transformers",
+            "source": "tiktoken_cl100k_base_estimate",
             "prompt_tokens": None,
             "completion_tokens": None,
             "total_tokens": None,
         }
         try:
-            local_usage["tokenizer"] = (
-                self.token_counter.repository_for(model))
-            local_usage["prompt_tokens"] = (
-                self.token_counter.count_prompt(model, messages))
+            prompt_tokens = self.token_counter.count_prompt(model, messages)
+            source_name = getattr(self.token_counter, "source_name", None)
+            if callable(source_name):
+                local_usage["source"] = source_name()
+            local_usage["encoding"] = self.token_counter.encoding_name()
+            local_usage["prompt_tokens"] = prompt_tokens
+            local_usage["completion_tokens"] = 0
+            local_usage["total_tokens"] = prompt_tokens
         except Exception as error:
             local_usage["error_type"] = type(error).__name__
         body = json.dumps({

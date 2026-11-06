@@ -68,7 +68,7 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("Metrics Details", output.getvalue())
 
 
-    def test_metrics_table_needs_success_and_valid_agent_values(self):
+    def test_metrics_table_shows_repair_rate_and_available_values(self):
         report = {
             "status": "passed",
             "metrics": {
@@ -78,30 +78,46 @@ class CliTests(unittest.TestCase):
                     "fixer": {"total_tokens": 1234},
                     "judge": {"total_tokens": 567},
                 },
+                "correct_repair_rate": {
+                    "correct_repairs": 1,
+                    "evaluated_runs": 1,
+                    "percentage": 100.0,
+                },
             },
         }
 
         table = format_metrics_table(report)
 
         self.assertEqual(table, "\n".join([
-            "+-----------------+------------------+",
-            "| Metrics Details | Value            |",
-            "+-----------------+------------------+",
-            "| Fixer tokens    | 1,234            |",
-            "+-----------------+------------------+",
-            "| Judge tokens    | 567              |",
-            "+-----------------+------------------+",
-            "| Total tokens    | 1,801            |",
-            "+-----------------+------------------+",
-            "| Total run time  | 12.34s           |",
-            "+-----------------+------------------+",
+            "+---------------------+------------------+",
+            "| Metrics Details     | Value            |",
+            "+---------------------+------------------+",
+            "| Correct repair rate | 100.00% (1/1)    |",
+            "+---------------------+------------------+",
+            "| Fixer tokens        | 1,234            |",
+            "+---------------------+------------------+",
+            "| Judge tokens        | 567              |",
+            "+---------------------+------------------+",
+            "| Total tokens        | 1,801            |",
+            "+---------------------+------------------+",
+            "| Total run time      | 12.34s           |",
+            "+---------------------+------------------+",
         ]))
         report["status"] = "failed"
-        self.assertIsNone(format_metrics_table(report))
-        report["status"] = "passed"
+        report["metrics"]["correct_repair_rate"] = {
+            "correct_repairs": 0,
+            "evaluated_runs": 1,
+            "percentage": 0.0,
+        }
+        self.assertIn("0.00% (0/1)", format_metrics_table(report))
+        report["metrics"]["correct_repair_rate"]["note"] = "no_tests_found"
+        self.assertIn(
+            "0.00% (0/1) - no_tests_found", format_metrics_table(report))
         report["metrics"]["token_usage_by_agent"]["judge"][
             "total_tokens"] = None
-        self.assertIsNone(format_metrics_table(report))
+        table = format_metrics_table(report)
+        self.assertNotIn("Fixer tokens", table)
+        self.assertIn("Total run time", table)
 
 
 if __name__ == "__main__":

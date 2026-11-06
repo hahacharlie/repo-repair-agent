@@ -26,10 +26,27 @@ def python_version_error(version_info):
 
 
 def format_metrics_table(report):
-    """Return a terminal table only for complete, successful run metrics."""
-    if report.get("status") not in {"passed", "execution_only"}:
-        return None
+    """Return a table with the verified repair result and run metrics."""
     metrics = report.get("metrics", {})
+    repair_rate = metrics.get("correct_repair_rate", {})
+    if not (
+            isinstance(repair_rate, dict)
+            and type(repair_rate.get("correct_repairs")) is int
+            and type(repair_rate.get("evaluated_runs")) is int):
+        return None
+
+    evaluated_runs = repair_rate["evaluated_runs"]
+    correct_repairs = repair_rate["correct_repairs"]
+    percentage = repair_rate.get("percentage")
+    rate_text = (
+        f"{percentage:.2f}% ({correct_repairs}/{evaluated_runs})"
+        if isinstance(percentage, (int, float)) and not isinstance(percentage, bool)
+        else f"N/A ({correct_repairs}/{evaluated_runs})"
+    )
+    note = repair_rate.get("note")
+    if isinstance(note, str) and note:
+        rate_text += " - " + note
+
     by_agent = metrics.get("token_usage_by_agent", {})
     fixer_tokens = by_agent.get("fixer", {}).get("total_tokens")
     judge_tokens = by_agent.get("judge", {}).get("total_tokens")
@@ -45,16 +62,18 @@ def format_metrics_table(report):
         and math.isfinite(wall_time)
         and wall_time >= 0
     )
-    if not valid_tokens or not valid_time:
-        return None
-
     rows = [
         ("Metrics Details", "Value"),
-        ("Fixer tokens", f"{fixer_tokens:,}"),
-        ("Judge tokens", f"{judge_tokens:,}"),
-        ("Total tokens", f"{total_tokens:,}"),
-        ("Total run time", f"{wall_time}s"),
+        ("Correct repair rate", rate_text),
     ]
+    if valid_tokens:
+        rows.extend([
+            ("Fixer tokens", f"{fixer_tokens:,}"),
+            ("Judge tokens", f"{judge_tokens:,}"),
+            ("Total tokens", f"{total_tokens:,}"),
+        ])
+    if valid_time:
+        rows.append(("Total run time", f"{wall_time}s"))
     label_width = max(len(label) for label, _ in rows)
     value_width = max(16, max(len(value) for _, value in rows))
     divider = "+" + "-" * (label_width + 2)

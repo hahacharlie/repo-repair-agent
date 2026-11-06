@@ -10,7 +10,7 @@
       },
       "judge": {
         "approved": true,
-        "reason": "The error shows a ModuleNotFoundError for 'yaml', which indicates the PyYAML package is missing. Installing PyYAML will resolve this dependency for YAML support in the Python application."
+        "reason": "The package PyYAML is required to resolve the ModuleNotFoundError for 'yaml' in the application. The repository uses Python and supports dependency installation via pip, making PyYAML the correct package to install for YAML support."
       },
       "installation": {
         "command": [
@@ -23,7 +23,7 @@
         ],
         "exit_code": 0,
         "stdout": "",
-        "stderr": "Using Python 3.10.22 environment at: <home>\\Documents\\CSE_598_Agentic_AI\\project\\repo-repair-agent\\tests\\broken_repos\\repo_a\\.venv\nResolved 1 package in 99ms\nInstalled 1 package in 50ms\n + pyyaml==6.0.3\n",
+        "stderr": "Using Python 3.10.22 environment at: <home>\\Documents\\CSE_598_Agentic_AI\\project\\repo-repair-agent\\input\\broken_repos\\repo_a\\.venv\nResolved 1 package in 15ms\nInstalled 1 package in 78ms\n + pyyaml==6.0.3\n",
         "timeout": false
       },
       "requirements_updated": true,
@@ -45,11 +45,11 @@
       "action": {
         "action": "install",
         "package": "requests",
-        "reason": "Missing dependency for HTTP requests functionality"
+        "reason": "Missing dependency for fetcher module"
       },
       "judge": {
         "approved": true,
-        "reason": "The 'requests' package is required as evidenced by the ModuleNotFoundError in fetcher.py, which attempts to import requests for HTTP functionality. The Fixer's reason aligns with the observed error."
+        "reason": "The package 'requests' is required as it is directly referenced in the fetcher.py module, which is causing a ModuleNotFoundError during execution. The dependency installation is supported via pip, and the observed error matches the missing dependency."
       },
       "installation": {
         "command": [
@@ -62,7 +62,7 @@
         ],
         "exit_code": 0,
         "stdout": "",
-        "stderr": "Using Python 3.10.22 environment at: <home>\\Documents\\CSE_598_Agentic_AI\\project\\repo-repair-agent\\tests\\broken_repos\\repo_a\\.venv\nResolved 5 packages in 137ms\nInstalled 5 packages in 171ms\n + certifi==2026.10.23\n + charset-normalizer==3.5.2\n + idna==3.20\n + requests==2.34.2\n + urllib3==2.8.0\n",
+        "stderr": "Using Python 3.10.22 environment at: <home>\\Documents\\CSE_598_Agentic_AI\\project\\repo-repair-agent\\input\\broken_repos\\repo_a\\.venv\nResolved 5 packages in 15ms\nInstalled 5 packages in 67ms\n + certifi==2026.10.23\n + charset-normalizer==3.5.2\n + idna==3.20\n + requests==2.34.2\n + urllib3==2.8.0\n",
         "timeout": false
       },
       "requirements_updated": true,
@@ -87,100 +87,153 @@
   ],
   "model_requests": [
     {
+      "agent": "fixer",
       "model": "qwen3-coder-30b-a3b-instruct",
-      "request_bytes": 2544,
-      "headers_seconds": 0.36,
-      "request_id": "c329de5d-655b-421e-a2d7-34ca3e0b919d",
-      "first_content_seconds": 1.59,
+      "request_bytes": 3382,
+      "agent_time_budget_seconds": 1200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 777,
+        "completion_tokens": 19,
+        "total_tokens": 796,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.12,
+      "request_id": "19f6054b-47b4-46b6-bf92-744cab6c99c6",
+      "first_content_seconds": 0.2,
       "finish_reason": "stop",
       "usage": {
-        "co2_g": 0.188326,
+        "co2_g": 0.031971,
         "completion_tokens": 20,
-        "energy_wh": 0.558832,
-        "prompt_tokens": 559,
+        "energy_wh": 0.094871,
+        "prompt_tokens": 714,
         "prompt_tokens_details": {
-          "cached_tokens": 0,
-          "created_cache_tokens": 512
+          "cached_tokens": 640,
+          "created_cache_tokens": 0
         },
-        "total_tokens": 579
+        "total_tokens": 734
       },
       "content_chars": 86,
-      "elapsed_seconds": 1.75
+      "elapsed_seconds": 0.38,
+      "agent_time_used_seconds": 0.38,
+      "agent_time_remaining_seconds": 1199.62
     },
     {
+      "agent": "judge",
       "model": "qwen3-235b-a22b",
-      "request_bytes": 1051,
-      "headers_seconds": 0.27,
-      "request_id": "c1b97e65-ce5a-4b27-81d1-8afc0071cc64",
-      "first_content_seconds": 0.31,
-      "finish_reason": "stop",
-      "usage": {
-        "co2_g": 0.432606,
-        "completion_tokens": 47,
-        "energy_wh": 1.283699,
-        "prompt_tokens": 220,
-        "prompt_tokens_details": {
-          "cached_tokens": 0,
-          "created_cache_tokens": 128
-        },
-        "total_tokens": 267
+      "request_bytes": 1264,
+      "agent_time_budget_seconds": 1200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 280,
+        "completion_tokens": 54,
+        "total_tokens": 334,
+        "encoding": "cl100k_base"
       },
-      "content_chars": 219,
-      "elapsed_seconds": 2.56
-    },
-    {
-      "model": "qwen3-coder-30b-a3b-instruct",
-      "request_bytes": 3912,
-      "headers_seconds": 0.27,
-      "request_id": "948ecb8a-d398-4e99-acc1-6b8c32ab2ee2",
-      "first_content_seconds": 1.64,
-      "finish_reason": "stop",
-      "usage": {
-        "co2_g": 0.208079,
-        "completion_tokens": 19,
-        "energy_wh": 0.617446,
-        "prompt_tokens": 927,
-        "prompt_tokens_details": {
-          "cached_tokens": 384,
-          "created_cache_tokens": 512
-        },
-        "total_tokens": 946
-      },
-      "content_chars": 103,
-      "elapsed_seconds": 1.8
-    },
-    {
-      "model": "qwen3-235b-a22b",
-      "request_bytes": 1187,
       "headers_seconds": 0.08,
-      "request_id": "0da3dbcc-18db-4b88-be3e-68b68d6a8f82",
-      "first_content_seconds": 0.42,
+      "request_id": "05e8b6a9-0cb4-49ef-9af9-041681901f80",
+      "first_content_seconds": 0.44,
       "finish_reason": "stop",
       "usage": {
-        "co2_g": 0.479864,
-        "completion_tokens": 50,
-        "energy_wh": 1.423929,
-        "prompt_tokens": 255,
+        "co2_g": 0.636257,
+        "completion_tokens": 55,
+        "energy_wh": 1.888003,
+        "prompt_tokens": 262,
         "prompt_tokens_details": {
           "cached_tokens": 0,
-          "created_cache_tokens": 128
+          "created_cache_tokens": 256
         },
-        "total_tokens": 305
+        "total_tokens": 317
       },
-      "content_chars": 230,
-      "elapsed_seconds": 2.62
+      "content_chars": 264,
+      "elapsed_seconds": 2.72,
+      "agent_time_used_seconds": 3.09,
+      "agent_time_remaining_seconds": 1196.91
     },
     {
+      "agent": "fixer",
+      "model": "qwen3-coder-30b-a3b-instruct",
+      "request_bytes": 4795,
+      "agent_time_budget_seconds": 1200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 1181,
+        "completion_tokens": 18,
+        "total_tokens": 1199,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.08,
+      "request_id": "715ee4eb-66e0-401c-8afe-9fc358b1af6a",
+      "first_content_seconds": 0.2,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 0.034247,
+        "completion_tokens": 19,
+        "energy_wh": 0.101624,
+        "prompt_tokens": 1091,
+        "prompt_tokens_details": {
+          "cached_tokens": 896,
+          "created_cache_tokens": 128
+        },
+        "total_tokens": 1110
+      },
+      "content_chars": 90,
+      "elapsed_seconds": 0.34,
+      "agent_time_used_seconds": 3.44,
+      "agent_time_remaining_seconds": 1196.56
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 1387,
+      "agent_time_budget_seconds": 1200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 317,
+        "completion_tokens": 55,
+        "total_tokens": 372,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.09,
+      "request_id": "642ae32e-09e0-4d0c-a751-6eeda2ddeab4",
+      "first_content_seconds": 0.59,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 1.20491,
+        "completion_tokens": 56,
+        "energy_wh": 3.575402,
+        "prompt_tokens": 297,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 256
+        },
+        "total_tokens": 353
+      },
+      "content_chars": 283,
+      "elapsed_seconds": 3.27,
+      "agent_time_used_seconds": 6.7,
+      "agent_time_remaining_seconds": 1193.3
+    },
+    {
+      "agent": "fixer",
       "model": "qwen3-coder-30b-a3b-instruct",
       "request_bytes": 1268,
-      "headers_seconds": 0.17,
-      "request_id": "f4de4ca0-eaa2-4c8b-9313-cabc3524d9e1",
-      "first_content_seconds": 0.17,
+      "agent_time_budget_seconds": 1200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 235,
+        "completion_tokens": 88,
+        "total_tokens": 323,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.11,
+      "request_id": "5f5a937b-6549-4554-b805-a229c7ebcf8d",
+      "first_content_seconds": 0.22,
       "finish_reason": "stop",
       "usage": {
-        "co2_g": 0.110346,
+        "co2_g": 0.113391,
         "completion_tokens": 89,
-        "energy_wh": 0.327435,
+        "energy_wh": 0.336471,
         "prompt_tokens": 226,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -189,7 +242,9 @@
         "total_tokens": 315
       },
       "content_chars": 330,
-      "elapsed_seconds": 0.97
+      "elapsed_seconds": 1.02,
+      "agent_time_used_seconds": 7.72,
+      "agent_time_remaining_seconds": 1192.28
     }
   ],
   "repository": {
@@ -232,7 +287,7 @@
     ],
     "exit_code": 0,
     "stdout": "",
-    "stderr": "warning: Requirements file `requirements.txt` does not contain any dependencies\nUsing Python 3.10.22 environment at: <home>\\Documents\\CSE_598_Agentic_AI\\project\\repo-repair-agent\\tests\\broken_repos\\repo_a\\.venv\nChecked in 16ms\n",
+    "stderr": "warning: Requirements file `requirements.txt` does not contain any dependencies\nUsing Python 3.10.22 environment at: <home>\\Documents\\CSE_598_Agentic_AI\\project\\repo-repair-agent\\input\\broken_repos\\repo_a\\.venv\nChecked in 4ms\n",
     "timeout": false
   },
   "initial": {
@@ -262,5 +317,38 @@
     "tests": null
   },
   "steps_to_run": "Run these commands from the repository root.\n\n1. Copy the files from fixed_files into the same paths in your repository.\n2. Create a virtual environment: python -m venv .venv\n3. Activate it with .venv\\Scripts\\Activate.ps1 on Windows PowerShell, or source .venv/bin/activate on macOS and Linux\n4. Install declared dependencies: python -m pip install -r requirements.txt\n5. Approved packages recorded in requirements.txt: PyYAML requests\n6. Run the application: python main.py",
-  "steps_source": "fallback"
+  "steps_source": "fallback",
+  "metrics": {
+    "wall_clock_seconds": 12.38,
+    "model_api_seconds": 7.72,
+    "model_request_count": 5,
+    "token_usage": {
+      "source": "tiktoken_cl100k_base_estimate",
+      "available": true,
+      "prompt_tokens": 2790,
+      "completion_tokens": 234,
+      "total_tokens": 3024
+    },
+    "token_usage_by_agent": {
+      "fixer": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "available": true,
+        "prompt_tokens": 2193,
+        "completion_tokens": 125,
+        "total_tokens": 2318
+      },
+      "judge": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "available": true,
+        "prompt_tokens": 597,
+        "completion_tokens": 109,
+        "total_tokens": 706
+      }
+    },
+    "correct_repair_rate": {
+      "correct_repairs": 1,
+      "evaluated_runs": 1,
+      "percentage": 100.0
+    }
+  }
 }

@@ -38,8 +38,8 @@ def command_result(exit_code=0):
 
 
 class FakeTokenCounter:
-    def repository_for(self, model):
-        return "test/" + model
+    def encoding_name(self):
+        return "test_encoding"
 
     def count_prompt(self, model, messages):
         return 11
@@ -178,6 +178,11 @@ class RepairTests(unittest.TestCase):
         original = (BROKEN_REPO / "greeting.py").read_bytes()
         report = repair(BROKEN_REPO, ScriptedAgents([step()]))
         self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["metrics"]["correct_repair_rate"], {
+            "correct_repairs": 1,
+            "evaluated_runs": 1,
+            "percentage": 100.0,
+        })
         self.assertIn("+    return", report["diff"])
         self.assertEqual(report["fixed_files"], {"greeting.py": FIX})
         self.assertEqual(
@@ -204,27 +209,32 @@ class RepairTests(unittest.TestCase):
             "model_api_seconds": 0.0,
             "model_request_count": 0,
             "token_usage": {
-                "source": "local_transformers",
-                "available": False,
-                "prompt_tokens": None,
-                "completion_tokens": None,
-                "total_tokens": None,
+                "source": "no_model_requests",
+                "available": True,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
             },
             "token_usage_by_agent": {
                 "fixer": {
-                    "source": "local_transformers",
-                    "available": False,
-                    "prompt_tokens": None,
-                    "completion_tokens": None,
-                    "total_tokens": None,
+                    "source": "no_model_requests",
+                    "available": True,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
                 },
                 "judge": {
-                    "source": "local_transformers",
-                    "available": False,
-                    "prompt_tokens": None,
-                    "completion_tokens": None,
-                    "total_tokens": None,
+                    "source": "no_model_requests",
+                    "available": True,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
                 },
+            },
+            "correct_repair_rate": {
+                "correct_repairs": 0,
+                "evaluated_runs": 0,
+                "percentage": None,
             },
         })
         self.assertEqual([message.strip() for message in messages], [
@@ -238,6 +248,11 @@ class RepairTests(unittest.TestCase):
         report = repair(
             BROKEN_REPO, ScriptedAgents([step(False)]), rounds=1)
         self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["metrics"]["correct_repair_rate"], {
+            "correct_repairs": 0,
+            "evaluated_runs": 1,
+            "percentage": 0.0,
+        })
         self.assertEqual(report["diff"], "")
         self.assertEqual(report["fixed_files"], {})
         self.assertEqual(len(report["history"]), 1)
