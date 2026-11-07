@@ -72,6 +72,19 @@ all three evaluation results, for example `--output results/proposed`,
 
 ## Model-backed operation
 
+Get an API key from the [ASU Voyager portal](https://voyager.rc.asu.edu):
+
+1. Connect to the ASU network or ASU VPN and sign in to Voyager with your
+   ASURITE account.
+2. Open your profile and select the **Keys** tab.
+3. Select **Create API key** and copy the key immediately. Voyager shows the
+   complete key only once.
+4. Keep the key private. Do not commit it or share it in logs or messages.
+
+The available model IDs are listed under **AI LLM > LLMs** in Voyager. See the
+[ASU Research Computing API guide](https://docs.rc.asu.edu/ai/api/) for current
+access instructions.
+
 On the first model-backed run, the program creates `.env` in the project root
 when it does not exist and prints its location. Add your key like this:
 
@@ -80,8 +93,9 @@ ASU_AIR_API_KEY=your_key_here
 ```
 
 Run the same command again after saving the key. The program loads `.env` by
-itself. The file is ignored by Git and must not be committed. Offline `--script`
-runs do not need or create `.env`. Save a broken repository under
+itself; it does not download the key from Voyager. The file is ignored by Git
+and must not be committed. Offline `--script` runs do not need or create
+`.env`. Save a broken repository under
 `input/broken_repos/`, then give only its folder name when running a repair:
 
 ```console
