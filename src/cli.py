@@ -184,7 +184,7 @@ def main(version_info=None):
         help="Model configuration JSON (default: config.json in project root)",
     )
     parser.add_argument("--rounds", type=int, default=5)
-    parser.add_argument("--timeout", type=int, default=30)
+    parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument(
         "--agent-timeout",
         type=int,

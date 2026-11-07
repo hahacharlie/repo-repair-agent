@@ -102,10 +102,10 @@ and must not be committed. Offline `--script` runs do not need or create
 uv run repo-repair-agent broken-repo-folder-name
 ```
 
-The default limit is five repair rounds with 30 seconds for each command. Change these only when needed:
+The default limit is five repair rounds with 120 seconds for each command. Change these only when needed:
 
 ```console
-uv run repo-repair-agent broken-repo-folder-name --rounds 8 --timeout 60
+uv run repo-repair-agent broken-repo-folder-name --rounds 8 --timeout 300
 ```
 
 Fixer and Judge API calls share a 20-minute budget by default. Increase it up
