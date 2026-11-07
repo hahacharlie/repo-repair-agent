@@ -127,7 +127,7 @@ results/
 `-- repo-name/
     |-- fixed_files/       # successful repairs with changed files only
     |-- report.json
-    `-- steps_to_run.txt   # only after a repair attempt needs run guidance
+    `-- steps_to_run.txt   # successful repairs with run guidance only
 ```
 
 Metrics:
@@ -211,9 +211,17 @@ Other model behavior:
   reply is invalid JSON, the same request is tried up to two more times before
   stopping. The stakeholder baseline uses its original text response format.
   Incomplete model streams are rejected without applying them.
-- In the proposed pipeline and stakeholder baseline, only code edits require
-  Judge review. The Fixer-only baseline never calls the Judge. Dependency
-  installs and Fixer requests to give up do not call the Judge in any mode.
+- For a non-Python repository, the proposed pipeline sends the Judge:
+  - the README;
+  - regular text files located directly at the repository root.
+- Command-planning context is limited to 60,000 characters and 20,000
+  characters per file. A large README is truncated; other large files, binary
+  files, directories, and nested source files are omitted.
+- The Judge returns the evidenced dependency, build, and test commands. A
+  failed command and the selected commands are then sent to the Fixer loop.
+- After command selection, only code edits require Judge review. The Fixer-only
+  baseline never calls the Judge. Dependency installs and Fixer requests to
+  give up do not call the Judge in any mode.
 - The Fixer receives the engine's dependency-installation capabilities and must
   not propose unsupported installs as source-code fixes.
 - The proposed Fixer must change only lines required by the observed failure.
@@ -239,8 +247,8 @@ Other model behavior:
   baseline keeps its original behavior and lists install commands in
   `steps_to_run.txt` instead.
 - `--no-install` disables dependency downloads.
-- After a repair attempt, `steps_to_run.txt` explains how to apply and run the
-  repaired files. It is not generated for an already-clean repository.
+- After a successful repair, `steps_to_run.txt` explains how to apply and run
+  the repaired files. It is not generated for clean or failed runs.
 
 ### Python version selection
 
@@ -282,20 +290,23 @@ enabled only while fetching declared dependencies or installing a dependency
 requested by the Fixer. The container runs with CPU, memory, PID, capability,
 filesystem, and temporary-directory limits.
 
-For a non-Python repository the "application" step is the build command
-(`cargo build`, `go build ./...`, `cmake`, `meson`, `scons`, or
-`./configure && make`) and the test step is the matching test command
-(`cargo test`, `go test ./...`, `ctest`, `meson test`, `make check`) when test
-files or test targets are found. Dependencies are fetched once with network
-(`cargo fetch`, `go mod download`); the Fixer's `install` action maps to
-`cargo add` or `go get`. The stock `ubuntu:24.04` image has no compiler, so
-C/C++ repositories need `--docker-image` pointing at an image with their build
-tools and system libraries. Compiled builds need a long `--timeout` (minutes,
-not the 30 s default).
+For a non-Python repository in the proposed pipeline, the Judge selects the
+dependency, build, and test commands evidenced by the README and bounded
+root-level text files. The engine runs those commands in order. If one fails,
+the Fixer receives the
+selected commands and failure output. The stakeholder, Fixer-only, and offline
+script modes retain their original detected commands.
+The stock `ubuntu:24.04` image has no compiler, so C/C++ repositories need
+`--docker-image` pointing at an image with their build tools and system
+libraries. Compiled builds may need a longer value than the 120-second default.
 
 ## Current boundaries
 
 This is the first implementation slice, not the complete milestone system. It supports root `main.py`, `app.py`, or `run.py` and standard-library unittest discovery (`test*.py`, under `tests/` when present). Pytest-only projects are not supported. Non-Python repairs run only in Docker. Detected tests are not a guarantee of adequate functional coverage.
+
+Relative symbolic links to existing targets inside the repository are
+preserved. Absolute, dangling, ignored-target, and repository-escaping links
+are rejected before execution.
 
 A temporary directory and virtual environment are **not a security sandbox**. Target programs and package installers run with your user permissions; use only trusted fixtures. Relevant source files and execution output are sent to Voyager in live mode. Do not use repositories containing secrets or private data. Reports contain source edits and command output; review before sharing.
 

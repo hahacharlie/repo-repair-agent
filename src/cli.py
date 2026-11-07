@@ -151,7 +151,8 @@ def write_results(results_root, repo_name, report):
         patch_path.unlink()
     steps_path = result_dir / "steps_to_run.txt"
     steps = report.get("steps_to_run")
-    if steps:
+    if (steps
+            and report.get("status") in {"passed", "execution_only"}):
         steps_path.write_text(steps.rstrip() + "\n")
     elif steps_path.exists():
         steps_path.unlink()

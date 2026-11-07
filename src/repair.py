@@ -17,7 +17,8 @@ from backends import DockerBackend, make_backend
 from execution import run_command
 from metrics import summarize_repair_rate
 from repository import (
-    IGNORED, TOOLCHAINS, inspect_repository, snapshot, source_suffixes)
+    IGNORED, TOOLCHAINS, command_planning_context, inspect_repository,
+    snapshot, source_suffixes)
 from validation import validate_action
 
 
@@ -33,6 +34,33 @@ def diff_files(before, after):
         for name in sorted(after)
         if before.get(name) != after[name]
     )
+
+
+def validate_repository_symlinks(root):
+    """Allow only relative links that resolve inside the copied repository."""
+    root = Path(root).resolve()
+    for path in root.rglob("*"):
+        if not path.is_symlink():
+            continue
+        relative = path.relative_to(root)
+        link_target = Path(os.readlink(path))
+        if link_target.is_absolute():
+            raise ValueError(
+                f"Unsupported symlink '{relative}': absolute target")
+        try:
+            resolved = path.resolve(strict=True)
+            target_relative = resolved.relative_to(root)
+        except FileNotFoundError:
+            raise ValueError(
+                f"Unsupported symlink '{relative}': dangling target") from None
+        except ValueError:
+            raise ValueError(
+                f"Unsupported symlink '{relative}': target escapes repository"
+            ) from None
+        if IGNORED.intersection(target_relative.parts):
+            raise ValueError(
+                f"Unsupported symlink '{relative}': target is ignored")
+
 
 def has_mixed_cosmetic_changes(before, after):
     """Return whether a functional patch also changes only whitespace."""
@@ -231,12 +259,11 @@ def _repair(
         root = Path(temporary) / "repo"
         announce("\nPreparing temporary work copy...")
 
-        # Links may point outside the work copy, so do not allow them.
-        if any(path.is_symlink() for path in source.rglob("*")
-               if not IGNORED.intersection(path.relative_to(source).parts)):
-            raise ValueError("Symlinks are unsupported")
-        # Copy the repo so the source files stay unchanged.
-        shutil.copytree(source, root, ignore=shutil.ignore_patterns(*IGNORED))
+        # Preserve links without reading their targets, then validate the copy.
+        shutil.copytree(
+            source, root, symlinks=True,
+            ignore=shutil.ignore_patterns(*IGNORED))
+        validate_repository_symlinks(root)
         metadata = inspect_repository(root)
         report["repository"] = metadata
 
@@ -285,6 +312,34 @@ def _repair(
             return report
         toolchain = TOOLCHAINS[metadata["build_system"]]
         is_python = metadata["language"] == "python"
+        readme_commands = (
+            not is_python
+            and isinstance(agents, ModelAgents)
+            and not getattr(agents, "baseline_name", None)
+        )
+        if readme_commands:
+            readme = next(
+                (root / name for name in (
+                    "README.md", "readme.md", "README.rst", "README.txt")
+                 if (root / name).is_file()),
+                None,
+            )
+            if readme is None:
+                report["reason"] = (
+                    "Non-Python repository has no README for command selection")
+                return report
+            announce("Planning repository commands from README...")
+            try:
+                command_plan = agents.plan_commands(
+                    command_planning_context(root, readme))
+            except Exception as error:
+                report["reason"] = (
+                    str(error)
+                    if isinstance(error, ModelResponseError)
+                    else "Judge returned invalid repository commands")
+                return report
+            metadata.update(command_plan)
+            report["command_plan"] = command_plan
 
         def execute(command, cwd, command_timeout, network=False):
             # Keep local execution patchable by the existing test suite.
@@ -446,7 +501,19 @@ def _repair(
                 if execution_backend.name == "local"
                 else [python, "-m", "pip", "install", package])
 
+        fetch = (
+            pip_install("-r") + ["requirements.txt"] if has_requirements
+            else metadata.get("dependency_command", toolchain.get("fetch")))
+
         def verify():
+            if readme_commands and allow_install and fetch:
+                announce("Fetching declared dependencies...")
+                before_manifests = read_manifests()
+                setup = execute(fetch, root, timeout, network=True)
+                keep_manifest_changes(before_manifests)
+                report["setup"] = setup
+                if not command_passed(setup):
+                    return {"app": setup, "tests": None}
             # Run the app (or build) first, then run tests when they exist.
             announce(
                 "Running application...\n" if is_python else "Running build...\n")
@@ -468,12 +535,8 @@ def _repair(
                 if item is not None
             )
 
-        # Install listed packages only when the user allows it. Builds then
-        # run with the network off, so declared dependencies are fetched here.
-        fetch = (
-            pip_install("-r") + ["requirements.txt"] if has_requirements
-            else toolchain.get("fetch"))
-        if allow_install and fetch:
+        # Baselines and offline scripts retain their original dependency step.
+        if not readme_commands and allow_install and fetch:
             announce("Fetching declared dependencies...")
             before_manifests = read_manifests()
             setup = execute(fetch, root, timeout, network=True)
@@ -490,7 +553,7 @@ def _repair(
         if passed(observation):
             report["final"] = observation
             report["no_repair_needed"] = True
-            if metadata["tests"]:
+            if observation["tests"] is not None:
                 report["status"] = "passed"
                 report["reason"] = "No errors found; no repair was needed"
             else:
@@ -676,7 +739,7 @@ def _repair(
         # Set the final status and make the patch for the user.
         report["final"] = observation
         if passed(observation):
-            if metadata["tests"]:
+            if observation["tests"] is not None:
                 report["status"] = "passed"
                 report["reason"] = "Execution and detected tests passed"
             else:

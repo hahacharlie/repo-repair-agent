@@ -1,3 +1,4 @@
+from contextlib import redirect_stderr
 import io
 import json
 import os
@@ -362,6 +363,40 @@ class AgentTests(unittest.TestCase):
                         agents.endpoint,
                         "https://example.test/v1/chat/completions",
                     )
+
+    def test_readme_command_plan_uses_judge_without_console_noise(self):
+        config = load_config(CONFIG)
+        plan = {
+            "dependency_command": ["mage", "-version"],
+            "build_command": ["mage", "hugo"],
+            "test_command": ["mage", "-v", "check"],
+        }
+        stderr = io.StringIO()
+        with patch.dict(
+                os.environ, {ct.API_KEY_ENV: "test-token"}), patch(
+                "agents.urllib.request.urlopen",
+                return_value=stream_response(json.dumps(plan))) as request, (
+                redirect_stderr(stderr)):
+            agents = ModelAgents(config)
+            self.assertEqual(
+                agents.plan_commands({
+                    "readme": "README build instructions",
+                    "root_files": {"Makefile": "build:\n\tproject build\n"},
+                }),
+                plan,
+            )
+
+        self.assertEqual(stderr.getvalue(), "")
+        body = json.loads(request.call_args.args[0].data)
+        self.assertEqual(body["model"], config["judge_model"])
+        self.assertEqual(
+            json.loads(body["messages"][1]["content"]),
+            {
+                "readme": "README build instructions",
+                "root_files": {"Makefile": "build:\n\tproject build\n"},
+            },
+        )
+        self.assertEqual(agents.requests[0]["agent"], "judge")
 
 
 if __name__ == "__main__":

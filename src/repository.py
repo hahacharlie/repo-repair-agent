@@ -213,6 +213,53 @@ def source_suffixes(build_system):
     return TOOLCHAINS.get(build_system, TOOLCHAINS["python"])["sources"]
 
 
+def command_planning_context(root, readme):
+    """Read a bounded README and root-file snapshot for command planning."""
+    root = Path(root)
+    readme = Path(readme)
+    remaining = ct.COMMAND_CONTEXT_CHARS
+
+    def read_text(path, limit):
+        # Read only enough bytes to fill the prompt budget, even for huge files.
+        with path.open("rb") as stream:
+            data = stream.read((limit * 4) + 1)
+        if b"\0" in data:
+            return None
+        value = data.decode("utf-8", errors="replace")
+        truncated = len(value) > limit or path.stat().st_size > len(data)
+        if not truncated:
+            return value
+        if limit <= len(ct.COMMAND_CONTEXT_TRUNCATED):
+            return value[:limit]
+        content_limit = max(0, limit - len(ct.COMMAND_CONTEXT_TRUNCATED))
+        return value[:content_limit] + ct.COMMAND_CONTEXT_TRUNCATED
+
+    readme_text = read_text(
+        readme, min(ct.COMMAND_CONTEXT_FILE_CHARS, remaining))
+    if readme_text is None:
+        raise ValueError("Repository README is not a text file")
+    remaining -= len(readme_text)
+
+    root_files = {}
+    for path in sorted(root.iterdir(), key=lambda item: item.name):
+        if remaining <= 0:
+            break
+        if (path == readme or path.name in IGNORED or path.is_symlink()
+                or not path.is_file()):
+            continue
+        file_limit = min(ct.COMMAND_CONTEXT_FILE_CHARS, remaining)
+        if path.stat().st_size > file_limit:
+            continue
+        value = read_text(
+            path, file_limit)
+        if value is None:
+            continue
+        root_files[path.name] = value
+        remaining -= len(value)
+
+    return {"readme": readme_text, "root_files": root_files}
+
+
 def snapshot(root, build_system="python"):
     """Read up to 60 KB of useful repo text for an agent."""
     content = {}
@@ -227,10 +274,10 @@ def snapshot(root, build_system="python"):
         if path.suffix not in suffixes and path.name not in suffixes:
             continue
         # Skip large files so the model input stays small.
-        if path.stat().st_size > 20000:
+        if path.stat().st_size > ct.AGENT_SNAPSHOT_FILE_CHARS:
             continue
         value = path.read_text(errors="replace")
-        if size + len(value) > 60000:
+        if size + len(value) > ct.AGENT_SNAPSHOT_CHARS:
             continue
         content[relative.as_posix()] = value
         size += len(value)

@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ from repair import (
     has_mixed_cosmetic_changes,
     preserve_cosmetic_side_changes,
     repair,
+    validate_repository_symlinks,
 )
 
 
@@ -90,6 +92,38 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(
             preserve_cosmetic_side_changes(before, proposed), proposed)
 
+    def test_repository_symlinks_must_resolve_inside_the_repository(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "repo"
+            root.mkdir()
+            target = root / "target.txt"
+            target.write_text("safe\n")
+            link = root / "link.txt"
+            link.symlink_to("target.txt")
+
+            validate_repository_symlinks(root)
+
+            link.unlink()
+            outside = base / "outside.txt"
+            outside.write_text("outside\n")
+            ignored = root / ".git" / "config"
+            ignored.parent.mkdir()
+            ignored.write_text("ignored\n")
+            cases = (
+                (str(outside.resolve()), "absolute target"),
+                ("missing.txt", "dangling target"),
+                ("../outside.txt", "target escapes repository"),
+                (".git/config", "target is ignored"),
+            )
+            for link_target, expected in cases:
+                with self.subTest(link_target=link_target):
+                    if link.exists() or link.is_symlink():
+                        link.unlink()
+                    link.symlink_to(link_target)
+                    with self.assertRaisesRegex(ValueError, expected):
+                        validate_repository_symlinks(root)
+
     def test_saved_repo_can_be_selected_by_folder_name(self):
         selected = resolve_repository(Path("undefined_greeting_variable"))
         self.assertEqual(selected, BROKEN_REPO.resolve())
@@ -143,16 +177,20 @@ class RepairTests(unittest.TestCase):
             "reason": "Docker image is unavailable",
             "diff": "sample patch",
             "fixed_files": {},
+            "steps_to_run": "Do not save failed-run instructions",
         }
         with tempfile.TemporaryDirectory() as directory:
             results = Path(directory)
             patch_path = results / "sample" / "repair.patch"
             patch_path.parent.mkdir(parents=True)
             patch_path.write_text("stale patch")
+            steps_path = results / "sample" / "steps_to_run.txt"
+            steps_path.write_text("stale instructions")
 
             result_dir = write_results(results, "sample", report)
 
             self.assertFalse((result_dir / "repair.patch").exists())
+            self.assertFalse((result_dir / "steps_to_run.txt").exists())
             self.assertTrue((result_dir / "report.json").is_file())
 
     def test_timeout_is_reported_without_exposing_provider_message(self):
@@ -480,6 +518,70 @@ class RepairTests(unittest.TestCase):
             (["cargo", "test"], False),
         ])
         self.assertIn("cargo build", report["steps_to_run"])
+
+    def test_readme_command_failure_reaches_fixer(self):
+        backend = DockerBackend("rust:test")
+        plan = {
+            "dependency_command": ["project-tool", "prepare"],
+            "build_command": ["project-tool", "build"],
+            "test_command": ["project-tool", "test"],
+        }
+        calls = []
+
+        def run_in_container(command, cwd, timeout, network=False):
+            del cwd, timeout
+            calls.append((command, network))
+            result = command_result(
+                1 if command == plan["dependency_command"] else 0)
+            result["command"] = command
+            if result["exit_code"]:
+                result["stderr"] = "dependency preparation failed"
+            return result
+
+        readme = (
+            "Use `project-tool prepare`, then `project-tool build`, and "
+            "`project-tool test`.\n")
+        give_up = {
+            "action": "give_up",
+            "reason": "The documented dependency command failed",
+        }
+        with patch.dict(
+                os.environ, {ct.API_KEY_ENV: "test-token"}):
+            agents = ModelAgents(load_config(ROOT / "config.json"))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "src").mkdir()
+            (root / "Cargo.toml").write_text("[package]\nname = \"demo\"\n")
+            (root / "README.md").write_text(readme)
+            (root / "src/main.rs").write_text("fn main() {}\n")
+            with patch.object(
+                    agents, "plan_commands", return_value=plan) as planner, patch.object(
+                    agents, "propose", return_value=give_up) as propose, patch.object(
+                    agents, "generate_run_steps", return_value="Run documented commands"), patch.object(
+                    backend, "availability_status",
+                    return_value=command_result()), patch.object(
+                    backend, "image_status",
+                    return_value=command_result()), patch.object(
+                    backend, "run", side_effect=run_in_container), patch(
+                    "repair.make_backend", return_value=backend):
+                report = repair(root, agents, rounds=1, backend="auto")
+
+        planning_context = planner.call_args.args[0]
+        self.assertEqual(planning_context["readme"], readme)
+        self.assertEqual(
+            planning_context["root_files"]["Cargo.toml"],
+            "[package]\nname = \"demo\"\n",
+        )
+        context = propose.call_args.args[0]
+        self.assertEqual(context["repository"]["build_command"], plan["build_command"])
+        self.assertEqual(context["repository"]["test_command"], plan["test_command"])
+        self.assertEqual(
+            context["observation"]["app"]["command"],
+            plan["dependency_command"],
+        )
+        self.assertIn((plan["dependency_command"], True), calls)
+        self.assertNotIn((plan["build_command"], False), calls)
+        self.assertEqual(report["reason"], give_up["reason"])
 
 
 if __name__ == "__main__":

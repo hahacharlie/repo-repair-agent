@@ -5,69 +5,26 @@ import re
 import shlex
 
 from agents import ModelAgents, ModelResponseError, basic_run_steps
-
-
-STAKEHOLDER_SOURCE = "https://github.com/sakethreddy26/capstone-proposal.git"
-STAKEHOLDER_SOURCE_COMMIT = "2b0cade1c6f7c3445e637ee83e7c247c083f5f3f"
-STAKEHOLDER_FIXER_MODEL = "qwen3-coder-30b-a3b-instruct"
-STAKEHOLDER_JUDGE_MODEL = "qwen3-235b-a22b-instruct-2507"
-
-
-STAKEHOLDER_FIXER_PROMPT = """\
-You fix broken software projects. You'll get the project description, the current error, the file tree, relevant file contents, and a log of what's already been tried.
-Fix the actual problem — don't just silence the error. Don't stub things out, remove code, or wrap failures in try/except to make them disappear.
-Pick one action per response:
-COMMAND — run an install command. Use this first if it looks like a missing package. Put the exact shell command in DETAIL, nothing else (no explanation, no inline comments).
-EDIT — rewrite a file. Only do this if installing something won't fix it.
-REPORT — explain why you're stuck. Use this if you genuinely can't fix it with the tools you have.
-Check the ATTEMPTS SO FAR log before doing anything. If an EDIT was REJECTED, don't try the same approach on the same file again — the judge already said no. Try a different file or a different fix.
-Reply in one of these formats only. No prose, no markdown fences.
-ACTION: COMMAND
-DETAIL: pip install pyyaml
-
-ACTION: EDIT
-FILE: <relative path>
-JUSTIFICATION: <one sentence — what's wrong and what this edit preserves>
-CONTENT:
-<complete new file contents>
-
-ACTION: REPORT
-DETAIL: <one sentence on what's broken and why it needs a human>\
-"""
-
-
-STAKEHOLDER_JUDGE_PROMPT = """\
-You're reviewing a proposed file edit. You'll see what the project is supposed to do, the current file, the replacement, and the reason given for the change.
-One question: does the new file still do everything the project needs?
-Read the logic — don't just skim for suspicious patterns. Something that looks wrong might be fine; something innocent might break things.
-Reject if the edit:
-- drops data records the project is supposed to handle
-- removes or comments out a pipeline step (loading, filtering, validation, output)
-- swallows an error with try/except or a conditional instead of fixing it
-- replaces real logic with a stub or no-op
-- changes a count, threshold, or printed result
-
-Approve if it fixes a real bug (wrong type, bad path, typo, malformed config value) while leaving all the data, all the steps, and all the output intact. Same data in, same result out? Approve.
-You don't know what error triggered this — don't guess. Compare the two files against what the project is supposed to do.
-Respond in this format only:
-
-VERDICT: APPROVE
-REASON: <one sentence on what was preserved>
-
-or
-
-VERDICT: REJECT
-REASON: <one sentence on what's broken or at risk>\
-"""
+from constants import (
+    STAKEHOLDER_ENTRY_CHARS,
+    STAKEHOLDER_FIXER_MODEL,
+    STAKEHOLDER_FIXER_PROMPT,
+    STAKEHOLDER_JUDGE_MODEL,
+    STAKEHOLDER_JUDGE_PROMPT,
+    STAKEHOLDER_PURPOSE_CHARS,
+    STAKEHOLDER_SOURCE,
+    STAKEHOLDER_SOURCE_COMMIT,
+)
 
 
 def _purpose(files, repository):
     for name in ("README.md", "readme.md", "README.txt", "README.rst"):
         if name in files:
-            return files[name][:1000].strip()
+            return files[name][:STAKEHOLDER_PURPOSE_CHARS].strip()
     entry = repository.get("entry")
     if entry in files:
-        return "Entry point (" + entry + "):\n" + files[entry][:500].strip()
+        return ("Entry point (" + entry + "):\n"
+                + files[entry][:STAKEHOLDER_ENTRY_CHARS].strip())
     return "A software project."
 
 

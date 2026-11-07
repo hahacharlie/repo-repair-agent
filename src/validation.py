@@ -3,6 +3,7 @@
 from pathlib import PurePosixPath
 import re
 
+import constants as ct
 from repository import IGNORED
 
 
@@ -23,10 +24,12 @@ def validate_action(action, root, suffixes=frozenset({".py"})):
     if action["action"] != "edit":
         return
 
-    # A code edit must have at least one file and no more than 20.
+    # A code edit must have a small, bounded set of files.
     changes = action.get("files")
-    if not isinstance(changes, dict) or not changes or len(changes) > 20:
-        raise ValueError("Edit requires 1-20 files")
+    if (not isinstance(changes, dict) or not changes
+            or len(changes) > ct.MAX_EDIT_FILES):
+        raise ValueError(
+            "Edit requires 1-" + str(ct.MAX_EDIT_FILES) + " files")
     for name, content in changes.items():
         if not isinstance(name, str) or not isinstance(content, str):
             raise ValueError("File names and contents must be strings")
@@ -47,5 +50,5 @@ def validate_action(action, root, suffixes=frozenset({".py"})):
                 or IGNORED.intersection(path.parts)):
             raise ValueError(
                 "Only existing non-test source files may be edited")
-        if len(content) > 100000:
+        if len(content) > ct.MAX_EDIT_FILE_CHARS:
             raise ValueError("Proposed file exceeds size limit")

@@ -2,7 +2,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from repository import detect_repository, inspect_repository, snapshot
+import constants as ct
+from repository import (
+    command_planning_context,
+    detect_repository,
+    inspect_repository,
+    snapshot,
+)
 
 
 def make_repo(files):
@@ -16,6 +22,32 @@ def make_repo(files):
 
 
 class DetectionTests(unittest.TestCase):
+    def test_command_planning_context_is_root_only_and_bounded(self):
+        folder, root = make_repo({
+            "README.md": "Build with the project tool.\n",
+            "CONTRIBUTING.md": "Run project-tool check.\n",
+            "Cargo.toml": "[package]\nname = 'demo'\n",
+            "src/main.rs": "fn main() {}\n",
+            "large.lock": "x" * 70000,
+        })
+        with folder:
+            (root / "binary.dat").write_bytes(b"text\0binary")
+            context = command_planning_context(root, root / "README.md")
+
+        self.assertEqual(
+            context["readme"], "Build with the project tool.\n")
+        self.assertEqual(sorted(context["root_files"]), [
+            "CONTRIBUTING.md", "Cargo.toml"])
+        self.assertNotIn("README.md", context["root_files"])
+        self.assertNotIn("binary.dat", context["root_files"])
+        self.assertNotIn("large.lock", context["root_files"])
+        self.assertNotIn("src/main.rs", context["root_files"])
+        self.assertLessEqual(
+            len(context["readme"])
+            + sum(map(len, context["root_files"].values())),
+            ct.COMMAND_CONTEXT_CHARS,
+        )
+
     def test_build_system_markers_follow_benchmark_layouts(self):
         cases = (
             # git ships Cargo.toml and Makefile beside its meson build.
