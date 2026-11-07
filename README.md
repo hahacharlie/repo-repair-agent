@@ -195,16 +195,24 @@ automatically for an offline run. `--script` cannot be used with `--baseline`.
 - The stakeholder mode does not add installed packages to `requirements.txt`.
 - `.python-version` or `requires-python` in `pyproject.toml` can request a
   Python version.
-- If that version is not installed, automatic mode can use Docker.
+- If that version is not installed, Docker will be used.
 - Docker images are downloaded only when `--allow-docker-pull` is used.
 
 ## Docker
 
-Automatic mode uses Docker for non-Python repositories and repositories with a
-Dockerfile. It also uses Docker when a Python repository requests a Python
-version that is not installed locally.
+ Docker will be used for non-Python
+repositories and repositories with a Dockerfile. It also uses Docker when a
+Python repository requests a Python version that is not installed locally.
 
-To request Docker directly:
+Automatic Docker selection:
+
+```console
+uv run repo-repair-agent my-repository
+```
+
+This command automatically uses Docker when required.
+
+To explicilty used Docker:
 
 ```console
 uv run repo-repair-agent my-repository --backend docker
