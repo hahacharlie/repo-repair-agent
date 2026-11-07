@@ -1,4 +1,5 @@
 import io
+import json
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 import tempfile
@@ -66,6 +67,37 @@ class CliTests(unittest.TestCase):
             "No errors found. No repair was needed.", output.getvalue())
         self.assertIn("Fixed files: none", output.getvalue())
         self.assertNotIn("Metrics Details", output.getvalue())
+
+    def test_interrupted_run_keeps_one_partial_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "broken_repo"
+            repository.mkdir()
+            (repository / "repair.json").write_text("[]\n")
+            results = root / "results"
+            output = io.StringIO()
+            with patch(
+                    "sys.argv", [
+                        "repo-repair-agent", str(repository),
+                        "--agent-logs", "--output", str(results),
+                    ]), patch(
+                    "cli.repair", side_effect=RuntimeError("stopped")), (
+                    redirect_stderr(output)), self.assertRaises(
+                    SystemExit) as error:
+                main((3, 10, 0))
+
+            log_path = results / "broken_repo" / "agent_logs.json"
+            saved_log = json.loads(log_path.read_text())
+
+        self.assertEqual(error.exception.code, 2)
+        self.assertIn(
+            "Repairing repository: broken_repo", saved_log["progress"])
+        self.assertIn(
+            "Repair setup failed: RuntimeError", saved_log["progress"])
+        self.assertEqual(saved_log["agent_calls"], [])
+        self.assertFalse(
+            (results / "broken_repo" / "run_progress.log").exists())
+        self.assertIn("Agent logs:", output.getvalue())
 
 
     def test_metrics_table_shows_repair_rate_and_available_values(self):

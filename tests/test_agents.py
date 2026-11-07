@@ -221,6 +221,32 @@ class AgentTests(unittest.TestCase):
         self.assertNotIn("test-token", json.dumps(agents.logs))
         self.assertNotIn("private reasoning", json.dumps(agents.logs))
 
+    def test_failed_agent_logs_are_saved_while_request_is_running(self):
+        snapshots = []
+
+        def save_logs(logs):
+            snapshots.append(json.loads(json.dumps(logs)))
+
+        with patch.dict(
+                "os.environ", {ct.API_KEY_ENV: "test-token"}), patch(
+                "agents.urllib.request.urlopen",
+                side_effect=[stream_response("not json") for _ in range(3)]):
+            agents = ModelAgents(
+                load_config(CONFIG),
+                capture_logs=True,
+                log_callback=save_logs,
+            )
+            with self.assertRaises(ModelResponseError):
+                agents.review({})
+
+        self.assertGreaterEqual(len(snapshots), 3)
+        self.assertIn("prompt", snapshots[0][0])
+        self.assertNotIn("response_text", snapshots[0][0])
+        self.assertEqual(snapshots[-1][-1]["response_text"], "not json")
+        self.assertEqual(
+            snapshots[-1][-1]["error_type"], "InvalidModelJSONError")
+        self.assertIn("elapsed_seconds", snapshots[-1][-1]["metrics"])
+
     def test_cumulative_api_budget_excludes_time_between_requests(self):
         config = load_config(CONFIG)
         clock = FakeClock()

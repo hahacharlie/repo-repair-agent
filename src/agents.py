@@ -289,12 +289,13 @@ class ModelAgents:
     def __init__(
             self, config, capture_logs=False,
             time_budget_seconds=ct.DEFAULT_AGENT_TIMEOUT, clock=None,
-            token_counter=None):
+            token_counter=None, log_callback=None):
         # Read the key from the local environment.
         self.config = config
         self.requests = []
         self.logs = []
         self.capture_logs = capture_logs
+        self.log_callback = log_callback
         if (type(time_budget_seconds) is not int
                 or not ct.MINIMUM_AGENT_TIMEOUT
                 <= time_budget_seconds <= ct.MAXIMUM_AGENT_TIMEOUT):
@@ -312,6 +313,11 @@ class ModelAgents:
         self.endpoint = config["endpoint"].rstrip("/")
         if not self.endpoint.endswith("/chat/completions"):
             self.endpoint += "/chat/completions"
+
+    def _save_logs(self):
+        # Save the latest log state while the repair is still running.
+        if self.capture_logs and self.log_callback is not None:
+            self.log_callback(self.logs)
 
     def request(
             self, model, instruction, context,
@@ -430,6 +436,7 @@ class ModelAgents:
                 "metrics": metrics,
             }
             self.logs.append(log)
+            self._save_logs()
         stopped = threading.Event()
 
         def progress():
@@ -500,6 +507,7 @@ class ModelAgents:
                 local_usage.setdefault("error_type", type(error).__name__)
             if log is not None:
                 log["response_text"] = content
+                self._save_logs()
             parsed = response_parser(content)
             if log is not None:
                 log["response"] = parsed
@@ -521,6 +529,7 @@ class ModelAgents:
                 self.api_time_used_seconds, 2)
             metrics["agent_time_remaining_seconds"] = round(
                 self.time_budget_seconds - self.api_time_used_seconds, 2)
+            self._save_logs()
             stopped.set()
             if worker is not None:
                 worker.join()

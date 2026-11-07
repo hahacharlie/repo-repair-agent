@@ -15,6 +15,14 @@ import constants as ct
 from repair import repair
 
 
+def save_agent_logs(path, logs):
+    # Replace the file so an interrupted write does not damage the last copy.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(logs, indent=2) + "\n")
+    temporary.replace(path)
+
+
 def python_version_error(version_info):
     # Stop early when this agent cannot safely run on the installed Python.
     current = tuple(version_info[:2])
@@ -110,7 +118,7 @@ def resolve_script(repository, script):
     return saved_script if saved_script.is_file() else None
 
 
-def write_results(results_root, repo_name, report):
+def write_results(results_root, repo_name, report, debug_log=None):
     # Keep each repo result in its own folder.
     result_dir = results_root / repo_name
     fixed_dir = result_dir / "fixed_files"
@@ -132,15 +140,16 @@ def write_results(results_root, repo_name, report):
     # Keep full model prompts and replies in a separate local debug log.
     logs_path = result_dir / "agent_logs.json"
     agent_logs = report.get("agent_logs")
-    if agent_logs:
-        logs_path.write_text(json.dumps(agent_logs, indent=2) + "\n")
+    saved_logs = debug_log if debug_log is not None else agent_logs
+    if saved_logs:
+        save_agent_logs(logs_path, saved_logs)
     elif logs_path.exists():
         logs_path.unlink()
 
     # The report lists file names, while the files hold the code.
     saved_report = dict(report)
     saved_report.pop("agent_logs", None)
-    if agent_logs:
+    if saved_logs:
         saved_report["agent_log_file"] = "agent_logs.json"
     saved_report["fixed_files"] = sorted(fixed_files)
     (result_dir / "report.json").write_text(
@@ -253,6 +262,33 @@ def main(version_info=None):
         else resolve_script(repository, args.script)
     )
 
+    result_dir = args.output / repository.name
+    agent_logs_path = result_dir / "agent_logs.json"
+    debug_log = {"progress": [], "agent_calls": []}
+    if args.agent_logs:
+        result_dir.mkdir(parents=True, exist_ok=True)
+        if agent_logs_path.exists():
+            agent_logs_path.unlink()
+
+    def update_log_file():
+        if args.agent_logs:
+            save_agent_logs(agent_logs_path, debug_log)
+
+    def show_progress(message):
+        print(message, flush=True)
+        if args.agent_logs:
+            debug_log["progress"].extend(
+                line for line in message.splitlines() if line.strip())
+            update_log_file()
+
+    def update_agent_logs(logs):
+        debug_log["agent_calls"] = logs
+        update_log_file()
+
+    show_progress("Repairing repository: " + repository.name)
+    if args.baseline:
+        show_progress("Baseline: " + args.baseline)
+
     # Live model runs need a settings file and API key.
     config = None
     if not script:
@@ -288,22 +324,22 @@ def main(version_info=None):
                 config,
                 capture_logs=args.agent_logs,
                 time_budget_seconds=args.agent_timeout,
+                log_callback=update_agent_logs,
             )
         elif args.baseline == "fixer-only":
             agents = FixerOnlyAgents(
                 config,
                 capture_logs=args.agent_logs,
                 time_budget_seconds=args.agent_timeout,
+                log_callback=update_agent_logs,
             )
         else:
             agents = ModelAgents(
                 config,
                 capture_logs=args.agent_logs,
                 time_budget_seconds=args.agent_timeout,
+                log_callback=update_agent_logs,
             )
-        print("Repairing repository: " + repository.name, flush=True)
-        if args.baseline:
-            print("Baseline: " + args.baseline, flush=True)
         report = repair(
             repository,
             agents,
@@ -313,14 +349,23 @@ def main(version_info=None):
             args.backend,
             args.docker_image,
             args.allow_docker_pull,
-            progress=lambda message: print(message, flush=True),
+            progress=show_progress,
         )
     except Exception as error:
-        raise
-        parser.exit(2, "Repair setup failed: " + type(error).__name__ + "\n")
+        failure = "Repair setup failed: " + type(error).__name__
+        if args.agent_logs:
+            debug_log["progress"].append(failure)
+            update_log_file()
+            failure += "\nAgent logs: " + str(agent_logs_path)
+        parser.exit(2, failure + "\n")
 
     # Save the report, patch, and changed files.
-    result_dir = write_results(args.output, repository.name, report)
+    result_dir = write_results(
+        args.output,
+        repository.name,
+        report,
+        debug_log=debug_log if args.agent_logs else None,
+    )
 
     # Print a short result that is easy to read.
     print()
