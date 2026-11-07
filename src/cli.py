@@ -206,7 +206,7 @@ def main(version_info=None):
     parser.add_argument(
         "--agent-logs",
         action="store_true",
-        help="Save each Fixer and Judge prompt and response",
+        help="Save repair progress and Fixer/Judge prompts and responses",
     )
     installs = parser.add_mutually_exclusive_group()
     installs.add_argument(
@@ -227,8 +227,9 @@ def main(version_info=None):
         choices=("auto", "local", "docker"),
         default="auto",
         help=(
-            "Where to run the temporary work copy (default: auto; use Docker "
-            "when the repository supplies a Dockerfile)"),
+            "Where to run the temporary work copy (default: auto; Docker is "
+            "used for non-Python repositories, repositories with a "
+            "Dockerfile, or a missing required Python version)"),
     )
     parser.add_argument(
         "--docker-image",

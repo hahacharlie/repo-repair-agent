@@ -1,22 +1,20 @@
 # Repository Repair Agent
 
-This tool tries to fix a repository that does not run. Repair changes are made
-on a copy, so your original source files are not changed.
+This tool tries to fix a repository that does not run. It tests repair changes
+on a temporary copy, so it does not edit your original source files.
 
-## What you need
+## Minimum requirements
 
 - Python 3.10 or newer
-- `pip`
 - An ASU Voyager API key for AI repairs
-- Docker for non-Python repositories or when the required Python version is
-  not installed on your machine
+- Docker
 
-Docker must be installed and running before it can be used. The offline sample
-does not need an API key or Docker.
+Docker is used for non-Python repositories, repositories with a Dockerfile, or
+  repositories that need another Python version.
 
 ## Set up the project
 
-Open a terminal in this project folder and run:
+Open a terminal in the `repo-repair-agent` folder and run:
 
 ```console
 python -m pip install -r requirements.txt
@@ -34,8 +32,8 @@ Get a key from the [ASU Voyager portal](https://voyager.rc.asu.edu):
 3. Open your profile and select **Keys**.
 4. Create and copy an API key.
 
-The first AI repair creates a `.env` file in this project folder. Open it and
-add your key:
+The first AI repair creates a `.env` file in the `repo-repair-agent` folder.
+Open it and add your key:
 
 ```text
 ASU_AIR_API_KEY=your_key_here
@@ -60,16 +58,12 @@ input/broken_repos/my-repository/
 
 You only need to give the folder name when running the agent.
 
+You can also give the full path when the repository is stored somewhere else.
+
 ## Run a repair
 
 ```console
 uv run repo-repair-agent my-repository
-```
-
-To try the offline sample:
-
-```console
-uv run repo-repair-agent undefined_greeting_variable
 ```
 
 ### How the AI agents work
@@ -79,11 +73,12 @@ The tool will:
 1. Make a temporary copy of the repository.
 2. Find the language, run command, and tests.
 3. Run the repository and collect the error.
-4. Ask the Fixer for one repair.
-5. Ask the Judge to review code changes.
+4. Ask the Fixer for one action in each repair round.
+5. Ask the Judge to review code changes in the proposed and stakeholder modes.
 6. Run the repository again to check the repair.
 
-Package installs do not need Judge approval. Code changes do.
+Package installs do not need Judge approval. The Fixer-only mode does not use
+the Judge.
 
 ## Results
 
@@ -96,11 +91,12 @@ results/<repo-name>/
 The folder may contain:
 
 - `report.json`: repair result and metrics
-- `fixed_files/`: files changed by a successful repair
-- `steps_to_run.txt`: simple steps for running the repaired repository
+- `fixed_files/`: changed files saved after the application or build passes
+- `steps_to_run.txt`: steps saved after the application or build passes
 - `agent_logs.json`: optional debugging log
 
-The original repository stays unchanged.
+The tool does not edit the original source files. A local Python run creates or
+recreates `.venv` inside the selected repository.
 
 ### Save agent logs
 
@@ -118,7 +114,8 @@ results/my-repository/agent_logs.json
 ```
 
 The file is updated during the run. If the repair stops early, the completed
-log entries are still available.
+log entries are still available. The log may contain repository source code,
+so check it before sharing it. Git ignores this file.
 
 ## Compare the repair modes
 
@@ -150,8 +147,8 @@ It comes from
 commit
 [2b0cade1c6f7c3445e637ee83e7c247c083f5f3f](https://github.com/sakethreddy26/capstone-proposal/commit/2b0cade1c6f7c3445e637ee83e7c247c083f5f3f).
 
-Each run replaces the previous results for that repository. Use different
-output folders when you want to keep every evaluation run:
+Each completed run replaces the previous results for that repository. Use
+different output folders when you want to keep every evaluation run:
 
 ```console
 uv run repo-repair-agent my-repository --output results/proposed
@@ -165,12 +162,13 @@ uv run repo-repair-agent my-repository --baseline fixer-only --output results/fi
 - `--timeout 300`: allow each repository command to run for 300 seconds. The
   default is 120 seconds.
 - `--agent-timeout 1800`: allow 30 minutes in total for Fixer and Judge API
-  calls. The default is 20 minutes.
+  calls. The default is 20 minutes and the maximum is one hour.
 - `--no-install`: do not download repository dependencies.
 - `--backend local`: use only the local machine.
 - `--backend docker`: use Docker.
 - `--docker-image IMAGE`: choose a Docker image.
 - `--allow-docker-pull`: allow the selected Docker image to be downloaded.
+- `--script FILE`: use saved offline repair actions instead of the AI models.
 - `--config FILE`: use another model configuration file.
 - `--output FOLDER`: choose where results are saved.
 
@@ -180,13 +178,21 @@ Run this command to see every option:
 uv run repo-repair-agent --help
 ```
 
+If the selected repository contains `repair.json`, the tool uses it
+automatically for an offline run. `--script` cannot be used with `--baseline`.
+
 ## Python repositories
 
-- A `.venv` is created inside the selected broken repository.
-- Git ignores `.venv`.
-- Packages in `requirements.txt` are installed automatically.
-- If the Fixer installs a new package, the repaired `requirements.txt` is
-  saved in `fixed_files`.
+- A local Python run creates `.venv` inside the selected repository.
+- This project's Git settings ignore `.venv` folders under
+  `input/broken_repos/`.
+- A Docker Python run creates `.venv` only inside the temporary copy.
+- Packages in `requirements.txt` are installed automatically unless
+  `--no-install` is used.
+- In every mode except the stakeholder mode, a package installed by the Fixer
+  is added to the repaired `requirements.txt`. It is saved in `fixed_files`
+  when the application passes.
+- The stakeholder mode does not add installed packages to `requirements.txt`.
 - `.python-version` or `requires-python` in `pyproject.toml` can request a
   Python version.
 - If that version is not installed, automatic mode can use Docker.
@@ -194,8 +200,9 @@ uv run repo-repair-agent --help
 
 ## Docker
 
-Docker is used for non-Python repositories. It can also be used when a Python
-repository needs a Python version that is not installed locally.
+Automatic mode uses Docker for non-Python repositories and repositories with a
+Dockerfile. It also uses Docker when a Python repository requests a Python
+version that is not installed locally.
 
 To request Docker directly:
 
@@ -214,6 +221,10 @@ The repository runs inside a temporary container copy. App and test commands
 do not have network access. Network access is used only when dependencies need
 to be downloaded.
 
+In the proposed mode, a non-Python repository must have a README. The Judge
+reads it and other files in the repository root, then chooses the dependency,
+build, and test commands.
+
 C and C++ repositories may need a custom image containing their compiler and
 system libraries:
 
@@ -225,17 +236,22 @@ uv run repo-repair-agent my-repository --backend docker --docker-image IMAGE
 
 The console and `report.json` show:
 
-- correct repair rate
+- Correct repair rate
 - Fixer tokens
 - Judge tokens
-- total tokens
-- total run time
+- Total tokens
+- Total run time
 
 A correct repair means the repository failed first and passed its required
 checks after the repair. A repository that already worked is not counted as a
 repair.
 
-Token counts are local estimates. They do not download a model tokenizer.
+A code repair without detected tests does not count as correct. An environment
+repair can count when an approved package install makes the failing command
+pass.
+
+Token counts are estimates made with `tiktoken`. If that cannot be used, the
+tool makes a simple estimate with Python.
 
 ## Choose the AI models
 
@@ -255,19 +271,13 @@ Model settings are in `config.json`:
 - `judge_model`: model that reviews code changes
 - `api_timeout_seconds`: wait time for one API request
 
-Keep the API key in `.env`, not in `config.json`.
-
-If a model returns invalid JSON, the tool tries two more times before stopping.
-
 ## What the tool supports
 
-- Python entry files must be named `main.py`, `app.py`, or `run.py`.
+- Python entry files must be named `main.py`, `app.py`, or `run.py` and must be
+  in the repository root.
 - Python tests use standard `unittest` discovery.
 - Pytest-only projects are not yet supported.
-- Non-Python repositories run in Docker.
-- The tool does not create GitHub pull requests yet.
-- The current proposed pipeline has a Fixer and Judge. A model-based Main
-  Orchestrator is planned.
+- Supported non-Python builds are Cargo, Go, Meson, SCons, CMake, and Make.
 
 Use only repositories you trust. Repository commands and package installers
 run code on your machine or in Docker. During AI repairs, selected source files
@@ -283,7 +293,12 @@ passwords, API keys, or private data.
 - `.env`: local API key
 - `config.json`: model settings
 
-## Run the tests
+## Test the repair-agent code
+
+These tests check the code we wrote to repair repositories. They check the CLI,
+repository detection, Fixer and Judge handling, repair safety checks, Docker and
+local execution, result files, and metrics. The tests in `tests/` test the
+repair-agent code under `src/`.
 
 ```console
 uv run python -m unittest discover -s tests -v
