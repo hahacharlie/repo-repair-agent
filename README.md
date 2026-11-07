@@ -72,6 +72,8 @@ To try the offline sample:
 uv run repo-repair-agent undefined_greeting_variable
 ```
 
+### How the AI agents work
+
 The tool will:
 
 1. Make a temporary copy of the repository.
@@ -118,7 +120,7 @@ results/my-repository/agent_logs.json
 The file is updated during the run. If the repair stops early, the completed
 log entries are still available.
 
-## Evaluation modes
+## Compare the repair modes
 
 Run the proposed system:
 
@@ -235,7 +237,7 @@ repair.
 
 Token counts are local estimates. They do not download a model tokenizer.
 
-## Change the models
+## Choose the AI models
 
 Model settings are in `config.json`:
 
@@ -257,7 +259,7 @@ Keep the API key in `.env`, not in `config.json`.
 
 If a model returns invalid JSON, the tool tries two more times before stopping.
 
-## Current limits
+## What the tool supports
 
 - Python entry files must be named `main.py`, `app.py`, or `run.py`.
 - Python tests use standard `unittest` discovery.
