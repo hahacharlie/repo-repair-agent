@@ -46,7 +46,7 @@ def _safe_command(command, cwd):
     ]
 
 
-def run_command(command, cwd, timeout):
+def run_command(command, cwd, timeout, on_timeout=None):
     # Use UTF-8 so output works the same on every system.
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
@@ -90,6 +90,8 @@ def run_command(command, cwd, timeout):
             os.killpg(process.pid, signal.SIGKILL)
         else:
             process.kill()
+        if on_timeout is not None:
+            on_timeout()
         out, err = process.communicate()
         return {
             "command": _safe_command(command, cwd),

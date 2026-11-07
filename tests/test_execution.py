@@ -20,6 +20,19 @@ FIX = 'def greet(name):\n    return "Hello, " + name\n'
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_timeout_runs_cleanup_hook(self):
+        cleanup_calls = []
+        with tempfile.TemporaryDirectory() as directory:
+            result = run_command(
+                [sys.executable, "-c", "import time; time.sleep(10)"],
+                directory,
+                0.01,
+                on_timeout=lambda: cleanup_calls.append("called"),
+            )
+
+        self.assertTrue(result["timeout"])
+        self.assertEqual(cleanup_calls, ["called"])
+
     def test_command_reads_unicode_output(self):
         with tempfile.TemporaryDirectory() as directory:
             result = run_command(

@@ -36,6 +36,31 @@ class BackendTests(unittest.TestCase):
         self.assertIn("none", isolated)
         self.assertIn("bridge", installing)
 
+    def test_timeout_force_removes_the_named_container(self):
+        calls = []
+
+        def execute(command, cwd, timeout, on_timeout=None):
+            calls.append((command, cwd, timeout))
+            if on_timeout is not None:
+                on_timeout()
+            return {"exit_code": -9, "timeout": True}
+
+        with patch("backends.uuid.uuid4") as uuid4, patch(
+                "backends.run_command", side_effect=execute):
+            uuid4.return_value.hex = "abc123"
+            DockerBackend().run(
+                ["go", "test", "./..."], Path("/tmp/example"), 30)
+
+        first_command = calls[0][0]
+        name_index = first_command.index("--name")
+        self.assertEqual(
+            first_command[name_index + 1], "repo-repair-abc123")
+        self.assertEqual(
+            calls[1][0],
+            ["docker", "rm", "-f", "repo-repair-abc123"],
+        )
+        self.assertEqual(calls[1][2], 10)
+
     def test_docker_status_and_pull_use_explicit_commands(self):
         calls = []
 

@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import sys
+import uuid
 
 import constants as ct
 from execution import run_command
@@ -43,12 +44,14 @@ class DockerBackend:
         """Download the selected image after the caller has approved it."""
         return run_command(["docker", "pull", self.image], cwd, timeout)
 
-    def command(self, command, cwd, network=False):
+    def command(self, command, cwd, network=False, container_name=None):
         """Build the auditable docker command used for one target command."""
         root = Path(cwd).resolve()
         network_mode = "bridge" if network else "none"
-        return [
-            "docker", "run", "--rm",
+        docker_command = ["docker", "run", "--rm"]
+        if container_name:
+            docker_command.extend(["--name", container_name])
+        return docker_command + [
             "--network", network_mode,
             "--cpus", "2",
             "--memory", "2g",
@@ -83,8 +86,23 @@ class DockerBackend:
         ]
 
     def run(self, command, cwd, timeout, network=False):
+        container_name = "repo-repair-" + uuid.uuid4().hex
+
+        def cleanup():
+            run_command(
+                ["docker", "rm", "-f", container_name], cwd, 10)
+
         return run_command(
-            self.command(command, cwd, network=network), cwd, timeout)
+            self.command(
+                command,
+                cwd,
+                network=network,
+                container_name=container_name,
+            ),
+            cwd,
+            timeout,
+            on_timeout=cleanup,
+        )
 
 
 def make_backend(name, image=ct.DEFAULT_PYTHON_IMAGE):
