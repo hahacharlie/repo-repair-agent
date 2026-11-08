@@ -73,7 +73,9 @@ The tool will:
 1. Make a temporary copy of the repository.
 2. Find the language, run command, and tests.
 3. Run the repository and collect the error.
-4. Ask the Fixer for one action in each repair round.
+4. Ask the Fixer for one action in each repair round. Before it edits, the
+   Fixer may search the repository for text and read files or line ranges.
+   These look-ups change nothing and do not use repair rounds.
 5. Ask the Judge to review code changes in the proposed and stakeholder modes.
 6. Run the repository again to check the repair.
 
@@ -160,7 +162,7 @@ uv run repo-repair-agent my-repository --baseline fixer-only --output results/fi
 
 - `--rounds 8`: allow up to eight repair attempts. The default is five.
 - `--timeout 300`: allow each repository command to run for 300 seconds. The
-  default is 120 seconds.
+  default is 3600 seconds, because large repositories compile for a long time.
 - `--agent-timeout 1800`: allow 30 minutes in total for Fixer and Judge API
   calls. The default is 20 minutes and the maximum is one hour.
 - `--no-install`: do not download repository dependencies.
@@ -197,6 +199,10 @@ automatically for an offline run. `--script` cannot be used with `--baseline`.
   Python version.
 - If that version is not installed, Docker will be used.
 - Docker images are downloaded only when `--allow-docker-pull` is used.
+- Rust and C/C++ repositories use the images `repo-repair/rust` and
+  `repo-repair/cpp`. The tool builds them from `docker/rust.Dockerfile` and
+  `docker/cpp.Dockerfile` the first time they are needed. The first build
+  downloads compilers and development libraries and can take several minutes.
 
 ## Docker
 
@@ -223,16 +229,20 @@ checking the image, allow the download with:
 uv run repo-repair-agent my-repository --backend docker --allow-docker-pull
 ```
 
-The repository runs inside a temporary container copy. App and test commands
-do not have network access. Network access is used only when dependencies need
-to be downloaded.
+The repository runs inside a temporary container copy. Every command in the
+container has network access, because builds and test suites download modules,
+fixtures, and interpreters. The container cannot see the host file system
+outside the temporary copy, runs without Linux capabilities, and may use every
+host CPU and three quarters of the host memory, because large repositories do
+not build with less.
 
 In the proposed mode, a non-Python repository must have a README. The Judge
 reads it and other files in the repository root, then chooses the dependency,
-build, and test commands.
+build, and test commands. If the documented build fails but the standard
+build command for the detected build system works, the tool uses the standard
+command instead and records the change in `report.json`.
 
-C and C++ repositories may need a custom image containing their compiler and
-system libraries:
+C and C++ repositories with unusual system libraries may need another image:
 
 ```console
 uv run repo-repair-agent my-repository --backend docker --docker-image IMAGE
@@ -266,11 +276,16 @@ Model settings are in `config.json`:
 ```json
 {
   "endpoint": "https://openai.rc.asu.edu/v1",
-  "fixer_model": "qwen3-coder-30b-a3b-instruct",
+  "fixer_model": "kimi-k2-7-code",
   "judge_model": "qwen3-235b-a22b",
-  "api_timeout_seconds": 300
+  "api_timeout_seconds": 900
 }
 ```
+
+The default Fixer is `kimi-k2-7-code`. The smaller
+`qwen3-coder-30b-a3b-instruct` often returns broken JSON for large files and
+tries to silence errors instead of fixing their cause. The stakeholder
+baseline keeps its own models, so `--baseline stakeholder` is not affected.
 
 - `endpoint`: model API address
 - `fixer_model`: model that suggests repairs

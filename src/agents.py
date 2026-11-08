@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import sys
 import threading
 import time
@@ -573,6 +574,16 @@ class ModelAgents:
             command = response[name]
             if command is None:
                 continue
+            # Models sometimes return a whole command line as one item.
+            if (isinstance(command, list) and len(command) == 1
+                    and isinstance(command[0], str)
+                    and len(command[0].split()) > 1):
+                try:
+                    command = shlex.split(command[0])
+                except ValueError:
+                    raise ValueError(
+                        "Invalid repository command: " + name) from None
+                response[name] = command
             if (not isinstance(command, list) or not command
                     or len(command) > ct.COMMAND_MAX_ARGUMENTS
                     or any(not isinstance(item, str) or not item

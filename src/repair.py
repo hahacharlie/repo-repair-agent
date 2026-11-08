@@ -14,11 +14,13 @@ from agents import (
     ModelAgents, ModelResponseError, basic_run_steps, summarize_token_usage,
 )
 from backends import DockerBackend, make_backend
+import constants as ct
 from execution import run_command
 from metrics import summarize_repair_rate
 from repository import (
     IGNORED, TOOLCHAINS, command_planning_context, inspect_repository,
-    snapshot, source_suffixes)
+    mentioned_files, read_repository_file, search_repository, snapshot,
+    source_suffixes)
 from validation import validate_action
 
 
@@ -98,6 +100,49 @@ def has_mixed_cosmetic_changes(before, after):
     return cosmetic and substantive
 
 
+# Lines that make a program fail loudly; deleting them hides problems.
+CHECK_LINE = re.compile(
+    r"\b(compile_error!|assert\w*!?\s*\(|panic!|unreachable!|abort\s*\(|"
+    r"raise\s+\w|throw\s+\w|exit\s*\(\s*[1-9]|os\.Exit\s*\(\s*[1-9]|"
+    r"log\.Fatal|\.unwrap\(\)|\.expect\()")
+
+
+def has_weakened_checks(before, after):
+    """Return whether a patch deletes check lines without keeping them."""
+    for name, text in after.items():
+        old_lines = [line.strip() for line in before.get(name, "").splitlines()]
+        new_lines = set(line.strip() for line in text.splitlines())
+        for line in old_lines:
+            if line and CHECK_LINE.search(line) and line not in new_lines:
+                return True
+    return False
+
+
+IMPORT_LINE = re.compile(
+    r"^\s*(?:import\s+([\w.]+)|from\s+([\w.]+)\s+import|use\s+([\w]+)|"
+    r"(?:import\s+)?\"([\w./-]+)\")")
+
+
+def hides_missing_dependency(before, after, failure_text):
+    """Return whether a patch deletes an import of the module reported missing."""
+    for name, text in after.items():
+        new_lines = set(line.strip() for line in text.splitlines())
+        for line in before.get(name, "").splitlines():
+            if line.strip() in new_lines:
+                continue
+            match = IMPORT_LINE.match(line)
+            if not match:
+                continue
+            module = next(group for group in match.groups() if group)
+            top = re.split(r"[./]", module)[0]
+            if re.search(
+                    r"(No module named|cannot find|not found|unresolved|"
+                    r"can't find)[^\n]*\b" + re.escape(top) + r"\b",
+                    failure_text):
+                return True
+    return False
+
+
 def preserve_cosmetic_side_changes(before, after):
     """Restore separable whitespace-only edits in a functional patch."""
     if not has_mixed_cosmetic_changes(before, after):
@@ -140,6 +185,77 @@ def preserve_cosmetic_side_changes(before, after):
                     output.extend(new_changed)
         preserved[name] = "".join(output)
     return preserved
+
+
+def locate_once(text, old):
+    """Return the one region of text that old refers to.
+
+    Exact matches win. Otherwise whitespace differences are tolerated, since
+    models often drop indentation when copying a line.
+    """
+    count = text.count(old)
+    if count == 1:
+        return old
+    if count > 1:
+        raise ValueError(
+            "Replacement text appears " + str(count) + " times; include "
+            "more surrounding lines so it is unique")
+    tokens = old.split()
+    if not tokens:
+        raise ValueError("Replacement text was not found")
+    pattern = r"\s+".join(re.escape(token) for token in tokens)
+    matches = re.findall(pattern, text)
+    if len(matches) != 1:
+        raise ValueError(
+            "Replacement text was not found; copy it exactly from the "
+            "current file" if not matches else
+            "Replacement text appears " + str(len(matches))
+            + " times; include more surrounding lines so it is unique")
+    return matches[0]
+
+
+def materialize_replacements(action, root, suffixes):
+    """Turn search-and-replace edits into complete replacement files."""
+    if not isinstance(action, dict) or "replacements" not in action:
+        return action
+    # Copy first: the original dict is also kept in the agent log.
+    action = dict(action)
+    replacements = action.pop("replacements")
+    # Also accept a flat list of {"path", "old", "new"} entries.
+    if isinstance(replacements, list) and all(
+            isinstance(item, dict) and isinstance(item.get("path"), str)
+            for item in replacements):
+        grouped = {}
+        for item in replacements:
+            grouped.setdefault(item["path"], []).append(
+                {"old": item.get("old"), "new": item.get("new")})
+        replacements = grouped
+    if not isinstance(replacements, dict) or not replacements:
+        raise ValueError("replacements must map paths to lists of edits")
+    # Check the paths with the same rules as a full-file edit before reading.
+    validate_action(
+        dict(action, files={name: "" for name in replacements}), root, suffixes)
+    files = dict(action.get("files") or {})
+    for name, edits in replacements.items():
+        text = (root / name).read_text()
+        if not isinstance(edits, list) or not edits:
+            raise ValueError("Each replacement entry needs a list of edits")
+        for edit in edits:
+            old = edit.get("old") if isinstance(edit, dict) else None
+            new = edit.get("new") if isinstance(edit, dict) else None
+            if not isinstance(old, str) or not old or not isinstance(new, str):
+                raise ValueError("Each edit needs non-empty old text and new text")
+            try:
+                found = locate_once(text, old)
+            except ValueError as error:
+                raise ValueError(str(error) + " (" + name + ")") from None
+            if found != old and new == new.lstrip():
+                # Keep the file's indentation when the model dropped it.
+                new = found[:len(found) - len(found.lstrip())] + new
+            text = text.replace(found, new)
+        files[name] = text
+    action["files"] = files
+    return action
 
 
 def add_requirement(text, package):
@@ -221,7 +337,7 @@ def repair(
         source,
         agents,
         rounds=5,
-        timeout=120,
+        timeout=ct.DEFAULT_COMMAND_TIMEOUT,
         allow_install=True,
         backend="auto",
         docker_image=None,
@@ -265,7 +381,7 @@ def _repair(
         source,
         agents,
         rounds=5,
-        timeout=120,
+        timeout=ct.DEFAULT_COMMAND_TIMEOUT,
         allow_install=True,
         backend="auto",
         docker_image=None,
@@ -302,7 +418,8 @@ def _repair(
     # shares project folders but does not expose macOS system temp folders.
     with tempfile.TemporaryDirectory(
             prefix=".repo-repair-", dir=source.parent) as temporary:
-        root = Path(temporary) / "repo"
+        # Keep the repository's name: some builds and tests check it.
+        root = Path(temporary) / source.name
         announce("\nPreparing temporary work copy...")
 
         # Preserve links without reading their targets, then validate the copy.
@@ -330,6 +447,18 @@ def _repair(
             image_status = candidate.image_status(root, timeout)
             report["docker"]["image_status"] = image_status
             if not command_passed(image_status):
+                if candidate.dockerfile() is not None:
+                    # The project's own Dockerfiles need no download approval.
+                    announce("Building Docker image: " + candidate.image)
+                    built = candidate.build_image(root, max(timeout, 3600))
+                    report["docker"]["build"] = built
+                    if not command_passed(built):
+                        report["reason"] = (
+                            "Docker image '" + candidate.image
+                            + "' could not be built from "
+                            + str(candidate.dockerfile()) + ".")
+                        return False
+                    return True
                 if not allow_docker_pull:
                     report["docker"]["pull_required"] = True
                     report["reason"] = (
@@ -377,15 +506,27 @@ def _repair(
             announce("Planning repository commands from README...")
             try:
                 command_plan = agents.plan_commands(
-                    command_planning_context(root, readme))
+                    command_planning_context(
+                        root, readme, metadata["build_system"]))
             except Exception as error:
-                report["reason"] = (
-                    str(error)
-                    if isinstance(error, ModelResponseError)
-                    else "Judge returned invalid repository commands")
-                return report
+                if isinstance(error, ModelResponseError):
+                    report["reason"] = str(error)
+                    return report
+                # Without a documented plan, fall back to the toolchain.
+                report["command_plan_error"] = type(error).__name__
+                announce("README gives no usable commands; using "
+                         + metadata["build_system"] + " defaults.")
+                command_plan = {
+                    "dependency_command": toolchain.get("fetch"),
+                    "build_command": toolchain["build"],
+                    "test_command": metadata["test_command"],
+                }
             metadata.update(command_plan)
             report["command_plan"] = command_plan
+            # "Not documented" is not "not needed": tests often need modules
+            # the build never downloads, so keep the toolchain's fetch step.
+            if metadata.get("dependency_command") is None:
+                metadata["dependency_command"] = toolchain.get("fetch")
 
         def execute(command, cwd, command_timeout, network=False):
             # Keep local execution patchable by the existing test suite.
@@ -511,7 +652,8 @@ def _repair(
             # Compiled toolchains need the cache folder named in backends.py.
             setup = execute(["mkdir", "-p", ".home/tmp"], root, timeout)
         elif execution_backend.name == "docker":
-            python = "/workspace/.venv/bin/python"
+            # Relative to the container's working directory (the work copy).
+            python = ".venv/bin/python"
             setup = execute(
                 ["python", "-m", "venv", ".venv"], root, timeout)
         else:
@@ -547,15 +689,19 @@ def _repair(
                 if execution_backend.name == "local"
                 else [python, "-m", "pip", "install", package])
 
-        fetch = (
-            pip_install("-r") + ["requirements.txt"] if has_requirements
-            else metadata.get("dependency_command", toolchain.get("fetch")))
+        def dependency_fetch():
+            if has_requirements:
+                return pip_install("-r") + ["requirements.txt"]
+            return metadata.get("dependency_command", toolchain.get("fetch"))
+
+        fetch = dependency_fetch()
 
         def verify():
-            if readme_commands and allow_install and fetch:
+            if readme_commands and allow_install and dependency_fetch():
                 announce("Fetching declared dependencies...")
                 before_manifests = read_manifests()
-                setup = execute(fetch, root, timeout, network=True)
+                setup = execute(
+                    dependency_fetch(), root, timeout, network=True)
                 keep_manifest_changes(before_manifests)
                 report["setup"] = setup
                 if not command_passed(setup):
@@ -595,6 +741,24 @@ def _repair(
 
         # Save the first app and test result before asking for a fix.
         observation = verify()
+        # Documented commands often carry environment-specific flags (a
+        # prebuilt file, git metadata). When they fail out of the box, repair
+        # against the toolchain's standard commands, which source edits
+        # reliably affect.
+        if (readme_commands and not command_passed(observation["app"])
+                and metadata["build_command"] != toolchain["build"]):
+            report["command_plan_failure"] = observation
+            metadata.update({
+                "dependency_command": toolchain.get("fetch"),
+                "build_command": toolchain["build"],
+                "test_command": toolchain["test"] if metadata["tests"] else None,
+            })
+            announce("Documented build failed; using "
+                     + metadata["build_system"] + " defaults...")
+            observation = verify()
+            report["command_plan_fallback"] = {
+                key: metadata[key] for key in (
+                    "dependency_command", "build_command", "test_command")}
         report["initial"] = observation
         if passed(observation):
             report["final"] = observation
@@ -632,24 +796,79 @@ def _repair(
             },
         }
 
-        for _ in range(rounds):
+        # Files and search results the Fixer asked for, newest last.
+        explored = {"files": {}, "searches": {}}
+        navigation_used = 0
+        rounds_used = 0
+        while rounds_used < rounds:
             # Stop as soon as both the app and tests pass.
             if passed(observation):
                 break
+            rounds_used += 1
             record = {}
             report["history"].append(record)
             try:
                 # Give the Fixer the repo files, errors, and past work.
+                # Show the current text of files read earlier, after edits.
+                for name in list(explored["files"]):
+                    if (root / name.rsplit(":", 1)[0]).is_file() or (
+                            root / name).is_file():
+                        explored["files"][name] = read_repository_file(
+                            root, name)
+                    else:
+                        del explored["files"][name]
+                failure_text = "".join(
+                    item["stdout"] + item["stderr"]
+                    for item in observation.values() if item is not None)
                 action = agents.propose({
                     "repository": metadata,
-                    "files": snapshot(root, metadata["build_system"]),
+                    "files": snapshot(
+                        root, metadata["build_system"],
+                        mentioned_files(
+                            root, failure_text, metadata["build_system"])),
                     "observation": observation,
                     "history": report["history"][:-1],
                     "capabilities": capabilities,
+                    "explored": explored,
+                    "navigation_actions_left": (
+                        ct.MAX_NAVIGATION_ACTIONS - navigation_used),
                 })
+                action = materialize_replacements(
+                    action, root, source_suffixes(metadata["build_system"]))
                 validate_action(
                     action, root, source_suffixes(metadata["build_system"]))
                 record["action"] = action
+                if action["action"] in {"search", "read"}:
+                    # Looking around changes nothing, so it uses its own
+                    # budget instead of a repair round.
+                    rounds_used -= 1
+                    navigation_used += 1
+                    if navigation_used > ct.MAX_NAVIGATION_ACTIONS:
+                        rounds_used += 1
+                        record["error"] = "Search and read limit reached"
+                        record["error_detail"] = (
+                            "No search or read actions are left. Propose an "
+                            "edit, install, or give_up.")
+                        continue
+                    if action["action"] == "search":
+                        hits = search_repository(root, action["pattern"])
+                        explored["searches"][action["pattern"]] = (
+                            hits or ["(no matches)"])
+                        record["search_matches"] = len(hits)
+                    else:
+                        for name in action["files"]:
+                            explored["files"].pop(name, None)
+                            explored["files"][name] = read_repository_file(
+                                root, name)
+                        record["read_files"] = list(action["files"])
+                        # Keep the newest files within the context budget.
+                        while (len(explored["files"]) > 1 and sum(
+                                map(len, explored["files"].values()))
+                                > ct.MAX_EXPLORED_CHARS):
+                            explored["files"].pop(next(iter(explored["files"])))
+                    announce("Fixer " + action["action"] + ": " + (
+                        action.get("pattern") or ", ".join(action["files"])))
+                    continue
                 # Do not run the same action more than once.
                 signature = json.dumps(
                     {key: value for key, value in action.items()
@@ -671,9 +890,11 @@ def _repair(
                 if action["action"] == "install":
                     record["approval_required"] = False
                     if not install_supported:
+                        # Costs one round; the Fixer reads the reason next.
                         record["error"] = install_unavailable_reason
+                        record["error_detail"] = install_unavailable_reason
                         report["reason"] = install_unavailable_reason
-                        break
+                        continue
                     announce(
                         "Installing dependency proposed by Fixer: "
                         + action["package"])
@@ -718,6 +939,27 @@ def _repair(
                             before, action["files"])
                     )
                     cosmetic_changes_removed = files != action["files"]
+                    if all(files[name] == before[name] for name in files):
+                        raise ValueError("Edit changes nothing")
+                    if (not stakeholder_baseline and install_supported
+                            and hides_missing_dependency(
+                                before, files, failure_text)):
+                        record["error"] = "Patch hides a missing dependency"
+                        record["error_detail"] = (
+                            "The patch deletes the import of a module the "
+                            "error reports as missing. Install the package "
+                            "with the install action instead.")
+                        report["reason"] = record["error"]
+                        continue
+                    if (not stakeholder_baseline
+                            and has_weakened_checks(before, files)):
+                        record["error"] = "Patch weakens a check"
+                        record["error_detail"] = (
+                            "The patch deletes or replaces an error, assertion, "
+                            "or panic. Fix the configuration or code the error "
+                            "points to instead.")
+                        report["reason"] = record["error"]
+                        continue
                     proposed_diff = diff_files(before, files)
                     mixed_cosmetic = (
                         False
@@ -774,6 +1016,13 @@ def _repair(
                     record["rolled_back"] = True
                 else:
                     observation = updated
+            except ValueError as error:
+                # An action the checks reject costs one round; the message is
+                # our own text, so the Fixer can read it next round.
+                record["error"] = type(error).__name__
+                record["error_detail"] = str(error)
+                report["reason"] = "Invalid action (" + str(error) + ")"
+                continue
             except Exception as error:
                 # Save a safe error name without model reply text.
                 record["error"] = type(error).__name__

@@ -20,6 +20,11 @@ MAXIMUM_AGENT_TIMEOUT = 60 * 60
 MODEL_JSON_MAX_ATTEMPTS = 3
 
 DEFAULT_PYTHON_IMAGE = "python:3.12-slim"
+# Images named repo-repair/<name> are built from docker/<name>.Dockerfile.
+LOCAL_IMAGE_PREFIX = "repo-repair/"
+DOCKERFILES = PROJECT_ROOT / "docker"
+# Large repositories compile for a long time, even with every host CPU.
+DEFAULT_COMMAND_TIMEOUT = 3600
 
 MODEL_PROGRESS_INTERVAL_SECONDS = 15
 
@@ -33,6 +38,15 @@ COMMAND_MAX_ARGUMENTS = 64
 COMMAND_MAX_ARGUMENT_CHARS = 4096
 RUN_STEPS_MAX_CHARS = 12000
 MAX_EDIT_FILES = 20
+# Search and read actions let the Fixer look beyond the snapshot. They do
+# not use repair rounds, so they have their own limit.
+MAX_NAVIGATION_ACTIONS = 8
+MAX_READ_FILES = 5
+MAX_READ_FILE_CHARS = 60000
+MAX_EXPLORED_CHARS = 150000
+MAX_SEARCH_PATTERN_CHARS = 200
+MAX_SEARCH_MATCHES = 60
+MAX_SEARCH_FILE_BYTES = 1000000
 MAX_EDIT_FILE_CHARS = 100000
 STAKEHOLDER_PURPOSE_CHARS = 1000
 STAKEHOLDER_ENTRY_CHARS = 500
@@ -50,11 +64,23 @@ COMMAND_PLANNING_INSTRUCTION = (
     "conventions. Return exactly one JSON object with the fields "
     "dependency_command, build_command, and test_command. Each value "
     "must be null or an array containing the executable followed by "
-    "its arguments. build_command must not be null. Use null when the "
-    "context does not evidence a dependency or test command. Do not "
-    "return shell text, environment assignments, pipes, redirects, "
-    "command chaining, shell wrappers, Docker commands, destructive "
-    "commands, Markdown, commentary, or additional fields."
+    "its arguments. build_command must not be null and must compile the "
+    "project's own source in the working directory, not only configure it "
+    "and never install a published package from a remote module path. When "
+    "the documentation shows a "
+    "configure step followed by a compile step (for example meson setup "
+    "then meson compile or ninja, or cmake then cmake --build), return "
+    'build_command as ["sh", "-c", "<configure command> && <compile '
+    'command>"]. Use null when the context does not evidence a dependency '
+    "or test command. When ci_test_commands is present, it lists how the "
+    "project's continuous integration runs its tests; prefer the main CI "
+    "test command for test_command, keeping flags that change which tests "
+    "run or how they are scheduled (such as -short, -race, -p) and dropping "
+    "only coverage or report-output flags. Apart from that one build form, "
+    "do not return shell "
+    "text, environment assignments, pipes, redirects, command chaining, "
+    "shell wrappers, Docker commands, destructive commands, Markdown, "
+    "commentary, or additional fields."
 )
 
 FIXER_REPAIR_INSTRUCTION = (
@@ -64,9 +90,26 @@ FIXER_REPAIR_INSTRUCTION = (
     '{"action":"install","package":"requests","reason":"Missing '
     'dependency"} OR {"action":"edit","files":{"module.py":"complete '
     'replacement source here"},"reason":"Explain fix"} OR '
+    '{"action":"edit","replacements":{"module.py":[{"old":"exact current '
+    'text","new":"replacement text"}]},"reason":"Explain fix"} OR '
+    '{"action":"search","pattern":"exact text","reason":"Why"} OR '
+    '{"action":"read","files":["path/one.go"],"reason":"Why"} OR '
     '{"action":"give_up","reason":"Explain why"}. The action field must '
-    "be a string, never an object or array. files must map relative paths "
-    "to complete source strings, not a list of edits. Do not include "
+    "be a string, never an object or array. The files context holds only "
+    "part of the repository. Use search (a plain substring, case-"
+    "sensitive) to find where a symbol or message is defined, and read to "
+    "get complete files, or a numbered line range written as "
+    '"path:START-END"; results appear in context.explored next round. '
+    "Search and read do not change files and do not use repair rounds, "
+    "but their number is limited, so read the code the error points to "
+    "before editing it. Use replacements whenever the "
+    "change touches fewer than 30 lines: each old string must be copied "
+    "exactly from the current file and appear exactly once; keep each old "
+    "string short. Use files only when most of a file changes; files must "
+    "map relative paths to complete source strings. An edit action must "
+    "contain replacements or files. If history shows error_detail, read it "
+    "and correct the action. "
+    "Do not include "
     "Markdown fences, commentary, or additional fields. Never edit tests. "
     "Use only existing non-test source files in the repository language "
     "(see repository.language and repository.build_system). Consult "
@@ -77,6 +120,13 @@ FIXER_REPAIR_INSTRUCTION = (
     "use give_up and identify the environment problem. Never edit source "
     "code merely to hide a missing environment dependency. Change only "
     "the lines causally required to resolve the current observed failure. "
+    "Never weaken or remove a check, assertion, compile_error, or "
+    "validation to make a build pass; fix the configuration or code the "
+    "error points to instead. When an error message suggests a build flag "
+    "such as --features X, make X a default in the manifest (Cargo.toml, "
+    "go.mod, meson_options.txt) rather than editing build scripts. When "
+    "history shows the Judge rejected an approach, try a different file or "
+    "approach. "
     "Preserve every unrelated line exactly, including whitespace, blank "
     "lines, comments, docstrings, imports, ordering, and formatting. Do "
     "not clean up, refactor, rename, reformat, or fix unrelated latent "

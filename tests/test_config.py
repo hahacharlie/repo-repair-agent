@@ -30,12 +30,15 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"
             path.write_text(
-                "# Local keys\nNEW_KEY=new-value\nKEEP_KEY=file-value\n")
+                "# Local keys\nNEW_KEY=new-value\nKEEP_KEY=file-value\n"
+                "EMPTY_KEY=file-value\n")
             with patch.dict(
-                    "os.environ", {"KEEP_KEY": "set-value"}, clear=True):
+                    "os.environ", {"KEEP_KEY": "set-value", "EMPTY_KEY": ""},
+                    clear=True):
                 load_env(path)
                 self.assertEqual(os.environ["NEW_KEY"], "new-value")
                 self.assertEqual(os.environ["KEEP_KEY"], "set-value")
+                self.assertEqual(os.environ["EMPTY_KEY"], "file-value")
 
     def test_config_rejects_mistakes_before_api_calls(self):
         config = load_config(CONFIG)

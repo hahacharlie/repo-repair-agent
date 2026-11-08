@@ -48,6 +48,24 @@ class DetectionTests(unittest.TestCase):
             ct.COMMAND_CONTEXT_CHARS,
         )
 
+    def test_planning_context_lists_ci_test_commands_for_the_toolchain(self):
+        folder, root = make_repo({
+            "README.md": "Build with go build.\n",
+            "go.mod": "module demo\n",
+            ".github/workflows/ci.yml": (
+                "jobs:\n  test:\n    steps:\n"
+                "      - run: go test -short -race ./...\n"
+                "      # go test ./old\n"
+                "      - run: npm test\n"),
+        })
+        with folder:
+            context = command_planning_context(
+                root, root / "README.md", "go")
+            plain = command_planning_context(root, root / "README.md")
+        self.assertEqual(context["ci_test_commands"], {
+            ".github/workflows/ci.yml": ["run: go test -short -race ./..."]})
+        self.assertNotIn("ci_test_commands", plain)
+
     def test_build_system_markers_follow_benchmark_layouts(self):
         cases = (
             # git ships Cargo.toml and Makefile beside its meson build.

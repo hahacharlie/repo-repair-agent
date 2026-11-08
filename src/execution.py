@@ -46,6 +46,29 @@ def _safe_command(command, cwd):
     ]
 
 
+OUTPUT_LIMIT = 16000
+FAILURE_LINE = re.compile(
+    r"(^|\s)(FAIL|FAILED|ERROR|error\b|error\[|panic|panicked|Traceback|"
+    r"Exception|fatal|undefined|cannot find|No module named)", re.IGNORECASE)
+
+
+def _trim_output(text):
+    """Keep the tail of long output, led by its failure lines.
+
+    Build and test logs can run to megabytes; the lines that name a failure
+    are often far from the end, so they are kept before the tail.
+    """
+    if len(text) <= OUTPUT_LIMIT:
+        return text
+    tail = text[-(OUTPUT_LIMIT * 3 // 4):]
+    head = text[:-(OUTPUT_LIMIT * 3 // 4)]
+    failures = [line for line in head.splitlines() if FAILURE_LINE.search(line)]
+    summary = "\n".join(failures)[:OUTPUT_LIMIT // 4]
+    if not summary:
+        return tail
+    return summary + "\n...[output trimmed]...\n" + tail
+
+
 def run_command(command, cwd, timeout, on_timeout=None):
     # Use UTF-8 so output works the same on every system.
     environment = os.environ.copy()
@@ -80,8 +103,8 @@ def run_command(command, cwd, timeout, on_timeout=None):
         return {
             "command": _safe_command(command, cwd),
             "exit_code": process.returncode,
-            "stdout": _hide_local_paths(out[-16000:], command, cwd),
-            "stderr": _hide_local_paths(err[-16000:], command, cwd),
+            "stdout": _hide_local_paths(_trim_output(out), command, cwd),
+            "stderr": _hide_local_paths(_trim_output(err), command, cwd),
             "timeout": False,
         }
     except subprocess.TimeoutExpired:
@@ -96,7 +119,7 @@ def run_command(command, cwd, timeout, on_timeout=None):
         return {
             "command": _safe_command(command, cwd),
             "exit_code": process.returncode,
-            "stdout": _hide_local_paths(out[-16000:], command, cwd),
-            "stderr": _hide_local_paths(err[-16000:], command, cwd),
+            "stdout": _hide_local_paths(_trim_output(out), command, cwd),
+            "stderr": _hide_local_paths(_trim_output(err), command, cwd),
             "timeout": True,
         }

@@ -20,6 +20,16 @@ FIX = 'def greet(name):\n    return "Hello, " + name\n'
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_long_output_keeps_failure_lines_before_the_tail(self):
+        from execution import OUTPUT_LIMIT, _trim_output
+        text = "--- FAIL: TestEarly\n" + ("ok line\n" * 5000) + "the end\n"
+        trimmed = _trim_output(text)
+        self.assertLessEqual(len(trimmed), OUTPUT_LIMIT + 40)
+        self.assertTrue(trimmed.startswith("--- FAIL: TestEarly"))
+        self.assertIn("...[output trimmed]...", trimmed)
+        self.assertTrue(trimmed.endswith("the end\n"))
+        self.assertEqual(_trim_output("short"), "short")
+
     def test_timeout_runs_cleanup_hook(self):
         cleanup_calls = []
         with tempfile.TemporaryDirectory() as directory:

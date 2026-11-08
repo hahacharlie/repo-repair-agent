@@ -413,6 +413,15 @@ class AgentTests(unittest.TestCase):
             )
 
         self.assertEqual(stderr.getvalue(), "")
+
+        joined = dict(plan, test_command=['go test -short -race ./...'])
+        with patch.dict(
+                os.environ, {ct.API_KEY_ENV: "test-token"}), patch(
+                "agents.urllib.request.urlopen",
+                return_value=stream_response(json.dumps(joined))):
+            split = ModelAgents(config).plan_commands({"readme": "x"})
+        self.assertEqual(
+            split["test_command"], ["go", "test", "-short", "-race", "./..."])
         body = json.loads(request.call_args.args[0].data)
         self.assertEqual(body["model"], config["judge_model"])
         self.assertEqual(

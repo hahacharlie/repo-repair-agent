@@ -1,8 +1,13 @@
+import os
 from pathlib import Path
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
-from backends import DockerBackend, LocalBackend, make_backend
+from backends import (
+    DockerBackend, LocalBackend, host_cpus, host_memory_limit, make_backend,
+)
 from repository import detect_repository, inspect_repository
 
 
@@ -18,23 +23,43 @@ class BackendTests(unittest.TestCase):
             ["python", "main.py"], Path("/tmp/example"))
         joined = " ".join(command)
         for expected in (
-                "--network none", "--read-only", "--cap-drop ALL",
-                "--security-opt no-new-privileges", "--pids-limit 256",
-                "--memory 2g", "--cpus 2"):
+                "--network bridge", "--read-only", "--cap-drop ALL",
+                "--security-opt no-new-privileges", "--pids-limit 4096",
+                "--memory " + host_memory_limit(),
+                "--cpus " + str(host_cpus()),
+                "/tmp/.sandbox-tmp:/tmp:rw",
+                "/tmp/example:/workspace/example:rw",
+                "--workdir /workspace/example",
+                "HOME=/workspace/example/.home"):
             self.assertIn(expected, joined)
+        self.assertRegex(host_memory_limit(), r"^\d+g$")
         self.assertNotIn("docker.sock", joined)
         self.assertNotIn(str(Path.home()), joined)
+        if sys.platform == "linux":
+            self.assertIn("/tmp/example/.home/passwd:/etc/passwd:ro", joined)
 
-    def test_network_is_opt_in_for_dependency_install(self):
+    def test_run_writes_a_passwd_entry_for_the_sandbox_user(self):
+        if sys.platform != "linux":
+            self.skipTest("host UID mapping is Linux only")
+        with tempfile.TemporaryDirectory() as folder, patch(
+                "backends.run_command",
+                return_value={"exit_code": 0, "timeout": False}):
+            # The work copy sits inside its own temporary folder, as in repair.
+            work = Path(folder) / "repo"
+            work.mkdir()
+            DockerBackend().run(["true"], work, 10)
+            text = (work / ".home" / "passwd").read_text()
+            self.assertTrue((Path(folder) / ".sandbox-tmp").is_dir())
+        self.assertIn(f"repair:x:{os.getuid()}:{os.getgid()}:", text)
+        self.assertIn("/workspace/repo/.home", text)
+
+    def test_every_command_gets_network_access(self):
         backend = DockerBackend()
-        isolated = backend.command(["python", "main.py"], Path("/tmp/example"))
-        installing = backend.command(
-            ["python", "-m", "pip", "install", "x"],
-            Path("/tmp/example"),
-            network=True,
-        )
-        self.assertIn("none", isolated)
-        self.assertIn("bridge", installing)
+        for network in (False, True):
+            command = backend.command(
+                ["python", "main.py"], Path("/tmp/example"), network=network)
+            self.assertNotIn("none", command)
+            self.assertIn("bridge", command)
 
     def test_timeout_force_removes_the_named_container(self):
         calls = []

@@ -6,15 +6,16 @@ import re
 import constants as ct
 
 
-IGNORED = {".git", ".venv", "venv", "__pycache__", "node_modules", "results",
-           ".home"}
+# Never add plain project folder names here: kubernetes ships a package
+# named pkg/kubelet/prober/results, so "results" must not be skipped.
+IGNORED = {".git", ".venv", "venv", "__pycache__", "node_modules", ".home"}
 
 # One row per build system: image, source suffixes, dependency fetch command,
 # command that adds one dependency, build command, test command, and the glob
 # or file-content pattern that shows tests exist. None means "not available".
 TOOLCHAINS = {
     "cargo": {
-        "image": "rust:bookworm",
+        "image": "repo-repair/rust:latest",
         "sources": {".rs", ".toml"},
         "fetch": ["cargo", "fetch"],
         "add": ["cargo", "add"],
@@ -34,28 +35,29 @@ TOOLCHAINS = {
         "tests": ("glob", "**/*_test.go"),
     },
     "cmake": {
-        "image": "ubuntu:24.04",
+        "image": "repo-repair/cpp:latest",
         "sources": {".c", ".h", ".cc", ".cpp", ".hpp", ".txt", ".cmake"},
         "build": ["sh", "-c", "cmake -S . -B build && cmake --build build"],
         "test": ["ctest", "--test-dir", "build", "--output-on-failure"],
         "tests": ("content", "CMakeLists.txt", r"\badd_test\s*\("),
     },
     "meson": {
-        "image": "ubuntu:24.04",
-        "sources": {".c", ".h", ".cc", ".cpp", ".hpp", ".build"},
-        "build": ["sh", "-c", "meson setup build && meson compile -C build"],
+        "image": "repo-repair/cpp:latest",
+        "sources": {".c", ".h", ".cc", ".cpp", ".hpp", ".build", ".txt"},
+        # --wipe re-reads option defaults after a repair edits them.
+        "build": ["sh", "-c", "meson setup --wipe build && meson compile -C build"],
         "test": ["meson", "test", "-C", "build"],
         "tests": ("content", "meson.build", r"^\s*test\s*\("),
     },
     "scons": {
-        "image": "ubuntu:24.04",
+        "image": "repo-repair/cpp:latest",
         "sources": {".c", ".h", ".cc", ".cpp", ".hpp", "SConstruct", "SCsub"},
         "build": ["scons"],
         "test": None,
         "tests": None,
     },
     "make": {
-        "image": "ubuntu:24.04",
+        "image": "repo-repair/cpp:latest",
         "sources": {".c", ".h", ".cc", ".cpp", ".hpp", ".mak", ".mk"},
         "build": ["sh", "-c", "{ [ ! -x ./configure ] || ./configure; } && make"],
         "test": ["make", "check"],
@@ -213,7 +215,44 @@ def source_suffixes(build_system):
     return TOOLCHAINS.get(build_system, TOOLCHAINS["python"])["sources"]
 
 
-def command_planning_context(root, readme):
+# The test runner of each build system, as it appears in CI scripts.
+CI_TEST_RUNNERS = {
+    "go": r"\bgo test\b",
+    "cargo": r"\bcargo test\b",
+    "cmake": r"\bctest\b",
+    "meson": r"\bmeson test\b",
+    "make": r"\bmake (check|test)\b",
+}
+CI_FILES = (".github/workflows/*.yml", ".github/workflows/*.yaml",
+            ".gitlab-ci.yml", ".circleci/config.yml")
+CI_CONTEXT_CHARS = 4000
+
+
+def ci_test_commands(root, build_system):
+    """Return test commands the project's CI runs, for the toolchain runner."""
+    runner = CI_TEST_RUNNERS.get(build_system)
+    if runner is None:
+        return {}
+    found = {}
+    size = 0
+    for pattern in CI_FILES:
+        for path in sorted(Path(root).glob(pattern)):
+            if not path.is_file() or path.stat().st_size > 200000:
+                continue
+            lines = []
+            for line in path.read_text(errors="replace").splitlines():
+                text = line.strip().lstrip("-").strip()
+                if (re.search(runner, text) and not text.startswith("#")
+                        and text not in lines):
+                    lines.append(text[:300])
+            if lines and size < CI_CONTEXT_CHARS:
+                name = path.relative_to(root).as_posix()
+                found[name] = lines[:10]
+                size += sum(map(len, found[name]))
+    return found
+
+
+def command_planning_context(root, readme, build_system=None):
     """Read a bounded README and root-file snapshot for command planning."""
     root = Path(root)
     readme = Path(readme)
@@ -259,17 +298,87 @@ def command_planning_context(root, readme):
         root_files[path.name] = value
         remaining -= len(value)
 
-    return {"readme": readme_text, "root_files": root_files}
+    context = {"readme": readme_text, "root_files": root_files}
+    ci = ci_test_commands(root, build_system)
+    if ci:
+        context["ci_test_commands"] = ci
+    return context
 
 
-def snapshot(root, build_system="python"):
-    """Read up to 60 KB of useful repo text for an agent."""
+def mentioned_files(root, text, build_system="python"):
+    """Return repository source files whose paths appear in command output."""
+    root = Path(root)
+    suffixes = source_suffixes(build_system)
+    found = []
+    for token in re.findall(r"[A-Za-z0-9_][A-Za-z0-9_./-]*", text):
+        token = token.strip("./")
+        if not token or ".." in token.split("/"):
+            continue
+        path = root / token
+        if (path.is_file()
+                and (path.suffix in suffixes or path.name in suffixes)
+                and not IGNORED.intersection(Path(token).parts)
+                and path not in found):
+            found.append(path)
+    return found
+
+
+def search_repository(root, pattern):
+    """Return up to MAX_SEARCH_MATCHES "path:line: text" hits for a substring."""
+    root = Path(root)
+    matches = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if (IGNORED.intersection(relative.parts) or path.is_symlink()
+                or not path.is_file()
+                or path.stat().st_size > ct.MAX_SEARCH_FILE_BYTES):
+            continue
+        try:
+            text = path.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        if pattern not in text:
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            if pattern in line:
+                matches.append(
+                    relative.as_posix() + ":" + str(number) + ": "
+                    + line.strip()[:200])
+                if len(matches) >= ct.MAX_SEARCH_MATCHES:
+                    return matches
+    return matches
+
+
+def read_repository_file(root, entry):
+    """Read one work-copy file or "path:START-END" line range, trimmed."""
+    from validation import split_line_range
+    name, lines = split_line_range(entry)
+    text = (Path(root) / name).read_text(errors="replace")
+    if lines is not None:
+        start, end = lines
+        selected = text.splitlines(keepends=True)[start - 1:end]
+        text = "".join(
+            str(number) + ": " + line
+            for number, line in enumerate(selected, start=start))
+    if len(text) > ct.MAX_READ_FILE_CHARS:
+        text = text[:ct.MAX_READ_FILE_CHARS] + "\n...[file truncated]\n"
+    return text
+
+
+def snapshot(root, build_system="python", priority=()):
+    """Read up to 60 KB of useful repo text for an agent.
+
+    Files in priority (for example files named in the error output) are
+    read first, so large repositories still show the Fixer what failed.
+    """
     content = {}
     size = 0
     suffixes = source_suffixes(build_system)
 
     # Read small text files until the size limit is reached.
-    for path in sorted(root.rglob("*")):
+    ordered = list(priority) + [
+        path for path in sorted(root.rglob("*")) if path not in priority]
+    for path in ordered:
         relative = path.relative_to(root)
         if not path.is_file() or IGNORED.intersection(relative.parts):
             continue
