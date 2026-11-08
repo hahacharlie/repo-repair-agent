@@ -13,8 +13,10 @@ import constants as ct
 from repair import (
     add_requirement,
     has_mixed_cosmetic_changes,
+    judge_history,
     preserve_cosmetic_side_changes,
     repair,
+    validate_repository_symlink,
     validate_repository_symlinks,
 )
 
@@ -62,6 +64,69 @@ def step(approved=True):
 
 
 class RepairTests(unittest.TestCase):
+    def test_judge_history_keeps_prior_decisions_without_file_contents(self):
+        history = [{
+            "action": {
+                "action": "edit",
+                "reason": "First attempt",
+                "files": {"greeting.py": "large replacement text"},
+            },
+            "judge": {"approved": False, "reason": "Wrong behavior"},
+            "observation": {
+                "app": command_result(1),
+                "tests": command_result(1),
+            },
+        }]
+
+        saved = judge_history(history)
+
+        self.assertEqual(saved, [{
+            "round": 1,
+            "action": "edit",
+            "reason": "First attempt",
+            "files": ["greeting.py"],
+            "judge": {"approved": False, "reason": "Wrong behavior"},
+            "result": {
+                "app": {"exit_code": 1, "timeout": False},
+                "tests": {"exit_code": 1, "timeout": False},
+            },
+        }])
+        self.assertNotIn("large replacement text", json.dumps(saved))
+
+    def test_judge_receives_current_failure_and_prior_decisions(self):
+        class RecordingAgents(ScriptedAgents):
+            def __init__(self, steps):
+                super().__init__(steps)
+                self.review_contexts = []
+
+            def review(self, context):
+                self.review_contexts.append(context)
+                return super().review(context)
+
+        rejected = {
+            "action": {
+                "action": "edit",
+                "reason": "Replace the greeting with the wrong text",
+                "files": {
+                    "greeting.py": (
+                        'def greet(name):\n    return "Hi, " + name\n'),
+                },
+            },
+            "approved": False,
+        }
+        agents = RecordingAgents([rejected, step()])
+
+        report = repair(BROKEN_REPO, agents, rounds=2)
+
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(len(agents.review_contexts), 2)
+        second_review = agents.review_contexts[1]
+        self.assertEqual(second_review["repository"]["language"], "python")
+        self.assertEqual(second_review["observation"]["app"]["exit_code"], 1)
+        self.assertEqual(second_review["history"][0]["action"], "edit")
+        self.assertFalse(
+            second_review["history"][0]["judge"]["approved"])
+
     def test_requirement_is_created_without_duplicate_names(self):
         self.assertEqual(add_requirement("", "requests"), "requests\n")
         self.assertEqual(
@@ -100,11 +165,12 @@ class RepairTests(unittest.TestCase):
             target = root / "target.txt"
             target.write_text("safe\n")
             link = root / "link.txt"
-            link.symlink_to("target.txt")
+            with patch.object(
+                    Path, "rglob", return_value=[link]), patch.object(
+                    Path, "is_symlink", return_value=True), patch(
+                    "repair.os.readlink", return_value="target.txt"):
+                validate_repository_symlinks(root)
 
-            validate_repository_symlinks(root)
-
-            link.unlink()
             outside = base / "outside.txt"
             outside.write_text("outside\n")
             ignored = root / ".git" / "config"
@@ -118,11 +184,9 @@ class RepairTests(unittest.TestCase):
             )
             for link_target, expected in cases:
                 with self.subTest(link_target=link_target):
-                    if link.exists() or link.is_symlink():
-                        link.unlink()
-                    link.symlink_to(link_target)
                     with self.assertRaisesRegex(ValueError, expected):
-                        validate_repository_symlinks(root)
+                        validate_repository_symlink(
+                            root, link, link_target)
 
     def test_saved_repo_can_be_selected_by_folder_name(self):
         selected = resolve_repository(Path("undefined_greeting_variable"))

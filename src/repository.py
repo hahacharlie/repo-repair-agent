@@ -226,6 +226,8 @@ def command_planning_context(root, readme):
         if b"\0" in data:
             return None
         value = data.decode("utf-8", errors="replace")
+        # Give the model the same line endings on every operating system.
+        value = value.replace("\r\n", "\n").replace("\r", "\n")
         truncated = len(value) > limit or path.stat().st_size > len(data)
         if not truncated:
             return value

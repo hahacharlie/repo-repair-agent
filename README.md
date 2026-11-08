@@ -205,12 +205,10 @@ repositories and repositories with a Dockerfile. It also uses Docker when a
 Python repository requests a Python version that is not installed locally.
 
 Automatic Docker selection:
-
+This command automatically uses Docker when required.
 ```console
 uv run repo-repair-agent my-repository
 ```
-
-This command automatically uses Docker when required.
 
 To explicilty used Docker:
 

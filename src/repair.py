@@ -36,30 +36,36 @@ def diff_files(before, after):
     )
 
 
+def validate_repository_symlink(root, path, link_target):
+    """Check one link target without changing the repository."""
+    root = Path(root).resolve()
+    path = Path(path)
+    relative = path.relative_to(root)
+    link_target = Path(link_target)
+    if link_target.is_absolute():
+        raise ValueError(
+            f"Unsupported symlink '{relative}': absolute target")
+    try:
+        resolved = (path.parent / link_target).resolve(strict=True)
+        target_relative = resolved.relative_to(root)
+    except FileNotFoundError:
+        raise ValueError(
+            f"Unsupported symlink '{relative}': dangling target") from None
+    except ValueError:
+        raise ValueError(
+            f"Unsupported symlink '{relative}': target escapes repository"
+        ) from None
+    if IGNORED.intersection(target_relative.parts):
+        raise ValueError(
+            f"Unsupported symlink '{relative}': target is ignored")
+
+
 def validate_repository_symlinks(root):
     """Allow only relative links that resolve inside the copied repository."""
     root = Path(root).resolve()
     for path in root.rglob("*"):
-        if not path.is_symlink():
-            continue
-        relative = path.relative_to(root)
-        link_target = Path(os.readlink(path))
-        if link_target.is_absolute():
-            raise ValueError(
-                f"Unsupported symlink '{relative}': absolute target")
-        try:
-            resolved = path.resolve(strict=True)
-            target_relative = resolved.relative_to(root)
-        except FileNotFoundError:
-            raise ValueError(
-                f"Unsupported symlink '{relative}': dangling target") from None
-        except ValueError:
-            raise ValueError(
-                f"Unsupported symlink '{relative}': target escapes repository"
-            ) from None
-        if IGNORED.intersection(target_relative.parts):
-            raise ValueError(
-                f"Unsupported symlink '{relative}': target is ignored")
+        if path.is_symlink():
+            validate_repository_symlink(root, path, os.readlink(path))
 
 
 def has_mixed_cosmetic_changes(before, after):
@@ -155,6 +161,46 @@ def add_requirement(text, package):
 def command_passed(result):
     """Return whether one recorded command completed successfully."""
     return result["exit_code"] == 0 and not result["timeout"]
+
+
+def judge_history(history):
+    """Keep the useful parts of earlier rounds for the Judge."""
+    saved = []
+    for round_number, record in enumerate(history, start=1):
+        item = {"round": round_number}
+        action = record.get("action")
+        if isinstance(action, dict):
+            item["action"] = action.get("action")
+            item["reason"] = action.get("reason")
+            if action.get("action") == "edit":
+                item["files"] = sorted(action.get("files", {}))
+            elif action.get("action") == "install":
+                item["package"] = action.get("package")
+
+        review = record.get("judge")
+        if isinstance(review, dict):
+            item["judge"] = {
+                "approved": review.get("approved"),
+                "reason": review.get("reason"),
+            }
+        if record.get("error"):
+            item["error"] = record["error"]
+        if record.get("rolled_back"):
+            item["rolled_back"] = True
+
+        observation = record.get("observation")
+        if isinstance(observation, dict):
+            item["result"] = {
+                name: (
+                    None if result is None else {
+                        "exit_code": result.get("exit_code"),
+                        "timeout": result.get("timeout", False),
+                    }
+                )
+                for name, result in observation.items()
+            }
+        saved.append(item)
+    return saved
 
 
 def select_backend(metadata, requested, docker_image=None):
@@ -683,6 +729,9 @@ def _repair(
                         record["approval_required"] = False
                     else:
                         review = agents.review({
+                            "repository": metadata,
+                            "observation": observation,
+                            "history": judge_history(report["history"][:-1]),
                             "before": before,
                             "after": files,
                             "diff": proposed_diff,
