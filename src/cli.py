@@ -193,7 +193,8 @@ def main(version_info=None):
         default=ct.DEFAULT_CONFIG,
         help="Model configuration JSON (default: config.json in project root)",
     )
-    parser.add_argument("--rounds", type=int, default=5)
+    parser.add_argument(
+        "--rounds", type=int, default=ct.DEFAULT_REPAIR_ROUNDS)
     parser.add_argument(
         "--timeout", type=int, default=ct.DEFAULT_COMMAND_TIMEOUT,
         help="Seconds allowed for each repository command (default: 3600)")

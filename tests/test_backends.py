@@ -19,16 +19,17 @@ class BackendTests(unittest.TestCase):
             make_backend("unknown")
 
     def test_docker_command_has_required_isolation(self):
+        root = Path("/tmp/example").resolve()
         command = DockerBackend("python:3.12-slim").command(
-            ["python", "main.py"], Path("/tmp/example"))
+            ["python", "main.py"], root)
         joined = " ".join(command)
         for expected in (
                 "--network bridge", "--read-only", "--cap-drop ALL",
                 "--security-opt no-new-privileges", "--pids-limit 4096",
                 "--memory " + host_memory_limit(),
                 "--cpus " + str(host_cpus()),
-                "/tmp/.sandbox-tmp:/tmp:rw",
-                "/tmp/example:/workspace/example:rw",
+                str(root.parent / ".sandbox-tmp") + ":/tmp:rw",
+                str(root) + ":/workspace/example:rw",
                 "--workdir /workspace/example",
                 "HOME=/workspace/example/.home"):
             self.assertIn(expected, joined)

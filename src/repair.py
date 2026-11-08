@@ -336,7 +336,7 @@ def select_backend(metadata, requested, docker_image=None):
 def repair(
         source,
         agents,
-        rounds=5,
+        rounds=ct.DEFAULT_REPAIR_ROUNDS,
         timeout=ct.DEFAULT_COMMAND_TIMEOUT,
         allow_install=True,
         backend="auto",
@@ -380,7 +380,7 @@ def repair(
 def _repair(
         source,
         agents,
-        rounds=5,
+        rounds=ct.DEFAULT_REPAIR_ROUNDS,
         timeout=ct.DEFAULT_COMMAND_TIMEOUT,
         allow_install=True,
         backend="auto",

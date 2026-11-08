@@ -25,6 +25,7 @@ LOCAL_IMAGE_PREFIX = "repo-repair/"
 DOCKERFILES = PROJECT_ROOT / "docker"
 # Large repositories compile for a long time, even with every host CPU.
 DEFAULT_COMMAND_TIMEOUT = 3600
+DEFAULT_REPAIR_ROUNDS = 5
 
 MODEL_PROGRESS_INTERVAL_SECONDS = 15
 
