@@ -6,5 +6,5 @@ __pycache__/
 .env.*
 input/broken_repos/.repo-repair-*/
 results/**/agent_logs.json
-build/
-dist/
+/build/
+/dist/

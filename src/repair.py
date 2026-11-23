@@ -256,7 +256,7 @@ def select_backend(metadata, requested, docker_image=None):
 def repair(
         source,
         agents,
-        rounds=5,
+        rounds=ct.DEFAULT_REPAIR_ROUNDS,
         timeout=120,
         allow_install=True,
         backend="auto",
@@ -365,7 +365,7 @@ def evidence_excerpt(text, commands):
 def _repair(
         source,
         agents,
-        rounds=5,
+        rounds=ct.DEFAULT_REPAIR_ROUNDS,
         timeout=120,
         allow_install=True,
         backend="auto",

@@ -2,5 +2,5 @@
   "endpoint": "https://openai.rc.asu.edu/v1",
   "fixer_model": "kimi-k2-7-code",
   "judge_model": "qwen3-235b-a22b",
-  "api_timeout_seconds": 300
+  "api_timeout_seconds": 900
 }

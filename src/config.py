@@ -34,8 +34,9 @@ def load_env(path):
         if not mark or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
             continue
 
-        # Keep a value that was already set outside this file.
-        if name in os.environ:
+        # Keep a value that was already set outside this file. An empty
+        # exported variable must not hide the value in the file.
+        if os.environ.get(name):
             continue
         value = value.strip()
         if (len(value) >= 2 and value[0] == value[-1]

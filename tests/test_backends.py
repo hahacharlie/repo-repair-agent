@@ -16,14 +16,16 @@ class BackendTests(unittest.TestCase):
             make_backend("unknown")
 
     def test_container_keeps_host_credentials_out(self):
+        root = Path("/tmp/example").resolve()
         command = DockerBackend("python:3.12-slim").start_command(
-            Path("/tmp/example"), "repo-repair-test")
+            root, "repo-repair-test")
         joined = " ".join(command)
         for expected in (
                 "--network bridge", "--security-opt no-new-privileges",
                 "--pids-limit", "--memory", "--cpus",
-                "/tmp/example:/workspace/example:rw",
-                "/tmp/.sandbox-home:/home/repair:rw", "HOME=/home/repair",
+                str(root) + ":/workspace/example:rw",
+                str(root.parent / ".sandbox-home") + ":/home/repair:rw",
+                "HOME=/home/repair",
                 "sleep infinity"):
             self.assertIn(expected, joined)
         self.assertNotIn("docker.sock", joined)
