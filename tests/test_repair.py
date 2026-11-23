@@ -178,10 +178,13 @@ class RepairTests(unittest.TestCase):
             ignored.write_text("ignored\n")
             cases = (
                 (str(outside.resolve()), "absolute target"),
-                ("missing.txt", "dangling target"),
+                ("../missing.txt", "target escapes repository"),
                 ("../outside.txt", "target escapes repository"),
                 (".git/config", "target is ignored"),
             )
+            # A link to a missing file inside the repository is a fault
+            # that the agents can repair, so it is accepted.
+            validate_repository_symlink(root, link, "missing.txt")
             for link_target, expected in cases:
                 with self.subTest(link_target=link_target):
                     with self.assertRaisesRegex(ValueError, expected):
@@ -374,14 +377,14 @@ class RepairTests(unittest.TestCase):
             report["reason"], "A human must update the environment")
         self.assertNotIn("judge", report["history"][0])
 
-    def test_unsupported_install_stops_without_judge(self):
+    def test_unsupported_install_is_reported_without_judge(self):
         backend = DockerBackend("meson:test")
 
         def run_in_container(command, cwd, timeout, network=False):
             del cwd, timeout, network
             if command == ["test", "-f", "meson.build"]:
                 return command_result()
-            if command == ["mkdir", "-p", ".home/tmp"]:
+            if command == ["true"]:
                 return command_result()
             return {
                 **command_result(127),
@@ -410,17 +413,18 @@ class RepairTests(unittest.TestCase):
                 report = repair(
                     root, ScriptedAgents([install]), rounds=30, backend="auto")
 
-        self.assertEqual(len(report["history"]), 1)
         self.assertNotIn("judge", report["history"][0])
         self.assertFalse(report["history"][0]["approval_required"])
         self.assertEqual(
             report["history"][0]["error"],
             "Dependency installation unsupported for meson",
         )
+        # The Fixer is told, and the run goes on until it gives up twice:
+        # the sandbox declines the first give_up while rounds are left.
         self.assertEqual(
-            report["reason"],
-            "Dependency installation unsupported for meson",
-        )
+            [record.get("error") for record in report["history"][1:]],
+            ["give_up declined once", None])
+        self.assertEqual(report["reason"], "Script exhausted")
 
     def test_regression_is_rolled_back(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -534,7 +538,7 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(docker_calls[:3], [
             ["test", "-f", "main.py"],
             ["python", "-m", "venv", ".venv"],
-            ["/workspace/.venv/bin/python", "main.py"],
+            ["/workspace/" + root.name + "/.venv/bin/python", "main.py"],
         ])
 
     def test_cargo_repository_builds_and_tests_in_docker(self):
@@ -574,10 +578,12 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(report["status"], "passed")
         self.assertEqual(report["execution_backend"], "docker")
         self.assertEqual(sorted(report["fixed_files"]), ["src/main.rs"])
-        self.assertEqual(calls[:5], [
+        # Tests do not run while the build fails.
+        self.assertEqual(calls, [
             (["test", "-f", "Cargo.toml"], False),
-            (["mkdir", "-p", ".home/tmp"], False),
+            (["true"], False),
             (["cargo", "fetch"], True),
+            (["cargo", "build"], False),
             (["cargo", "build"], False),
             (["cargo", "test"], False),
         ])

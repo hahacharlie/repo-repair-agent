@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import signal
 import sys
 
 from agents import ModelAgents, ScriptedAgents
@@ -108,10 +109,13 @@ def resolve_repository(value):
     raise ValueError("Repo not found: " + str(value))
 
 
-def resolve_script(repository, script):
+def resolve_script(repository, script, live=False):
     # Use the script given by the user when there is one.
     if script is not None:
         return script
+    # A live run uses the AI models even when a saved script exists.
+    if live:
+        return None
 
     # Saved test repos can keep their repair script in the repo folder.
     saved_script = repository / "repair.json"
@@ -193,15 +197,27 @@ def main(version_info=None):
         default=ct.DEFAULT_CONFIG,
         help="Model configuration JSON (default: config.json in project root)",
     )
-    parser.add_argument("--rounds", type=int, default=5)
-    parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Use the AI models even when the repository has a repair.json",
+    )
+    parser.add_argument(
+        "--rounds", type=int, default=ct.DEFAULT_REPAIR_ROUNDS,
+        help="Repair actions allowed (default: "
+        + str(ct.DEFAULT_REPAIR_ROUNDS) + ")")
+    parser.add_argument(
+        "--timeout", type=int, default=ct.DEFAULT_COMMAND_TIMEOUT,
+        help="Seconds allowed for each repository command (default: "
+        + str(ct.DEFAULT_COMMAND_TIMEOUT) + ")")
     parser.add_argument(
         "--agent-timeout",
         type=int,
         default=ct.DEFAULT_AGENT_TIMEOUT,
         help=(
             "Total seconds allowed inside Fixer/Judge API calls "
-            "(default: 1200, maximum: 3600)"),
+            "(default: " + str(ct.DEFAULT_AGENT_TIMEOUT) + ", maximum: "
+            + str(ct.MAXIMUM_AGENT_TIMEOUT) + ")"),
     )
     parser.add_argument(
         "--agent-logs",
@@ -257,11 +273,15 @@ def main(version_info=None):
         parser.error(str(error))
     if args.baseline and args.script:
         parser.error("--baseline cannot be combined with --script")
+    if args.live and args.script:
+        parser.error("--live cannot be combined with --script")
     script = (
         None
         if args.baseline
-        else resolve_script(repository, args.script)
+        else resolve_script(repository, args.script, args.live)
     )
+    # A stop request must still remove the work copy and the container.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 
     result_dir = args.output / repository.name
     agent_logs_path = result_dir / "agent_logs.json"
@@ -354,6 +374,9 @@ def main(version_info=None):
         )
     except Exception as error:
         failure = "Repair setup failed: " + type(error).__name__
+        if type(error) is ValueError:
+            # These messages come from this tool, not from a model.
+            failure += ": " + str(error)
         if args.agent_logs:
             debug_log["progress"].append(failure)
             update_log_file()

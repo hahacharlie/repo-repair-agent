@@ -19,7 +19,7 @@ def observation_passed(observation):
 
 
 def environment_repair_passed(report):
-    """Return whether an approved install fixed the failing command."""
+    """Return whether an approved install or command fixed the failure."""
     final = report.get("final", {})
     if not command_passed(final.get("app")):
         return False
@@ -31,10 +31,14 @@ def environment_repair_passed(report):
             judge.get("approved") is True
             or record.get("approval_required") is False
         )
+        # An install adds a language package; a run prepares the sandbox.
+        result = record.get(
+            "installation" if action.get("action") == "install"
+            else "command_result")
         if (
-            action.get("action") == "install"
+            action.get("action") in {"install", "run"}
             and approved
-            and command_passed(record.get("installation"))
+            and command_passed(result)
             and command_passed(observation.get("app"))
         ):
             return True
