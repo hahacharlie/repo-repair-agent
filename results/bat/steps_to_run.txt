@@ -1,7 +1,0 @@
-Run these commands from the repository root.
-
-1. Copy the files from fixed_files into the same paths in your repository.
-2. Prepare the environment: cd /workspace/bat && tar -xzf /tmp/bat.crate --strip-components=1 'bat-0.26.1/build/' && ls -la build/
-3. Prepare the environment: chmod +x tests/mocked-pagers/more tests/mocked-pagers/most && ls -la tests/mocked-pagers/
-4. Build: sh -c cargo build
-5. Run the tests: sh -c cargo test --locked

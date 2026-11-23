@@ -1,6 +1,0 @@
-Run these commands from the repository root.
-
-1. Prepare the environment: printf '%s\n' 'export FZF_VERSION=0.74.6' 'export FZF_REVISION=devel' >> /home/repair/env
-2. Fetch dependencies: sh -c go mod download
-3. Build: sh -c make install
-4. Run the tests: sh -c make test

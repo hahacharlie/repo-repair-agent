@@ -1,6 +1,0 @@
-1. Run the environment setup command (requires root):
-   apt-get update && apt-get install -y cmake g++ pkg-config libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev python3
-2. Build the project:
-   cargo build --release
-3. Run the tests:
-   cargo test
