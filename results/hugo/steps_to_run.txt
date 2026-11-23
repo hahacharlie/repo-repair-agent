@@ -1,0 +1,8 @@
+1. Run the environment setup command (requires root):
+   apt-get update && apt-get install -y bc
+
+2. Build the project:
+   go build ./...
+
+3. Run the tests:
+   sh -c './check.sh'

@@ -1,0 +1,11 @@
+1. Make the end-to-end script executable (does not require root):
+   chmod +x hack/run-e2e.sh
+
+2. Download Go module dependencies:
+   go mod download
+
+3. Build the project:
+   make build
+
+4. Run the tests:
+   make alltest

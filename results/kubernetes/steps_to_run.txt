@@ -1,0 +1,15 @@
+Run these commands from the repository root.
+
+1. Prepare the environment: mkdir -p /workspace/kubernetes/build/root && curl -fsSL -o /workspace/kubernetes/build/root/Makefile https://raw.githubusercontent.com/kubernetes/kubernetes/v1.38.0-alpha.3/build/root/Makefile && ls -la /workspace/kubernetes/build/root/Makefile && head -5 /workspace/kubernetes/build/root/Makefile
+2. Prepare the environment: mkdir -p vendor/github.com/onsi/ginkgo/v2/ginkgo/build vendor/sigs.k8s.io/kustomize/kustomize/v5/commands/build && \
+curl -fsSL -o vendor/github.com/onsi/ginkgo/v2/ginkgo/build/build_command.go \
+  https://raw.githubusercontent.com/kubernetes/kubernetes/v1.38.0-alpha.3/vendor/github.com/onsi/ginkgo/v2/ginkgo/build/build_command.go && \
+for f in build.go flagaddmanagedby.go flagenablehelm.go flagenableplugins.go flagloadrestrictor.go flagoutputpath.go flagsforfunctions.go reorderoutput.go writer.go; do \
+  curl -fsSL -o "vendor/sigs.k8s.io/kustomize/kustomize/v5/commands/build/$f" \
+    "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.38.0-alpha.3/vendor/sigs.k8s.io/kustomize/kustomize/v5/commands/build/$f"; \
+done && \
+ls -la vendor/github.com/onsi/ginkgo/v2/ginkgo/build vendor/sigs.k8s.io/kustomize/kustomize/v5/commands/build
+3. Prepare the environment (as root): apt-get update && apt-get install -y jq
+4. Prepare the environment (as root): mkdir -p /tmp/go/pkg/mod /tmp/go/bin && chmod -R 777 /tmp/go && printf 'export GOPATH=/tmp/go\nexport GOMODCACHE=/tmp/go/pkg/mod\nexport GOBIN=/tmp/go/bin\n' >> /home/repair/env && cat /home/repair/env
+5. Build: sh -c make
+6. Run the tests: sh -c make test

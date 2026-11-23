@@ -1,0 +1,9 @@
+Run these commands from the repository root.
+
+1. Copy the files from fixed_files into the same paths in your repository.
+2. Prepare the environment (as root): apt-get update && apt-get install -y libssl-dev pkg-config
+3. Prepare the environment (as root): apt-get update && apt-get install -y default-libmysqlclient-dev libpq-dev
+4. Prepare the environment: echo 'export MYSQLCLIENT_VERSION=8.4.13' >> /home/repair/env
+5. Prepare the environment: cargo update -p mysqlclient-sys --precise 0.5.3
+6. Build: sh -c cargo build --features sqlite,mysql,postgresql
+7. Run the tests: sh -c cargo test --profile ci --features sqlite,mysql,postgresql

@@ -1,0 +1,16 @@
+Use a Linux environment. Run these setup commands in order, using root/sudo only where noted:
+
+- `cargo install cargo-nextest --locked --root /usr/local` (needs root)
+- `cargo run python install` (normal user)
+- `touch /home/repair/env && sed -i '/^export TMPDIR=/d' /home/repair/env && echo 'export TMPDIR=/ramdisk' >> /home/repair/env` (normal user)
+- `apt-get update && apt-get install -y git-lfs` (needs root)
+- `apt-get update && apt-get install -y openssh-client` (needs root)
+- `apt-get update && apt-get install -y nodejs && if ! command -v node >/dev/null 2>&1; then ln -sf /usr/bin/nodejs /usr/local/bin/node; fi` (needs root)
+
+Then, from the repository root:
+
+1. Fetch dependencies: `cargo fetch --locked`
+2. Build the project: `cargo build --locked`
+3. Run tests: `cargo nextest run --locked`
+
+Ensure the cargo-nextest binary location is on your PATH.

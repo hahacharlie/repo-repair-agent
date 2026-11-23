@@ -1,0 +1,371 @@
+{
+  "status": "passed",
+  "reason": "No errors found; no repair was needed",
+  "pipeline": "proposed",
+  "history": [],
+  "diff": "",
+  "fixed_files": [],
+  "model_requests": [
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 61921,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 20339,
+        "completion_tokens": 38,
+        "total_tokens": 20377,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.54,
+      "request_id": "aafab26d-fd61-4ab6-aff5-86a73671dfd4",
+      "first_content_seconds": 8.93,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 17.43104,
+        "completion_tokens": 39,
+        "energy_wh": 51.724154,
+        "prompt_tokens": 18211,
+        "prompt_tokens_details": {
+          "cached_tokens": 256,
+          "created_cache_tokens": 17920
+        },
+        "total_tokens": 18250
+      },
+      "content_chars": 131,
+      "elapsed_seconds": 10.83,
+      "agent_time_used_seconds": 10.83,
+      "agent_time_remaining_seconds": 7189.17
+    }
+  ],
+  "repository": {
+    "language": "go",
+    "build_system": "go",
+    "docker_image": "repo-repair/sandbox:latest",
+    "python_requirement": null,
+    "requires_linux": true,
+    "entry": "go.mod",
+    "tests": [
+      "pkg/cheatsheet/generate_test.go",
+      "pkg/commands/direnv/direnv_test.go",
+      "pkg/commands/git_cmd_obj_builder_test.go",
+      "pkg/commands/git_cmd_obj_runner_test.go",
+      "pkg/commands/git_commands/ahead_behind_test.go",
+      "pkg/commands/git_commands/branch_loader_test.go",
+      "pkg/commands/git_commands/branch_test.go",
+      "pkg/commands/git_commands/commit_file_loader_test.go",
+      "pkg/commands/git_commands/commit_loader_test.go",
+      "pkg/commands/git_commands/commit_test.go",
+      "pkg/commands/git_commands/config_test.go",
+      "pkg/commands/git_commands/deps_test.go",
+      "pkg/commands/git_commands/file_loader_test.go",
+      "pkg/commands/git_commands/file_test.go",
+      "pkg/commands/git_commands/flow_test.go",
+      "pkg/commands/git_commands/git_command_builder_test.go",
+      "pkg/commands/git_commands/github_test.go",
+      "pkg/commands/git_commands/rebase_test.go",
+      "pkg/commands/git_commands/ref_ancestry_test.go",
+      "pkg/commands/git_commands/reflog_commit_loader_test.go",
+      "pkg/commands/git_commands/remote_loader_test.go",
+      "pkg/commands/git_commands/repo_paths_test.go",
+      "pkg/commands/git_commands/stash_loader_test.go",
+      "pkg/commands/git_commands/stash_test.go",
+      "pkg/commands/git_commands/status_test.go",
+      "pkg/commands/git_commands/submodule_test.go",
+      "pkg/commands/git_commands/sync_test.go",
+      "pkg/commands/git_commands/tag_loader_test.go",
+      "pkg/commands/git_commands/version_test.go",
+      "pkg/commands/git_commands/working_tree_test.go",
+      "pkg/commands/git_commands/worktree_loader_test.go",
+      "pkg/commands/git_config/cached_git_config_test.go",
+      "pkg/commands/hosting_service/hosting_service_test.go",
+      "pkg/commands/models/commit_test.go",
+      "pkg/commands/oscommands/cmd_obj_runner_test.go",
+      "pkg/commands/oscommands/cmd_obj_test.go",
+      "pkg/commands/oscommands/new_shell_windows_test.go",
+      "pkg/commands/oscommands/os_default_test.go",
+      "pkg/commands/oscommands/os_test.go",
+      "pkg/commands/oscommands/os_windows_test.go",
+      "pkg/commands/oscommands/pipeline_test.go",
+      "pkg/commands/oscommands/pty_windows_test.go",
+      "pkg/commands/patch/patch_builder_test.go",
+      "pkg/commands/patch/patch_test.go",
+      "pkg/config/app_config_test.go",
+      "pkg/config/color_patterns_test.go",
+      "pkg/config/diff_renderer_config_manager_test.go",
+      "pkg/config/editor_presets_test.go",
+      "pkg/config/github_pull_request_cache_test.go",
+      "pkg/config/keybinding_test.go",
+      "pkg/config/keynames_test.go",
+      "pkg/config/theme_config_test.go",
+      "pkg/config/user_config_validation_test.go",
+      "pkg/gocui/block_events_test.go",
+      "pkg/gocui/color_scheme_test.go",
+      "pkg/gocui/double_click_test.go",
+      "pkg/gocui/escape_test.go",
+      "pkg/gocui/flush_test.go",
+      "pkg/gocui/key_test.go",
+      "pkg/gocui/modified_click_test.go",
+      "pkg/gocui/mouse_binding_test.go",
+      "pkg/gocui/mouse_capture_test.go",
+      "pkg/gocui/parent_view_test.go",
+      "pkg/gocui/scrollbar_test.go",
+      "pkg/gocui/search_test.go",
+      "pkg/gocui/suspend_test.go",
+      "pkg/gocui/task_manager_test.go",
+      "pkg/gocui/tcell_driver_test.go",
+      "pkg/gocui/text_area_test.go",
+      "pkg/gocui/ui_thread_test.go",
+      "pkg/gocui/user_event_queue_test.go",
+      "pkg/gocui/view_test.go",
+      "pkg/gui/context/context_test.go",
+      "pkg/gui/context/list_renderer_test.go",
+      "pkg/gui/context/local_commits_context_test.go",
+      "pkg/gui/controllers/diff_paths_test.go",
+      "pkg/gui/controllers/helpers/branch_stack_test.go",
+      "pkg/gui/controllers/helpers/commits_helper_test.go",
+      "pkg/gui/controllers/helpers/confirmation_helper_test.go",
+      "pkg/gui/controllers/helpers/diff_line_helper_test.go",
+      "pkg/gui/controllers/helpers/diff_line_parser_test.go",
+      "pkg/gui/controllers/helpers/diff_line_queries_test.go",
+      "pkg/gui/controllers/helpers/diff_stat_links_test.go",
+      "pkg/gui/controllers/helpers/drag_autoscroller_test.go",
+      "pkg/gui/controllers/helpers/fixup_helper_test.go",
+      "pkg/gui/controllers/helpers/refresh_helper_test.go",
+      "pkg/gui/controllers/helpers/repos_helper_test.go",
+      "pkg/gui/controllers/helpers/upstream_helper_test.go",
+      "pkg/gui/controllers/helpers/window_arrangement_helper_test.go",
+      "pkg/gui/controllers/helpers/worktree_helper_test.go",
+      "pkg/gui/controllers/local_commits_controller_test.go",
+      "pkg/gui/controllers/main_view_controller_test.go",
+      "pkg/gui/controllers/patch_explorer_controller_test.go",
+      "pkg/gui/controllers/remotes_controller_test.go",
+      "pkg/gui/controllers/scroll_off_margin_test.go",
+      "pkg/gui/filetree/build_tree_test.go",
+      "pkg/gui/filetree/commit_file_tree_view_model_test.go",
+      "pkg/gui/filetree/file_node_test.go",
+      "pkg/gui/filetree/file_tree_test.go",
+      "pkg/gui/filetree/file_tree_view_model_test.go",
+      "pkg/gui/filetree/node_test.go",
+      "pkg/gui/layout_test.go",
+      "pkg/gui/mergeconflicts/find_conflicts_test.go",
+      "pkg/gui/mergeconflicts/state_test.go",
+      "pkg/gui/presentation/authors/authors_test.go",
+      "pkg/gui/presentation/branches_test.go",
+      "pkg/gui/presentation/commits_test.go",
+      "pkg/gui/presentation/files_test.go",
+      "pkg/gui/presentation/graph/branch_drawing_test.go",
+      "pkg/gui/presentation/graph/graph_test.go",
+      "pkg/gui/presentation/icons/file_icons_test.go",
+      "pkg/gui/presentation/reflog_commits_test.go",
+      "pkg/gui/presentation/worktrees_test.go",
+      "pkg/gui/services/custom_commands/menu_generator_test.go",
+      "pkg/gui/side_panels_test.go",
+      "pkg/gui/style/style_test.go",
+      "pkg/gui/tasks_adapter_test.go",
+      "pkg/gui/types/version_number_test.go",
+      "pkg/i18n/i18n_test.go",
+      "pkg/integration/clients/go_test.go",
+      "pkg/integration/components/test_test.go",
+      "pkg/jsonschema/generate_test.go",
+      "pkg/snake/snake_test.go",
+      "pkg/tasks/async_handler_test.go",
+      "pkg/tasks/read_request_queue_test.go",
+      "pkg/tasks/tasks_test.go",
+      "pkg/theme/gocui_test.go",
+      "pkg/theme/style_test.go",
+      "pkg/utils/color_test.go",
+      "pkg/utils/date_test.go",
+      "pkg/utils/formatting_test.go",
+      "pkg/utils/goroutines_test.go",
+      "pkg/utils/history_buffer_test.go",
+      "pkg/utils/io_test.go",
+      "pkg/utils/lines_test.go",
+      "pkg/utils/once_writer_test.go",
+      "pkg/utils/project_root_test.go",
+      "pkg/utils/rebase_todo_test.go",
+      "pkg/utils/regexp_test.go",
+      "pkg/utils/search_test.go",
+      "pkg/utils/slice_test.go",
+      "pkg/utils/template_test.go",
+      "pkg/utils/thread_safe_map_test.go",
+      "pkg/utils/utils_test.go",
+      "pkg/utils/yaml_utils/yaml_utils_test.go"
+    ],
+    "test_command": [
+      "sh",
+      "-c",
+      "go test ./... -short"
+    ],
+    "build_command": [
+      "sh",
+      "-c",
+      "go build -gcflags='all=-N -l'"
+    ],
+    "dependency_command": [
+      "sh",
+      "-c",
+      "go mod download"
+    ]
+  },
+  "execution_backend": "docker",
+  "docker": {
+    "image": "repo-repair/sandbox:latest",
+    "availability": {
+      "command": [
+        "docker",
+        "info",
+        "--format",
+        "{{.ServerVersion}}"
+      ],
+      "exit_code": 0,
+      "stdout": "29.9.2\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "image_status": {
+      "command": [
+        "docker",
+        "image",
+        "inspect",
+        "repo-repair/sandbox:latest"
+      ],
+      "exit_code": 0,
+      "stdout": "[\n    {\n        \"Id\": \"sha256:d1f6489e6f42dea63762d231b1bffe98a63ffdc0c2a8ae263772f40235ec0493\",\n        \"RepoTags\": [\n            \"repo-repair/sandbox:latest\"\n        ],\n        \"RepoDigests\": [],\n        \"Comment\": \"buildkit.dockerfile.v0\",\n        \"Created\": \"2026-11-22T13:07:42.90710649-07:00\",\n        \"Config\": {\n            \"Env\": [\n                \"PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n                \"DEBIAN_FRONTEND=noninteractive\",\n                \"GOTOOLCHAIN=auto\",\n                \"RUSTUP_HOME=/usr/local/rustup\",\n                \"CARGO_HOME=/usr/local/cargo\"\n            ],\n            \"Cmd\": [\n                \"/bin/bash\"\n            ],\n            \"Labels\": {\n                \"org.opencontainers.image.created\": \"2026-11-06T10:28:50.132595+00:00\",\n                \"org.opencontainers.image.description\": \"The Ubuntu container image maintained by Canonical\\n\\nUbuntu is a Debian-based Linux operating system that runs from the desktop to the cloud, to all your internet connected things.\\nIt is the world's most popular operating system across public clouds and OpenStack clouds.\\nIt is the number one platform for containers; from Docker to Kubernetes to LXD, Ubuntu can run your containers at scale.\\nFast, secure and simple, Ubuntu powers millions of PCs worldwide.\\n\",\n                \"org.opencontainers.image.title\": \"ubuntu\",\n                \"org.opencontainers.image.version\": \"26.04\"\n            }\n        },\n        \"Architecture\": \"amd64\",\n        \"Os\": \"linux\",\n        \"Size\": 1788912042,\n        \"GraphDriver\": {\n            \"Data\": {\n                \"LowerDir\": \"/var/lib/docker/overlay2/vtg82nvzzc49mn0usl82umyzc/diff:/var/lib/docker/overlay2/426f34cf0f5017c8b0842098f27b0c6bf3acff8f089e858046092b95e524c246/diff:/var/lib/docker/overlay2/f9f449c101e8a3697741d0191ac7f934b9d89c1258a7547ee4d5eb303428f130/diff\",\n                \"MergedDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/merged\",\n                \"UpperDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/diff\",\n                \"WorkDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/work\"\n            },\n            \"Name\": \"overlay2\"\n        },\n        \"RootFS\": {\n            \"Type\": \"layers\",\n            \"Layers\": [\n                \"sha256:2a89eb4dbc78f8fe790775a4e807e1355ba2f6b145c8dd7a267a782df1605124\",\n                \"sha256:758b22fe15be2c330dcead0c1b50476c074e113ec507627c6430337ffc9daa5e\",\n                \"sha256:aa95f818b8f1ac09c37174bbea35afe21fb7b70c9abaa35fc629fb02d4fe2355\",\n                \"sha256:3d7ad3c86345d739bd4c1eedf4255636c820ba417acf760872931797cb40e6f2\"\n            ]\n        },\n        \"Metadata\": {\n            \"LastTagTime\": \"2026-11-22T13:07:46.053991942-07:00\"\n        }\n    }\n]\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "mount_check": {
+      "command": [
+        "test",
+        "-f",
+        "go.mod"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "command_plan": {
+    "dependency_command": [
+      "sh",
+      "-c",
+      "go mod download"
+    ],
+    "build_command": [
+      "sh",
+      "-c",
+      "go build -gcflags='all=-N -l'"
+    ],
+    "test_command": [
+      "sh",
+      "-c",
+      "go test ./... -short"
+    ]
+  },
+  "environment_setup": {
+    "command": [
+      "true"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "timeout": false
+  },
+  "setup": {
+    "command": [
+      "sh",
+      "-c",
+      "go mod download"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "timeout": false
+  },
+  "initial": {
+    "app": {
+      "command": [
+        "sh",
+        "-c",
+        "go build -gcflags='all=-N -l'"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "timeout": false
+    },
+    "tests": {
+      "command": [
+        "sh",
+        "-c",
+        "go test ./... -short"
+      ],
+      "exit_code": 0,
+      "stdout": "?   \tgithub.com/jesseduffield/lazygit\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/cmd/author_colors_repo\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/cmd/i18n\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/cmd/integration_test\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/app\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/app/daemon\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/app/types\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/cheatsheet\t0.010s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands\t0.010s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/direnv\t0.014s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/git_commands\t0.063s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/git_config\t0.011s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/hosting_service\t0.013s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/models\t0.011s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/oscommands\t0.045s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/patch\t0.012s\n?   \tgithub.com/jesseduffield/lazygit/pkg/common\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/config\t0.043s\n?   \tgithub.com/jesseduffield/lazygit/pkg/constants\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/env\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/fakes\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/gocui\t3.226s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui\t0.006s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/context\t0.006s\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/context/traits\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/controllers\t0.007s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/controllers/helpers\t0.039s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/filetree\t0.009s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/mergeconflicts\t0.006s\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/modes/cherrypicking\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/modes/diffing\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/modes/filtering\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/modes/marked_base_commit\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/popup\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/presentation\t0.016s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/presentation/authors\t0.011s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/presentation/graph\t0.100s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/presentation/icons\t0.007s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/services/custom_commands\t0.005s\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/status\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/style\t0.007s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/types\t0.011s\nok  \tgithub.com/jesseduffield/lazygit/pkg/i18n\t0.012s\nok  \tgithub.com/jesseduffield/lazygit/pkg/integration/clients\t0.011s\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/clients/injector\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/integration/components\t0.019s\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/bisect\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/branch\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/cherry_pick\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/commit\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/config\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/conflicts\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/custom_commands\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/demo\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/diff\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/file\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/filter_and_search\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/filter_by_author\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/filter_by_path\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/interactive_rebase\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/main_view\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/misc\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/patch_building\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/reflog\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/remote\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/shared\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/shell_commands\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/stash\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/status\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/submodule\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/sync\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/tag\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/ui\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/undo\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/worktree\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/types\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/jsonschema\t0.005s\n?   \tgithub.com/jesseduffield/lazygit/pkg/logs\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/logs/tail\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/snake\t0.007s\nok  \tgithub.com/jesseduffield/lazygit/pkg/tasks\t1.916s\nok  \tgithub.com/jesseduffield/lazygit/pkg/theme\t0.010s\n?   \tgithub.com/jesseduffield/lazygit/pkg/updates\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/utils\t0.155s\nok  \tgithub.com/jesseduffield/lazygit/pkg/utils/yaml_utils\t0.007s\n",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "final": {
+    "app": {
+      "command": [
+        "sh",
+        "-c",
+        "go build -gcflags='all=-N -l'"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "timeout": false
+    },
+    "tests": {
+      "command": [
+        "sh",
+        "-c",
+        "go test ./... -short"
+      ],
+      "exit_code": 0,
+      "stdout": "?   \tgithub.com/jesseduffield/lazygit\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/cmd/author_colors_repo\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/cmd/i18n\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/cmd/integration_test\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/app\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/app/daemon\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/app/types\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/cheatsheet\t0.010s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands\t0.010s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/direnv\t0.014s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/git_commands\t0.063s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/git_config\t0.011s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/hosting_service\t0.013s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/models\t0.011s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/oscommands\t0.045s\nok  \tgithub.com/jesseduffield/lazygit/pkg/commands/patch\t0.012s\n?   \tgithub.com/jesseduffield/lazygit/pkg/common\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/config\t0.043s\n?   \tgithub.com/jesseduffield/lazygit/pkg/constants\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/env\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/fakes\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/gocui\t3.226s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui\t0.006s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/context\t0.006s\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/context/traits\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/controllers\t0.007s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/controllers/helpers\t0.039s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/filetree\t0.009s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/mergeconflicts\t0.006s\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/modes/cherrypicking\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/modes/diffing\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/modes/filtering\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/modes/marked_base_commit\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/popup\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/presentation\t0.016s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/presentation/authors\t0.011s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/presentation/graph\t0.100s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/presentation/icons\t0.007s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/services/custom_commands\t0.005s\n?   \tgithub.com/jesseduffield/lazygit/pkg/gui/status\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/style\t0.007s\nok  \tgithub.com/jesseduffield/lazygit/pkg/gui/types\t0.011s\nok  \tgithub.com/jesseduffield/lazygit/pkg/i18n\t0.012s\nok  \tgithub.com/jesseduffield/lazygit/pkg/integration/clients\t0.011s\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/clients/injector\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/integration/components\t0.019s\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/bisect\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/branch\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/cherry_pick\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/commit\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/config\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/conflicts\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/custom_commands\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/demo\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/diff\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/file\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/filter_and_search\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/filter_by_author\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/filter_by_path\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/interactive_rebase\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/main_view\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/misc\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/patch_building\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/reflog\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/remote\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/shared\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/shell_commands\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/stash\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/status\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/submodule\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/sync\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/tag\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/ui\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/undo\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/tests/worktree\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/integration/types\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/jsonschema\t0.005s\n?   \tgithub.com/jesseduffield/lazygit/pkg/logs\t[no test files]\n?   \tgithub.com/jesseduffield/lazygit/pkg/logs/tail\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/snake\t0.007s\nok  \tgithub.com/jesseduffield/lazygit/pkg/tasks\t1.916s\nok  \tgithub.com/jesseduffield/lazygit/pkg/theme\t0.010s\n?   \tgithub.com/jesseduffield/lazygit/pkg/updates\t[no test files]\nok  \tgithub.com/jesseduffield/lazygit/pkg/utils\t0.155s\nok  \tgithub.com/jesseduffield/lazygit/pkg/utils/yaml_utils\t0.007s\n",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "no_repair_needed": true,
+  "metrics": {
+    "wall_clock_seconds": 43.86,
+    "model_api_seconds": 10.83,
+    "model_request_count": 1,
+    "token_usage": {
+      "source": "tiktoken_cl100k_base_estimate",
+      "available": true,
+      "prompt_tokens": 20339,
+      "completion_tokens": 38,
+      "total_tokens": 20377
+    },
+    "token_usage_by_agent": {
+      "fixer": {
+        "source": "no_model_requests",
+        "available": true,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "judge": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "available": true,
+        "prompt_tokens": 20339,
+        "completion_tokens": 38,
+        "total_tokens": 20377
+      }
+    },
+    "correct_repair_rate": {
+      "correct_repairs": 0,
+      "evaluated_runs": 0,
+      "percentage": null
+    }
+  },
+  "agent_log_file": "agent_logs.json"
+}

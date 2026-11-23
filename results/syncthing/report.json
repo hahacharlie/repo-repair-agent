@@ -1,0 +1,367 @@
+{
+  "status": "passed",
+  "reason": "No errors found; no repair was needed",
+  "pipeline": "proposed",
+  "history": [],
+  "diff": "",
+  "fixed_files": [],
+  "model_requests": [
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 68732,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 22061,
+        "completion_tokens": 30,
+        "total_tokens": 22091,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.57,
+      "request_id": "114ecefa-b5d3-4fe3-982c-22a3534a5e8f",
+      "first_content_seconds": 11.04,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 20.231875,
+        "completion_tokens": 31,
+        "energy_wh": 60.035237,
+        "prompt_tokens": 21002,
+        "prompt_tokens_details": {
+          "cached_tokens": 256,
+          "created_cache_tokens": 20736
+        },
+        "total_tokens": 21033
+      },
+      "content_chars": 117,
+      "elapsed_seconds": 12.47,
+      "agent_time_used_seconds": 12.47,
+      "agent_time_remaining_seconds": 7187.53
+    }
+  ],
+  "repository": {
+    "language": "go",
+    "build_system": "go",
+    "docker_image": "repo-repair/sandbox:latest",
+    "python_requirement": null,
+    "requires_linux": true,
+    "entry": "go.mod",
+    "tests": [
+      "cmd/infra/stcrashreceiver/sentry_test.go",
+      "cmd/infra/strelaypoolsrv/main_test.go",
+      "cmd/infra/strelaypoolsrv/stats_test.go",
+      "cmd/infra/ursrv/serve/compiler_test.go",
+      "cmd/stdiscosrv/apisrv_test.go",
+      "cmd/stdiscosrv/database_test.go",
+      "cmd/syncthing/crash_reporting_test.go",
+      "cmd/syncthing/monitor_test.go",
+      "internal/db/sqlite/db_bench_test.go",
+      "internal/db/sqlite/db_global_test.go",
+      "internal/db/sqlite/db_indexid_test.go",
+      "internal/db/sqlite/db_local_test.go",
+      "internal/db/sqlite/db_mtimes_test.go",
+      "internal/db/sqlite/db_service_test.go",
+      "internal/db/sqlite/db_test.go",
+      "internal/db/sqlite/util_test.go",
+      "internal/db/typed_test.go",
+      "internal/slogutil/formatting_test.go",
+      "lib/api/api_auth_test.go",
+      "lib/api/api_test.go",
+      "lib/api/auto/auto_test.go",
+      "lib/api/mocked_config_test.go",
+      "lib/assets/assets_test.go",
+      "lib/beacon/broadcast_test.go",
+      "lib/build/build_test.go",
+      "lib/build/parse_test.go",
+      "lib/config/commit_test.go",
+      "lib/config/compression_test.go",
+      "lib/config/config_test.go",
+      "lib/config/migrations_test.go",
+      "lib/config/size_test.go",
+      "lib/connections/connections_test.go",
+      "lib/connections/dialqueue_test.go",
+      "lib/connections/lan_test.go",
+      "lib/connections/limiter_test.go",
+      "lib/connections/registry/registry_test.go",
+      "lib/dialer/empty_test.go",
+      "lib/discover/cache_test.go",
+      "lib/discover/global_test.go",
+      "lib/discover/local_test.go",
+      "lib/events/events_test.go",
+      "lib/fs/basicfs_test.go",
+      "lib/fs/basicfs_watch_test.go",
+      "lib/fs/basicfs_windows_test.go",
+      "lib/fs/casefs_test.go",
+      "lib/fs/fakefs_test.go",
+      "lib/fs/filesystem_copy_range_test.go",
+      "lib/fs/filesystem_test.go",
+      "lib/fs/folding_test.go",
+      "lib/fs/mtimefs_test.go",
+      "lib/fs/tempname_test.go",
+      "lib/fs/util_test.go",
+      "lib/fs/walkfs_test.go",
+      "lib/geoip/geoip_test.go",
+      "lib/ignore/ignore_test.go",
+      "lib/ignore/ignoreresult/ignoreresult_test.go",
+      "lib/locations/locations_test.go",
+      "lib/model/blockpullreorderer_test.go",
+      "lib/model/deviceactivity_test.go",
+      "lib/model/devicedownloadstate_test.go",
+      "lib/model/fakeconns_test.go",
+      "lib/model/fileinfobatch_test.go",
+      "lib/model/folder_recvonly_test.go",
+      "lib/model/folder_sendrecv_test.go",
+      "lib/model/folder_test.go",
+      "lib/model/indexhandler_test.go",
+      "lib/model/model_test.go",
+      "lib/model/progressemitter_test.go",
+      "lib/model/queue_test.go",
+      "lib/model/requests_test.go",
+      "lib/model/service_map_test.go",
+      "lib/model/sharedpullerstate_test.go",
+      "lib/model/testos_test.go",
+      "lib/model/testutils_test.go",
+      "lib/model/utils_test.go",
+      "lib/nat/structs_test.go",
+      "lib/netutil/netutil_test.go",
+      "lib/osutil/atomic_test.go",
+      "lib/osutil/atomic_unix_test.go",
+      "lib/osutil/multiwriter_test.go",
+      "lib/osutil/osutil_test.go",
+      "lib/osutil/replacingwriter_test.go",
+      "lib/osutil/traversessymlink_test.go",
+      "lib/pmp/empty_test.go",
+      "lib/protocol/benchmark_test.go",
+      "lib/protocol/bep_fileinfo_test.go",
+      "lib/protocol/bep_hello_test.go",
+      "lib/protocol/bufferpool_test.go",
+      "lib/protocol/common_test.go",
+      "lib/protocol/conflict_test.go",
+      "lib/protocol/deviceid_test.go",
+      "lib/protocol/encryption_test.go",
+      "lib/protocol/luhn_test.go",
+      "lib/protocol/mocked_connection_info_test.go",
+      "lib/protocol/nativemodel_windows_test.go",
+      "lib/protocol/protocol_test.go",
+      "lib/protocol/vector_test.go",
+      "lib/rand/random_test.go",
+      "lib/rand/securesource_test.go",
+      "lib/relay/client/empty_test.go",
+      "lib/relay/protocol/empty_test.go",
+      "lib/scanner/blocks_test.go",
+      "lib/scanner/virtualfs_test.go",
+      "lib/scanner/walk_test.go",
+      "lib/semaphore/semaphore_test.go",
+      "lib/signature/signature_test.go",
+      "lib/sliceutil/sliceutil_test.go",
+      "lib/stats/stats_test.go",
+      "lib/stringutil/stringutil_test.go",
+      "lib/structutil/structutil_test.go",
+      "lib/syncthing/auditservice_test.go",
+      "lib/syncthing/syncthing_test.go",
+      "lib/syncutil/timeoutcond_test.go",
+      "lib/tlsutil/tlsutil_test.go",
+      "lib/upgrade/upgrade_test.go",
+      "lib/upnp/upnp_test.go",
+      "lib/ur/contract/contract_test.go",
+      "lib/versioner/empty_dir_tracker_test.go",
+      "lib/versioner/external_test.go",
+      "lib/versioner/simple_test.go",
+      "lib/versioner/staggered_test.go",
+      "lib/versioner/trashcan_test.go",
+      "lib/watchaggregator/aggregator_test.go",
+      "meta/copyright_test.go",
+      "meta/forbidden_words_test.go",
+      "meta/gofmt_test.go",
+      "test/cli_test.go",
+      "test/conflict_test.go",
+      "test/delay_scan_test.go",
+      "test/filetype_test.go",
+      "test/http_test.go",
+      "test/ignore_test.go",
+      "test/manypeers_test.go",
+      "test/override_test.go",
+      "test/parallel_scan_test.go",
+      "test/reconnect_test.go",
+      "test/reset_test.go",
+      "test/scan_test.go",
+      "test/symlink_test.go",
+      "test/sync_test.go",
+      "test/transfer-bench_test.go"
+    ],
+    "test_command": [
+      "sh",
+      "-c",
+      "go run build.go test"
+    ],
+    "build_command": [
+      "sh",
+      "-c",
+      "go run build.go"
+    ],
+    "dependency_command": [
+      "sh",
+      "-c",
+      "go mod download"
+    ]
+  },
+  "execution_backend": "docker",
+  "docker": {
+    "image": "repo-repair/sandbox:latest",
+    "availability": {
+      "command": [
+        "docker",
+        "info",
+        "--format",
+        "{{.ServerVersion}}"
+      ],
+      "exit_code": 0,
+      "stdout": "29.9.2\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "image_status": {
+      "command": [
+        "docker",
+        "image",
+        "inspect",
+        "repo-repair/sandbox:latest"
+      ],
+      "exit_code": 0,
+      "stdout": "[\n    {\n        \"Id\": \"sha256:d1f6489e6f42dea63762d231b1bffe98a63ffdc0c2a8ae263772f40235ec0493\",\n        \"RepoTags\": [\n            \"repo-repair/sandbox:latest\"\n        ],\n        \"RepoDigests\": [],\n        \"Comment\": \"buildkit.dockerfile.v0\",\n        \"Created\": \"2026-11-22T13:07:42.90710649-07:00\",\n        \"Config\": {\n            \"Env\": [\n                \"PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n                \"DEBIAN_FRONTEND=noninteractive\",\n                \"GOTOOLCHAIN=auto\",\n                \"RUSTUP_HOME=/usr/local/rustup\",\n                \"CARGO_HOME=/usr/local/cargo\"\n            ],\n            \"Cmd\": [\n                \"/bin/bash\"\n            ],\n            \"Labels\": {\n                \"org.opencontainers.image.created\": \"2026-11-06T10:28:50.132595+00:00\",\n                \"org.opencontainers.image.description\": \"The Ubuntu container image maintained by Canonical\\n\\nUbuntu is a Debian-based Linux operating system that runs from the desktop to the cloud, to all your internet connected things.\\nIt is the world's most popular operating system across public clouds and OpenStack clouds.\\nIt is the number one platform for containers; from Docker to Kubernetes to LXD, Ubuntu can run your containers at scale.\\nFast, secure and simple, Ubuntu powers millions of PCs worldwide.\\n\",\n                \"org.opencontainers.image.title\": \"ubuntu\",\n                \"org.opencontainers.image.version\": \"26.04\"\n            }\n        },\n        \"Architecture\": \"amd64\",\n        \"Os\": \"linux\",\n        \"Size\": 1788912042,\n        \"GraphDriver\": {\n            \"Data\": {\n                \"LowerDir\": \"/var/lib/docker/overlay2/vtg82nvzzc49mn0usl82umyzc/diff:/var/lib/docker/overlay2/426f34cf0f5017c8b0842098f27b0c6bf3acff8f089e858046092b95e524c246/diff:/var/lib/docker/overlay2/f9f449c101e8a3697741d0191ac7f934b9d89c1258a7547ee4d5eb303428f130/diff\",\n                \"MergedDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/merged\",\n                \"UpperDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/diff\",\n                \"WorkDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/work\"\n            },\n            \"Name\": \"overlay2\"\n        },\n        \"RootFS\": {\n            \"Type\": \"layers\",\n            \"Layers\": [\n                \"sha256:2a89eb4dbc78f8fe790775a4e807e1355ba2f6b145c8dd7a267a782df1605124\",\n                \"sha256:758b22fe15be2c330dcead0c1b50476c074e113ec507627c6430337ffc9daa5e\",\n                \"sha256:aa95f818b8f1ac09c37174bbea35afe21fb7b70c9abaa35fc629fb02d4fe2355\",\n                \"sha256:3d7ad3c86345d739bd4c1eedf4255636c820ba417acf760872931797cb40e6f2\"\n            ]\n        },\n        \"Metadata\": {\n            \"LastTagTime\": \"2026-11-22T13:07:46.053991942-07:00\"\n        }\n    }\n]\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "mount_check": {
+      "command": [
+        "test",
+        "-f",
+        "go.mod"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "command_plan": {
+    "dependency_command": [
+      "sh",
+      "-c",
+      "go mod download"
+    ],
+    "build_command": [
+      "sh",
+      "-c",
+      "go run build.go"
+    ],
+    "test_command": [
+      "sh",
+      "-c",
+      "go run build.go test"
+    ]
+  },
+  "environment_setup": {
+    "command": [
+      "true"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "timeout": false
+  },
+  "setup": {
+    "command": [
+      "sh",
+      "-c",
+      "go mod download"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "timeout": false
+  },
+  "initial": {
+    "app": {
+      "command": [
+        "sh",
+        "-c",
+        "go run build.go"
+      ],
+      "exit_code": 0,
+      "stdout": "ok  \tgithub.com/syncthing/syncthing/meta\t0.001s [no tests to run]\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "tests": {
+      "command": [
+        "sh",
+        "-c",
+        "go run build.go test"
+      ],
+      "exit_code": 0,
+      "stdout": "?   \tgithub.com/syncthing/syncthing/internal/blob\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/blob/s3\t[no test files]\nok  \tgithub.com/syncthing/syncthing/internal/db\t1.034s\n?   \tgithub.com/syncthing/syncthing/internal/db/olddb\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/db/olddb/backend\t[no test files]\nok  \tgithub.com/syncthing/syncthing/internal/db/sqlite\t2.095s\n?   \tgithub.com/syncthing/syncthing/internal/gen/apiproto\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/gen/bep\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/gen/dbproto\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/gen/discoproto\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/gen/discosrv\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/itererr\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/protoutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/internal/slogutil\t1.005s\n?   \tgithub.com/syncthing/syncthing/internal/timeutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/api\t40.616s\nok  \tgithub.com/syncthing/syncthing/lib/api/auto\t1.018s\nok  \tgithub.com/syncthing/syncthing/lib/assets\t1.017s\nok  \tgithub.com/syncthing/syncthing/lib/beacon\t1.017s\nok  \tgithub.com/syncthing/syncthing/lib/build\t1.024s\nok  \tgithub.com/syncthing/syncthing/lib/config\t3.814s\n?   \tgithub.com/syncthing/syncthing/lib/config/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/connections\t1.117s\n?   \tgithub.com/syncthing/syncthing/lib/connections/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/connections/registry\t1.013s\nok  \tgithub.com/syncthing/syncthing/lib/dialer\t1.015s [no tests to run]\nok  \tgithub.com/syncthing/syncthing/lib/discover\t6.107s\n?   \tgithub.com/syncthing/syncthing/lib/discover/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/events\t6.512s\n?   \tgithub.com/syncthing/syncthing/lib/events/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/fs\t11.590s\nok  \tgithub.com/syncthing/syncthing/lib/geoip\t1.016s\n?   \tgithub.com/syncthing/syncthing/lib/httpcache\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/ignore\t1.248s\nok  \tgithub.com/syncthing/syncthing/lib/ignore/ignoreresult\t1.012s\nok  \tgithub.com/syncthing/syncthing/lib/locations\t1.026s\nok  \tgithub.com/syncthing/syncthing/lib/model\t49.792s\n?   \tgithub.com/syncthing/syncthing/lib/model/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/nat\t1.072s\nok  \tgithub.com/syncthing/syncthing/lib/netutil\t1.013s\nok  \tgithub.com/syncthing/syncthing/lib/osutil\t2.011s\nok  \tgithub.com/syncthing/syncthing/lib/pmp\t1.029s [no tests to run]\nok  \tgithub.com/syncthing/syncthing/lib/protocol\t1.663s\n?   \tgithub.com/syncthing/syncthing/lib/protocol/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/rand\t1.615s\n?   \tgithub.com/syncthing/syncthing/lib/rc\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/relay/client\t1.027s [no tests to run]\nok  \tgithub.com/syncthing/syncthing/lib/relay/protocol\t1.029s [no tests to run]\nok  \tgithub.com/syncthing/syncthing/lib/scanner\t1.198s\nok  \tgithub.com/syncthing/syncthing/lib/semaphore\t1.017s\nok  \tgithub.com/syncthing/syncthing/lib/signature\t1.076s\nok  \tgithub.com/syncthing/syncthing/lib/sliceutil\t1.012s\nok  \tgithub.com/syncthing/syncthing/lib/stats\t1.938s\nok  \tgithub.com/syncthing/syncthing/lib/stringutil\t1.016s\nok  \tgithub.com/syncthing/syncthing/lib/structutil\t1.019s\n?   \tgithub.com/syncthing/syncthing/lib/stun\t[no test files]\n?   \tgithub.com/syncthing/syncthing/lib/svcutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/syncthing\t1.939s\nok  \tgithub.com/syncthing/syncthing/lib/syncutil\t2.056s\n?   \tgithub.com/syncthing/syncthing/lib/testutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/tlsutil\t1.017s\nok  \tgithub.com/syncthing/syncthing/lib/upgrade\t1.011s\nok  \tgithub.com/syncthing/syncthing/lib/upnp\t1.025s\n?   \tgithub.com/syncthing/syncthing/lib/ur\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/ur/contract\t1.011s\nok  \tgithub.com/syncthing/syncthing/lib/versioner\t1.033s\nok  \tgithub.com/syncthing/syncthing/lib/watchaggregator\t8.244s\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stcompdirs\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stdisco\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stevents\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stfileinfo\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stfinddevice\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stfindignored\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stgenfiles\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stsigtool\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stvanity\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stwatchfile\t[no test files]\nok  \tgithub.com/syncthing/syncthing/cmd/infra/stcrashreceiver\t1.644s\nok  \tgithub.com/syncthing/syncthing/cmd/infra/strelaypoolsrv\t1.027s\n?   \tgithub.com/syncthing/syncthing/cmd/infra/strelaypoolsrv/auto\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/infra/stupgrades\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/infra/ursrv\t[no test files]\nok  \tgithub.com/syncthing/syncthing/cmd/infra/ursrv/serve\t1.017s\nok  \tgithub.com/syncthing/syncthing/cmd/stdiscosrv\t1.026s\n?   \tgithub.com/syncthing/syncthing/cmd/strelaysrv\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/strelaysrv/testutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/cmd/syncthing\t1.020s\n?   \tgithub.com/syncthing/syncthing/cmd/syncthing/cli\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/syncthing/decrypt\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/syncthing/generate\t[no test files]\n",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "final": {
+    "app": {
+      "command": [
+        "sh",
+        "-c",
+        "go run build.go"
+      ],
+      "exit_code": 0,
+      "stdout": "ok  \tgithub.com/syncthing/syncthing/meta\t0.001s [no tests to run]\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "tests": {
+      "command": [
+        "sh",
+        "-c",
+        "go run build.go test"
+      ],
+      "exit_code": 0,
+      "stdout": "?   \tgithub.com/syncthing/syncthing/internal/blob\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/blob/s3\t[no test files]\nok  \tgithub.com/syncthing/syncthing/internal/db\t1.034s\n?   \tgithub.com/syncthing/syncthing/internal/db/olddb\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/db/olddb/backend\t[no test files]\nok  \tgithub.com/syncthing/syncthing/internal/db/sqlite\t2.095s\n?   \tgithub.com/syncthing/syncthing/internal/gen/apiproto\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/gen/bep\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/gen/dbproto\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/gen/discoproto\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/gen/discosrv\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/itererr\t[no test files]\n?   \tgithub.com/syncthing/syncthing/internal/protoutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/internal/slogutil\t1.005s\n?   \tgithub.com/syncthing/syncthing/internal/timeutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/api\t40.616s\nok  \tgithub.com/syncthing/syncthing/lib/api/auto\t1.018s\nok  \tgithub.com/syncthing/syncthing/lib/assets\t1.017s\nok  \tgithub.com/syncthing/syncthing/lib/beacon\t1.017s\nok  \tgithub.com/syncthing/syncthing/lib/build\t1.024s\nok  \tgithub.com/syncthing/syncthing/lib/config\t3.814s\n?   \tgithub.com/syncthing/syncthing/lib/config/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/connections\t1.117s\n?   \tgithub.com/syncthing/syncthing/lib/connections/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/connections/registry\t1.013s\nok  \tgithub.com/syncthing/syncthing/lib/dialer\t1.015s [no tests to run]\nok  \tgithub.com/syncthing/syncthing/lib/discover\t6.107s\n?   \tgithub.com/syncthing/syncthing/lib/discover/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/events\t6.512s\n?   \tgithub.com/syncthing/syncthing/lib/events/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/fs\t11.590s\nok  \tgithub.com/syncthing/syncthing/lib/geoip\t1.016s\n?   \tgithub.com/syncthing/syncthing/lib/httpcache\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/ignore\t1.248s\nok  \tgithub.com/syncthing/syncthing/lib/ignore/ignoreresult\t1.012s\nok  \tgithub.com/syncthing/syncthing/lib/locations\t1.026s\nok  \tgithub.com/syncthing/syncthing/lib/model\t49.792s\n?   \tgithub.com/syncthing/syncthing/lib/model/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/nat\t1.072s\nok  \tgithub.com/syncthing/syncthing/lib/netutil\t1.013s\nok  \tgithub.com/syncthing/syncthing/lib/osutil\t2.011s\nok  \tgithub.com/syncthing/syncthing/lib/pmp\t1.029s [no tests to run]\nok  \tgithub.com/syncthing/syncthing/lib/protocol\t1.663s\n?   \tgithub.com/syncthing/syncthing/lib/protocol/mocks\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/rand\t1.615s\n?   \tgithub.com/syncthing/syncthing/lib/rc\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/relay/client\t1.027s [no tests to run]\nok  \tgithub.com/syncthing/syncthing/lib/relay/protocol\t1.029s [no tests to run]\nok  \tgithub.com/syncthing/syncthing/lib/scanner\t1.198s\nok  \tgithub.com/syncthing/syncthing/lib/semaphore\t1.017s\nok  \tgithub.com/syncthing/syncthing/lib/signature\t1.076s\nok  \tgithub.com/syncthing/syncthing/lib/sliceutil\t1.012s\nok  \tgithub.com/syncthing/syncthing/lib/stats\t1.938s\nok  \tgithub.com/syncthing/syncthing/lib/stringutil\t1.016s\nok  \tgithub.com/syncthing/syncthing/lib/structutil\t1.019s\n?   \tgithub.com/syncthing/syncthing/lib/stun\t[no test files]\n?   \tgithub.com/syncthing/syncthing/lib/svcutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/syncthing\t1.939s\nok  \tgithub.com/syncthing/syncthing/lib/syncutil\t2.056s\n?   \tgithub.com/syncthing/syncthing/lib/testutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/tlsutil\t1.017s\nok  \tgithub.com/syncthing/syncthing/lib/upgrade\t1.011s\nok  \tgithub.com/syncthing/syncthing/lib/upnp\t1.025s\n?   \tgithub.com/syncthing/syncthing/lib/ur\t[no test files]\nok  \tgithub.com/syncthing/syncthing/lib/ur/contract\t1.011s\nok  \tgithub.com/syncthing/syncthing/lib/versioner\t1.033s\nok  \tgithub.com/syncthing/syncthing/lib/watchaggregator\t8.244s\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stcompdirs\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stdisco\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stevents\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stfileinfo\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stfinddevice\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stfindignored\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stgenfiles\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stsigtool\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stvanity\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/dev/stwatchfile\t[no test files]\nok  \tgithub.com/syncthing/syncthing/cmd/infra/stcrashreceiver\t1.644s\nok  \tgithub.com/syncthing/syncthing/cmd/infra/strelaypoolsrv\t1.027s\n?   \tgithub.com/syncthing/syncthing/cmd/infra/strelaypoolsrv/auto\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/infra/stupgrades\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/infra/ursrv\t[no test files]\nok  \tgithub.com/syncthing/syncthing/cmd/infra/ursrv/serve\t1.017s\nok  \tgithub.com/syncthing/syncthing/cmd/stdiscosrv\t1.026s\n?   \tgithub.com/syncthing/syncthing/cmd/strelaysrv\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/strelaysrv/testutil\t[no test files]\nok  \tgithub.com/syncthing/syncthing/cmd/syncthing\t1.020s\n?   \tgithub.com/syncthing/syncthing/cmd/syncthing/cli\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/syncthing/decrypt\t[no test files]\n?   \tgithub.com/syncthing/syncthing/cmd/syncthing/generate\t[no test files]\n",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "no_repair_needed": true,
+  "metrics": {
+    "wall_clock_seconds": 140.85,
+    "model_api_seconds": 12.47,
+    "model_request_count": 1,
+    "token_usage": {
+      "source": "tiktoken_cl100k_base_estimate",
+      "available": true,
+      "prompt_tokens": 22061,
+      "completion_tokens": 30,
+      "total_tokens": 22091
+    },
+    "token_usage_by_agent": {
+      "fixer": {
+        "source": "no_model_requests",
+        "available": true,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "judge": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "available": true,
+        "prompt_tokens": 22061,
+        "completion_tokens": 30,
+        "total_tokens": 22091
+      }
+    },
+    "correct_repair_rate": {
+      "correct_repairs": 0,
+      "evaluated_runs": 0,
+      "percentage": null
+    }
+  },
+  "agent_log_file": "agent_logs.json"
+}
