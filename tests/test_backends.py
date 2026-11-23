@@ -1,13 +1,10 @@
-import os
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from backends import (
-    DockerBackend, LocalBackend, host_cpus, host_memory_limit, make_backend,
-)
+from backends import DockerBackend, LocalBackend, make_backend
+import constants as ct
 from repository import detect_repository, inspect_repository
 
 
@@ -18,74 +15,79 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             make_backend("unknown")
 
-    def test_docker_command_has_required_isolation(self):
+    def test_container_keeps_host_credentials_out(self):
         root = Path("/tmp/example").resolve()
-        command = DockerBackend("python:3.12-slim").command(
-            ["python", "main.py"], root)
+        command = DockerBackend("python:3.12-slim").start_command(
+            root, "repo-repair-test")
         joined = " ".join(command)
         for expected in (
-                "--network bridge", "--read-only", "--cap-drop ALL",
-                "--security-opt no-new-privileges", "--pids-limit 4096",
-                "--memory " + host_memory_limit(),
-                "--cpus " + str(host_cpus()),
-                str(root.parent / ".sandbox-tmp") + ":/tmp:rw",
+                "--network bridge", "--security-opt no-new-privileges",
+                "--pids-limit", "--memory", "--cpus",
                 str(root) + ":/workspace/example:rw",
-                "--workdir /workspace/example",
-                "HOME=/workspace/example/.home"):
+                str(root.parent / ".sandbox-home") + ":/home/repair:rw",
+                "HOME=/home/repair",
+                "sleep infinity"):
             self.assertIn(expected, joined)
-        self.assertRegex(host_memory_limit(), r"^\d+g$")
         self.assertNotIn("docker.sock", joined)
+        self.assertNotIn("--privileged", joined)
         self.assertNotIn(str(Path.home()), joined)
-        if sys.platform == "linux":
-            self.assertIn("/tmp/example/.home/passwd:/etc/passwd:ro", joined)
 
-    def test_run_writes_a_passwd_entry_for_the_sandbox_user(self):
-        if sys.platform != "linux":
-            self.skipTest("host UID mapping is Linux only")
-        with tempfile.TemporaryDirectory() as folder, patch(
-                "backends.run_command",
-                return_value={"exit_code": 0, "timeout": False}):
-            # The work copy sits inside its own temporary folder, as in repair.
-            work = Path(folder) / "repo"
-            work.mkdir()
-            DockerBackend().run(["true"], work, 10)
-            text = (work / ".home" / "passwd").read_text()
-            self.assertTrue((Path(folder) / ".sandbox-tmp").is_dir())
-        self.assertIn(f"repair:x:{os.getuid()}:{os.getgid()}:", text)
-        self.assertIn("/workspace/repo/.home", text)
-
-    def test_every_command_gets_network_access(self):
+    def test_commands_use_the_build_user_unless_another_is_requested(self):
         backend = DockerBackend()
-        for network in (False, True):
-            command = backend.command(
-                ["python", "main.py"], Path("/tmp/example"), network=network)
-            self.assertNotIn("none", command)
-            self.assertIn("bridge", command)
+        backend.container = "repo-repair-test"
+        cwd = Path("/tmp/example")
+        build = backend.exec_command(["make"], cwd, 30)
+        root = backend.exec_command(["apt-get", "update"], cwd, 30, "root")
+        reader = backend.exec_command(["ls"], cwd, 30, "reader")
+        self.assertEqual(
+            build[build.index("--user") + 1], backend.build_user())
+        self.assertEqual(root[root.index("--user") + 1], "0:0")
+        self.assertEqual(reader[reader.index("--user") + 1], "65534:65534")
+        # The time limit must stop the processes inside the container.
+        limit = build.index("timeout")
+        self.assertEqual(build[limit:limit + 4], ["timeout", "-k", "10", "30"])
+        self.assertEqual(build[-1], "make")
+        self.assertIn("--workdir=/workspace/example", build)
 
-    def test_timeout_force_removes_the_named_container(self):
+    def test_one_container_serves_every_command_and_is_removed(self):
         calls = []
 
         def execute(command, cwd, timeout, on_timeout=None):
-            calls.append((command, cwd, timeout))
-            if on_timeout is not None:
-                on_timeout()
-            return {"exit_code": -9, "timeout": True}
+            calls.append(command)
+            return {
+                "exit_code": 0, "timeout": False, "stdout": "", "stderr": ""}
 
-        with patch("backends.uuid.uuid4") as uuid4, patch(
+        with tempfile.TemporaryDirectory() as folder, patch(
+                "backends.uuid.uuid4") as uuid4, patch(
                 "backends.run_command", side_effect=execute):
             uuid4.return_value.hex = "abc123"
-            DockerBackend().run(
-                ["go", "test", "./..."], Path("/tmp/example"), 30)
+            backend = DockerBackend()
+            cwd = Path(folder) / "example"
+            first = backend.run(["go", "build"], cwd, 30)
+            backend.run(["go", "test", "./..."], cwd, 30)
+            backend.close()
+            # The home folder of the build user is beside the work copy.
+            self.assertTrue((Path(folder) / ".sandbox-home").is_dir())
 
-        first_command = calls[0][0]
-        name_index = first_command.index("--name")
+        starts = [call for call in calls if call[:2] == ["docker", "run"]]
+        self.assertEqual(len(starts), 1)
+        self.assertIn("repo-repair-abc123", starts[0])
+        self.assertEqual(first["command"], ["go", "build"])
         self.assertEqual(
-            first_command[name_index + 1], "repo-repair-abc123")
-        self.assertEqual(
-            calls[1][0],
-            ["docker", "rm", "-f", "repo-repair-abc123"],
-        )
-        self.assertEqual(calls[1][2], 10)
+            calls[-1], ["docker", "rm", "-f", "repo-repair-abc123"])
+        self.assertIsNone(backend.container)
+
+    def test_time_limit_inside_the_container_is_reported(self):
+        backend = DockerBackend()
+        backend.container = "repo-repair-test"
+        backend.cwd = Path("/tmp/example")
+        stopped = {
+            "exit_code": 124, "timeout": False, "stdout": "", "stderr": ""}
+        with patch("backends.run_command", return_value=stopped), patch(
+                "backends.time.monotonic", side_effect=[0.0, 31.0]):
+            result = backend.run(
+                ["go", "test", "./..."], Path("/tmp/example"), 30)
+        self.assertTrue(result["timeout"])
 
     def test_docker_status_and_pull_use_explicit_commands(self):
         calls = []
@@ -108,7 +110,7 @@ class BackendTests(unittest.TestCase):
         with self.subTest("go"):
             self.assertEqual(
                 detect_repository(Path("input/broken_repos/lazygit"))[:3],
-                ("go", "go", "golang:bookworm"),
+                ("go", "go", ct.SANDBOX_IMAGE),
             )
             metadata = inspect_repository(
                 Path("input/broken_repos/lazygit"))

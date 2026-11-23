@@ -73,14 +73,41 @@ The tool will:
 1. Make a temporary copy of the repository.
 2. Find the language, run command, and tests.
 3. Run the repository and collect the error.
-4. Ask the Fixer for one action in each repair round. Before it edits, the
-   Fixer may search the repository for text and read files or line ranges.
-   These look-ups change nothing and do not use repair rounds.
-5. Ask the Judge to review code changes in the proposed and stakeholder modes.
+4. Ask the Fixer for one action at a time.
+5. Ask the Judge to review each change in the proposed and stakeholder modes.
 6. Run the repository again to check the repair.
 
-Package installs do not need Judge approval. The Fixer-only mode does not use
-the Judge.
+The Fixer has two groups of actions:
+
+| Group | Action | What it does | Judge review |
+| --- | --- | --- | --- |
+| Look | `read` | Read lines of one file | No |
+| Look | `search` | Find text in the repository, a folder, or one file | No |
+| Look | `inspect` | Run a read-only shell command in the sandbox | No |
+| Repair | `run` | Run a shell command that prepares the sandbox | Yes |
+| Repair | `edit` | Change files, or add a file that the project lacks | Yes |
+| Repair | `install` | Add one language package | No |
+| Repair | `commands` | Replace the build and test commands | Yes |
+| Stop | `give_up` | Stop the repair | No |
+
+- A look action does not use a repair round. It has its own limit: three for
+  each repair round. After that limit, each look action uses one round.
+- `inspect` runs as a separate user that cannot write the repository. The
+  build, the tests, and `run` actions use the build user.
+- The Fixer can send the same action again after the failure changed.
+- `inspect`, `run`, and `commands` work only in the Docker sandbox.
+- `run` can install system packages as root with `apt-get`, fetch a missing
+  dependency, or restore a file that the project lacks.
+- No action can change the tests. The tool restores each changed test file
+  from the original repository before it runs the tests.
+- An invalid action or a Judge rejection uses one round. The tool sends the
+  reason to the Fixer, and the repair continues.
+- The tool undoes an approved edit that does not change the failure. This
+  keeps the final patch small.
+- A failed test command of a non-Python repository runs one more time when it
+  took less than 15 minutes. The report shows when only the second run passed.
+- When the test command runs no tests, the report shows the build result only.
+- The Fixer-only mode does not use the Judge.
 
 ## Results
 
@@ -160,16 +187,18 @@ uv run repo-repair-agent my-repository --baseline fixer-only --output results/fi
 
 ## Useful options
 
-- `--rounds 8`: allow up to eight repair attempts. The default is five.
+- `--rounds 8`: allow up to eight repair actions. The default is 30.
 - `--timeout 300`: allow each repository command to run for 300 seconds. The
-  default is 3600 seconds, because large repositories compile for a long time.
+  default is 7200 seconds.
+- `--live`: use the AI models even when the repository has a `repair.json`.
 - `--agent-timeout 1800`: allow 30 minutes in total for Fixer and Judge API
-  calls. The default is 20 minutes and the maximum is one hour.
+  calls. The default is two hours and the maximum is four hours.
 - `--no-install`: do not download repository dependencies.
 - `--backend local`: use only the local machine.
 - `--backend docker`: use Docker.
 - `--docker-image IMAGE`: choose a Docker image.
-- `--allow-docker-pull`: allow the selected Docker image to be downloaded.
+- `--allow-docker-pull`: allow the selected Docker image to be downloaded or
+  built.
 - `--script FILE`: use saved offline repair actions instead of the AI models.
 - `--config FILE`: use another model configuration file.
 - `--output FOLDER`: choose where results are saved.
@@ -181,7 +210,9 @@ uv run repo-repair-agent --help
 ```
 
 If the selected repository contains `repair.json`, the tool uses it
-automatically for an offline run. `--script` cannot be used with `--baseline`.
+automatically for an offline run. Use `--live` to ignore that file. The agents
+never see `repair.json`. `--script` cannot be used with `--baseline` or
+`--live`.
 
 ## Python repositories
 
@@ -199,10 +230,6 @@ automatically for an offline run. `--script` cannot be used with `--baseline`.
   Python version.
 - If that version is not installed, Docker will be used.
 - Docker images are downloaded only when `--allow-docker-pull` is used.
-- Rust and C/C++ repositories use the images `repo-repair/rust` and
-  `repo-repair/cpp`. The tool builds them from `docker/rust.Dockerfile` and
-  `docker/cpp.Dockerfile` the first time they are needed. The first build
-  downloads compilers and development libraries and can take several minutes.
 
 ## Docker
 
@@ -229,20 +256,43 @@ checking the image, allow the download with:
 uv run repo-repair-agent my-repository --backend docker --allow-docker-pull
 ```
 
-The repository runs inside a temporary container copy. Every command in the
-container has network access, because builds and test suites download modules,
-fixtures, and interpreters. The container cannot see the host file system
-outside the temporary copy, runs without Linux capabilities, and may use every
-host CPU and three quarters of the host memory, because large repositories do
-not build with less.
+One container runs every command of a repair. It holds only the temporary
+copy of the repository. The container has network access, because builds and
+tests download dependencies. It uses all host CPUs and three quarters of the
+host memory. The tool removes the container when the repair ends.
 
-In the proposed mode, a non-Python repository must have a README. The Judge
-reads it and other files in the repository root, then chooses the dependency,
-build, and test commands. If the documented build fails but the standard
-build command for the detected build system works, the tool uses the standard
-command instead and records the change in `report.json`.
+The container has these folders:
 
-C and C++ repositories with unusual system libraries may need another image:
+| Folder | Use |
+| --- | --- |
+| `/workspace/<repo-name>` | The temporary copy of the repository |
+| `/home/repair` | Home folder and dependency caches of the build user |
+| `/ramdisk` | A memory file system, for tests that depend on the disk type |
+
+Non-Python repositories use the image `repo-repair/sandbox`. The tool builds
+it from `docker/sandbox.Dockerfile` on the first run with
+`--allow-docker-pull`. The image holds compilers and the supported build
+systems only. The agents install each library that a repository needs, so
+each install is a reviewed repair step in the report. The image is fresh on
+purpose: it has no package lists. The Fixer must run `apt-get update` as a
+repair step before it can look up or install a package.
+
+In the proposed mode, the Judge reads the README, the other files in the
+repository root, and the build and test lines of the CI files. Then it chooses
+the dependency, build, and test commands for Linux. If the Judge gives no
+valid answer, the tool uses the default commands of the build system. The
+Fixer can propose better commands during the repair.
+
+The tool corrects two kinds of planned commands:
+
+- A build command that downloads or installs a published copy of the project
+  (for example `go install module@latest`). The tool uses the default build
+  command.
+- A dependency command that installs system packages (for example
+  `sudo apt install`). Planned commands do not run as root, so the tool does
+  not use that command. The agents install system packages as repair steps.
+
+Use another image when a repository needs one:
 
 ```console
 uv run repo-repair-agent my-repository --backend docker --docker-image IMAGE
@@ -278,19 +328,30 @@ Model settings are in `config.json`:
   "endpoint": "https://openai.rc.asu.edu/v1",
   "fixer_model": "kimi-k2-7-code",
   "judge_model": "qwen3-235b-a22b",
-  "api_timeout_seconds": 900
+  "api_timeout_seconds": 300
 }
 ```
-
-The default Fixer is `kimi-k2-7-code`. The smaller
-`qwen3-coder-30b-a3b-instruct` often returns broken JSON for large files and
-tries to silence errors instead of fixing their cause. The stakeholder
-baseline keeps its own models, so `--baseline stakeholder` is not affected.
 
 - `endpoint`: model API address
 - `fixer_model`: model that suggests repairs
 - `judge_model`: model that reviews code changes
 - `api_timeout_seconds`: wait time for one API request
+
+### Requests that the model gateway refuses
+
+The ASU gateway has a firewall. It refuses a request (HTTP 403) when the text
+looks like an attack. Build logs, shell scripts, and paths such as `/../` can
+cause this. The tool does not change such text. It sends the request again
+with less context, in up to five steps:
+
+1. No file snapshot and no CI lines.
+2. Only the last exploration result, no evidence files, no root files.
+3. No exploration results, and shorter command output.
+4. Much shorter command output.
+5. A history without free text.
+
+If the gateway refuses all steps, the round fails and the Fixer gets a
+message. A repository with much blocked text can thus need more rounds.
 
 ## What the tool supports
 
@@ -310,6 +371,7 @@ passwords, API keys, or private data.
 - `src/`: repair-agent code
 - `input/broken_repos/`: repositories given to the agent
 - `results/`: repair results
+- `docker/`: the Dockerfile of the build sandbox
 - `tests/`: repair-agent tests
 - `.env`: local API key
 - `config.json`: model settings

@@ -1,0 +1,1383 @@
+{
+  "status": "passed",
+  "reason": "Execution and detected tests passed",
+  "pipeline": "proposed",
+  "history": [
+    {
+      "action": {
+        "action": "run",
+        "command": "mkdir -p build && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/main.rs -o build/main.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/syntaxes.rs -o build/syntaxes.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/themes.rs -o build/themes.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/acknowledgements.rs -o build/acknowledgements.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/binaries.rs -o build/binaries.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/printable.rs -o build/printable.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/walkdir.rs -o build/walkdir.rs && ls -la build/",
+        "root": false,
+        "verify": true,
+        "reason": "Restore missing build/ files from upstream bat v0.26.1 source so the build script can compile."
+      },
+      "judge": {
+        "approved": true,
+        "reason": "The command restores missing build script files (including build/main.rs) from the project's own upstream source at the correct version (v0.26.1), which is necessary for the build to succeed. This directly addresses the observed failure where Cargo couldn't find 'build/main.rs'. The files are fetched from the official repository and match the version being built."
+      },
+      "command_result": {
+        "command": [
+          "sh",
+          "-c",
+          "mkdir -p build && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/main.rs -o build/main.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/syntaxes.rs -o build/syntaxes.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/themes.rs -o build/themes.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/acknowledgements.rs -o build/acknowledgements.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/binaries.rs -o build/binaries.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/printable.rs -o build/printable.rs && curl -fsSL https://raw.githubusercontent.com/sharkdp/bat/v0.26.1/build/walkdir.rs -o build/walkdir.rs && ls -la build/"
+        ],
+        "exit_code": 22,
+        "stdout": "",
+        "stderr": "curl: (22) The requested URL returned error: 404\n",
+        "timeout": false
+      }
+    },
+    {
+      "action": {
+        "action": "run",
+        "command": "cd /tmp && curl -fsSL -o bat-0.26.1.tar.gz https://github.com/sharkdp/bat/archive/refs/tags/v0.26.1.tar.gz && tar -xzf bat-0.26.1.tar.gz && ls -la bat-0.26.1/build/ && cp -r bat-0.26.1/build /workspace/bat/build && ls -la /workspace/bat/build/",
+        "root": false,
+        "verify": true,
+        "reason": "Download the official bat v0.26.1 source tarball from GitHub and restore the missing build/ directory that Cargo is looking for."
+      },
+      "judge": {
+        "approved": false,
+        "reason": "The command downloads and extracts the entire project source from a tarball, which repeats the action from the previous round that already failed (exit code 22). The history shows a prior attempt to restore build files from the upstream source, which did not succeed, likely due to network or permission issues. Repeating the same approach with a different download method (tarball vs direct file fetch) does not address the root cause of the failure and risks the same outcome. The system should instead investigate why the previous file restoration failed or consider alternative solutions."
+      }
+    },
+    {
+      "action": {
+        "action": "run",
+        "command": "cd /workspace/bat && tar -xzf /tmp/bat.crate --strip-components=1 'bat-0.26.1/build/' && ls -la build/",
+        "root": false,
+        "verify": true,
+        "reason": "Restore the missing build/ directory from the official bat v0.26.1 crate downloaded from crates.io, which contains the build script files Cargo expects."
+      },
+      "judge": {
+        "approved": true,
+        "reason": "The command extracts the missing build/ directory from the official bat crate archive, which is a valid source for the project's own upstream files. This directly addresses the observed failure where Cargo couldn't find 'build/main.rs'. Using the crate from crates.io is a reliable alternative to GitHub, and the command carefully extracts only the needed build files into the correct location without modifying existing source files or altering the project structure."
+      },
+      "command_result": {
+        "command": [
+          "sh",
+          "-c",
+          "cd /workspace/bat && tar -xzf /tmp/bat.crate --strip-components=1 'bat-0.26.1/build/' && ls -la build/"
+        ],
+        "exit_code": 0,
+        "stdout": "total 24\ndrwxr-xr-x 1 ubuntu ubuntu   90 Nov 22 21:23 .\ndrwxr-xr-x 1 ubuntu ubuntu  432 Nov 22 21:20 ..\n-rw-r--r-- 1 ubuntu ubuntu 2794 Jul 24  2006 application.rs\n-rw-r--r-- 1 ubuntu ubuntu  431 Jul 24  2006 main.rs\n-rw-r--r-- 1 ubuntu ubuntu 9687 Jul 24  2006 syntax_mapping.rs\n-rw-r--r-- 1 ubuntu ubuntu  564 Jul 24  2006 util.rs\n",
+        "stderr": "",
+        "timeout": false
+      },
+      "observation": {
+        "app": {
+          "command": [
+            "sh",
+            "-c",
+            "cargo build"
+          ],
+          "exit_code": 101,
+          "stdout": "",
+          "stderr": "warning: `package.homepage` is redundant with `package.repository`\n --> Cargo.toml:5:12\n  |\n5 | homepage = \"https://github.com/sharkdp/bat\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n8 | repository = \"https://github.com/sharkdp/bat\"\n  |              --------------------------------\n  |\n  = note: `cargo::redundant_homepage` is set to `warn` by default\nhelp: consider removing `package.homepage`\nwarning: `bat` (manifest) generated 1 warning\n   Compiling bat v0.26.1 (/workspace/bat)\n   Compiling gix-odb v0.83.0\n   Compiling gix-worktree v0.55.0\n   Compiling gix-submodule v0.33.0\n   Compiling gix-diff v0.66.0\nerror: failed to run custom build command for `bat v0.26.1 (/workspace/bat)`\n\nCaused by:\n  process didn't exit successfully: `/workspace/bat/target/debug/build/bat/84ba746b44a4577f/out/build_script_main` (exit status: 1)\n  --- stdout\n  cargo:rerun-if-changed=build/\n  cargo:rerun-if-changed=src/syntax_mapping/builtins/\n\n  --- stderr\n  Error: TOML parse error at line 2, column 13\n    |\n  2 | \"Python\" = [{ glob = \"BUILD\", case_sensitive = true }]\n    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  invalid type: map, expected a string\n\nwarning: build failed, waiting for other jobs to finish...\n",
+          "timeout": false
+        },
+        "tests": {
+          "command": [
+            "sh",
+            "-c",
+            "cargo test --locked"
+          ],
+          "exit_code": -1,
+          "stdout": "",
+          "stderr": "Not run: the build failed",
+          "timeout": false,
+          "skipped": true
+        }
+      }
+    },
+    {
+      "action": {
+        "action": "read",
+        "path": "src/syntax_mapping/mod.rs",
+        "reason": "Inspect how matchers and case sensitivity are represented at runtime so the build script can generate correct code."
+      },
+      "error": "ValueError",
+      "error_detail": "File to read does not exist: src/syntax_mapping/mod.rs"
+    },
+    {
+      "action": {
+        "action": "read",
+        "path": "src/syntax_mapping/mod.rs",
+        "reason": "Inspect runtime syntax mapping types to understand how case_sensitive matchers should be represented."
+      },
+      "error": "ValueError",
+      "error_detail": "File to read does not exist: src/syntax_mapping/mod.rs"
+    },
+    {
+      "action": {
+        "path": "src/syntax_mapping.rs",
+        "action": "read"
+      },
+      "error": "ValueError",
+      "error_detail": "Action requires a reason"
+    },
+    {
+      "action": {
+        "action": "edit",
+        "replacements": {
+          "build/syntax_mapping.rs": [
+            {
+              "old": "#[derive(Clone, Debug, PartialEq, Eq, Hash, DeserializeFromStr)]\n/// A single matcher.\n///\n/// Codegen converts this into a `Lazy<Option<GlobMatcher>>`.\nstruct Matcher(Vec<MatcherSegment>);\n/// Parse a matcher.\n///\n/// Note that this implementation is rather strict: it will greedily interpret\n/// every valid environment variable replacement as such, then immediately\n/// hard-error if it finds a '$' anywhere in the remaining text segments.\n///\n/// The reason for this strictness is I currently cannot think of a valid reason\n/// why you would ever need '$' as plaintext in a glob pattern. Therefore any\n/// such occurrences are likely human errors.\n///\n/// If we later discover some edge cases, it's okay to make it more permissive.\n///\n/// Revision history:\n/// - 2024-02-20: allow `{` and `}` (glob brace expansion)\nimpl FromStr for Matcher {\n    type Err = anyhow::Error;\n    fn from_str(s: &str) -> Result<Self, Self::Err> {\n        use MatcherSegment as Seg;\n        static VAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r\"\\$\\{([\\w\\d_]+)\\}\").unwrap());\n\n        let mut segments = vec![];\n        let mut text_start = 0;\n        for capture in VAR_REGEX.captures_iter(s) {\n            let match_0 = capture.get(0).unwrap();\n\n            // text before this var\n            let text_end = match_0.start();\n            segments.push(Seg::Text(s[text_start..text_end].into()));\n            text_start = match_0.end();\n\n            // this var\n            segments.push(Seg::Env(capture.get(1).unwrap().as_str().into()));\n        }\n        // possible trailing text\n        segments.push(Seg::Text(s[text_start..].into()));\n\n        // cleanup empty text segments\n        let non_empty_segments = segments\n            .into_iter()\n            .filter(|seg| seg.text().map(|t| !t.is_empty()).unwrap_or(true))\n            .collect_vec();\n\n        // sanity check\n        if non_empty_segments\n            .windows(2)\n            .any(|segs| segs[0].is_text() && segs[1].is_text())\n        {\n            unreachable!(\"Parsed into consecutive text segments: {non_empty_segments:?}\");\n        }\n\n        // guard empty case\n        if non_empty_segments.is_empty() {\n            bail!(r#\"Parsed an empty matcher: \"{s}\"\"#);\n        }\n\n        // guard variable syntax leftover fragments\n        if non_empty_segments\n            .iter()\n            .filter_map(Seg::text)\n            .any(|t| t.contains('$'))\n        {\n            bail!(r#\"Invalid matcher: \"{s}\"\"#);\n        }\n\n        Ok(Self(non_empty_segments))\n    }\n}\nimpl ToTokens for Matcher {\n    fn to_tokens(&self, tokens: &mut TokenStream) {\n        let t = match self.0.as_slice() {\n            [] => unreachable!(\"0-length matcher should never be created\"),\n            [MatcherSegment::Text(text)] => {\n                quote! { Lazy::new(|| Some(build_matcher_fixed(#text))) }\n            }\n            // parser logic ensures that this case can only happen when there are dynamic segments\n            segs @ [_, ..] => quote! { Lazy::new(|| build_matcher_dynamic(&[ #(#segs),* ])) },\n        };\n        tokens.append_all(t);\n    }\n}",
+              "new": "#[derive(Clone, Debug, PartialEq, Eq, Hash)]\n/// A single matcher.\n///\n/// Codegen converts this into a `Lazy<Option<GlobMatcher>>`.\nstruct Matcher {\n    segments: Vec<MatcherSegment>,\n    case_sensitive: bool,\n}\n/// Parse a matcher.\n///\n/// Note that this implementation is rather strict: it will greedily interpret\n/// every valid environment variable replacement as such, then immediately\n/// hard-error if it finds a '$' anywhere in the remaining text segments.\n///\n/// The reason for this strictness is I currently cannot think of a valid reason\n/// why you would ever need '$' as plaintext in a glob pattern. Therefore any\n/// such occurrences are likely human errors.\n///\n/// If we later discover some edge cases, it's okay to make it more permissive.\n///\n/// Revision history:\n/// - 2024-02-20: allow `{` and `}` (glob brace expansion)\nimpl FromStr for Matcher {\n    type Err = anyhow::Error;\n    fn from_str(s: &str) -> Result<Self, Self::Err> {\n        use MatcherSegment as Seg;\n        static VAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r\"\\$\\{([\\w\\d_]+)\\}\").unwrap());\n\n        let mut segments = vec![];\n        let mut text_start = 0;\n        for capture in VAR_REGEX.captures_iter(s) {\n            let match_0 = capture.get(0).unwrap();\n\n            // text before this var\n            let text_end = match_0.start();\n            segments.push(Seg::Text(s[text_start..text_end].into()));\n            text_start = match_0.end();\n\n            // this var\n            segments.push(Seg::Env(capture.get(1).unwrap().as_str().into()));\n        }\n        // possible trailing text\n        segments.push(Seg::Text(s[text_start..].into()));\n\n        // cleanup empty text segments\n        let non_empty_segments = segments\n            .into_iter()\n            .filter(|seg| seg.text().map(|t| !t.is_empty()).unwrap_or(true))\n            .collect_vec();\n\n        // sanity check\n        if non_empty_segments\n            .windows(2)\n            .any(|segs| segs[0].is_text() && segs[1].is_text())\n        {\n            unreachable!(\"Parsed into consecutive text segments: {non_empty_segments:?}\");\n        }\n\n        // guard empty case\n        if non_empty_segments.is_empty() {\n            bail!(r#\"Parsed an empty matcher: \"{s}\"\"#);\n        }\n\n        // guard variable syntax leftover fragments\n        if non_empty_segments\n            .iter()\n            .filter_map(Seg::text)\n            .any(|t| t.contains('$'))\n        {\n            bail!(r#\"Invalid matcher: \"{s}\"\"#);\n        }\n\n        Ok(Self {\n            segments: non_empty_segments,\n            case_sensitive: false,\n        })\n    }\n}\n\nimpl<'de> serde::Deserialize<'de> for Matcher {\n    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {\n        use serde::de::{self, MapAccess, Visitor};\n        use std::fmt;\n\n        struct MatcherVisitor;\n\n        impl<'de> Visitor<'de> for MatcherVisitor {\n            type Value = Matcher;\n\n            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {\n                formatter.write_str(\"a glob string or a map with 'glob' and 'case_sensitive'\")\n            }\n\n            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {\n                value.parse().map_err(de::Error::custom)\n            }\n\n            fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {\n                value.parse().map_err(de::Error::custom)\n            }\n\n            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {\n                let mut glob: Option<String> = None;\n                let mut case_sensitive: Option<bool> = None;\n                while let Some(key) = map.next_key::<String>()? {\n                    match key.as_str() {\n                        \"glob\" => {\n                            if glob.is_some() {\n                                return Err(de::Error::duplicate_field(\"glob\"));\n                            }\n                            glob = Some(map.next_value()?);\n                        }\n                        \"case_sensitive\" => {\n                            if case_sensitive.is_some() {\n                                return Err(de::Error::duplicate_field(\"case_sensitive\"));\n                            }\n                            case_sensitive = Some(map.next_value()?);\n                        }\n                        other => {\n                            return Err(de::Error::unknown_field(\n                                other,\n                                &[\"glob\", \"case_sensitive\"],\n                            ));\n                        }\n                    }\n                }\n                let glob = glob.ok_or_else(|| de::Error::missing_field(\"glob\"))?;\n                let mut matcher: Matcher = glob.parse().map_err(de::Error::custom)?;\n                matcher.case_sensitive = case_sensitive.unwrap_or(false);\n                Ok(matcher)\n            }\n        }\n\n        deserializer.deserialize_any(MatcherVisitor)\n    }\n}\n\nimpl ToTokens for Matcher {\n    fn to_tokens(&self, tokens: &mut TokenStream) {\n        let case = if self.case_sensitive {\n            quote! { Case::Sensitive }\n        } else {\n            quote! { Case::Insensitive }\n        };\n        let t = match self.segments.as_slice() {\n            [] => unreachable!(\"0-length matcher should never be created\"),\n            [MatcherSegment::Text(text)] => {\n                quote! { Lazy::new(|| Some(build_matcher_fixed(#text, #case))) }\n            }\n            // parser logic ensures that this case can only happen when there are dynamic segments\n            segs @ [_, ..] => quote! { Lazy::new(|| build_matcher_dynamic(&[ #(#segs),* ], #case)) },\n        };\n        tokens.append_all(t);\n    }\n}"
+            }
+          ]
+        },
+        "reason": "The build script parsed builtin syntax mapping rules as plain strings, but 50-bazel.toml uses the documented object form { glob = \"BUILD\", case_sensitive = true }. Update the build script to accept both a plain glob string and the object form, store the case-sensitivity flag, and pass it to the generated build_matcher_fixed/build_matcher_dynamic calls."
+      },
+      "judge": {
+        "approved": true,
+        "reason": "The patch modifies the `Matcher` struct to include a `case_sensitive` field and implements `Deserialize` to handle both plain string and object forms (with `glob` and `case_sensitive` keys) from TOML, which directly addresses the error 'invalid type: map, expected a string' when parsing '50-bazel.toml'. It updates `FromStr` to default `case_sensitive` to false and adjusts `ToTokens` to pass the case sensitivity flag to `build_matcher_fixed` and `build_matcher_dynamic`, preserving existing behavior for plain strings while adding support for the documented object syntax. All changes are necessary and focused on resolving the TOML parsing error."
+      },
+      "observation": {
+        "app": {
+          "command": [
+            "sh",
+            "-c",
+            "cargo build"
+          ],
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": "warning: `package.homepage` is redundant with `package.repository`\n --> Cargo.toml:5:12\n  |\n5 | homepage = \"https://github.com/sharkdp/bat\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n8 | repository = \"https://github.com/sharkdp/bat\"\n  |              --------------------------------\n  |\n  = note: `cargo::redundant_homepage` is set to `warn` by default\nhelp: consider removing `package.homepage`\nwarning: `bat` (manifest) generated 1 warning\n   Compiling bat v0.26.1 (/workspace/bat)\n   Compiling gix v0.86.0\nwarning: unused dependency `clap`\n   --> Cargo.toml:125:21\n    |\n125 | [build-dependencies.clap]\n    |                     ^^^^^\n    |\n    = note: `cargo::unused_dependencies` is set to `warn` by default\nhelp: consider removing the dependency on `clap`\nwarning: `bat` (manifest) generated 1 warning\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.60s\n",
+          "timeout": false
+        },
+        "tests": {
+          "command": [
+            "sh",
+            "-c",
+            "cargo test --locked"
+          ],
+          "exit_code": 101,
+          "stdout": "test result: ok. 147 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s\ntest result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest alias_pager_disable_long_overrides_short ... FAILED\ntest config_read_arguments_from_file ... FAILED\ntest enable_pager_if_pp_flag_comes_before_paging ... FAILED\ntest enable_pager_if_disable_paging_flag_comes_before_paging ... FAILED\ntest env_var_bat_paging ... FAILED\ntest fail_non_existing ... ok\ntest fail_directory ... ok\ntest list_languages ... FAILED\ntest pager_arg_override_env_noconfig ... FAILED\ntest pager_arg_override_env_withconfig ... FAILED\ntest pager_basic_arg ... FAILED\ntest pager_basic ... FAILED\ntest pager_env_pager_nooverride_config ... FAILED\ntest pager_env_bat_pager_override_config ... FAILED\ntest pager_most_from_pager_env_var ... FAILED\ntest pager_most_with_arg ... FAILED\ntest pager_most_from_pager_arg ... FAILED\ntest s_flag_respected_with_paging_always ... FAILED\n...[output trimmed]...\n_line_numbers_with_header_grid_style_flag ... ok\ntest quiet_empty_suppresses_output_on_empty_file ... ok\ntest plain_mode_does_not_add_nonexisting_newline ... ok\ntest plain_with_sized_terminal_width ... ok\ntest quiet_empty_does_not_affect_non_empty_input ... ok\ntest piped_output_with_number_nonblank_flag ... ok\ntest repeated_boolean_flag_is_accepted ... ok\ntest quiet_empty_suppresses_output_on_empty_stdin ... ok\ntest sanitize_preserves_unicode_text ... ok\ntest invalid_fallback_syntax_returns_error ... ok\ntest sanitize_preserves_crlf ... ok\ntest sanitize_preserves_form_feed_in_source ... ok\ntest sanitize_implies_strip_ansi ... ok\ntest plain_without_diff_still_works ... ok\ntest sanitize_strips_8bit_csi ... ok\ntest sanitize_strips_osc_8_hyperlink_spoof ... ok\ntest sanitize_substitutes_bare_cr ... ok\ntest sanitize_substitutes_zero_width ... ok\ntest sanitize_strips_window_title_injection ... ok\ntest sanitize_strips_osc_clipboard_hijack ... ok\ntest show_all_mode ... ok\ntest sanitize_substitutes_bidi_controls ... ok\ntest simple_plain_does_not_override_paging ... FAILED\ntest short_help ... ok\ntest fallback_syntax_is_used_when_no_syntax_is_detected ... ok\ntest show_all_extends_tab_markers_to_next_tabstop ... ok\ntest show_all_extends_tab_markers_to_next_tabstop_width_8 ... ok\ntest show_all_shows_backspace_with_caret_notation ... ok\ntest show_all_with_unicode ... ok\ntest squeeze_blank ... ok\ntest snip ... ok\ntest squeeze_blank_line_numbers ... ok\ntest no_args_doesnt_break ... ok\ntest show_all_with_caret_notation ... ok\ntest stdin ... ok\ntest map_syntax_and_ignored_suffix_work_together ... ok\ntest squeeze_limit ... ok\ntest strip_ansi_never_does_not_strip_ansi ... ok\ntest list_themes_with_colors ... ok\ntest repeated_combined_flags_use_last_number_or_plain_flag ... ok\ntest stdin_to_stdout_cycle ... ok\ntest strip_ansi_always_strips_ansi ... ok\ntest strip_ansi_does_not_affect_simple_printer ... ok\ntest squeeze_limit_line_numbers ... ok\ntest style_components_can_be_overidden ... ok\ntest style_components_can_be_removed ... ok\ntest style_components_will_merge_with_env_var ... ok\ntest short_help_with_highlighting ... ok\ntest ignored_suffix_enables_first_line_detection ... ok\ntest tabs_4_arg_overrides_env ... ok\ntest style_components_will_merge ... ok\ntest style_from_env_var_ignored_and_line_numbers_from_cli_in_loop_through_mode ... ok\ntest tabs_4_env_overrides_config ... ok\ntest tabs_4_arg_overrides_env_noconfig ... ok\ntest tabs_4 ... ok\ntest map_syntax_target_syntax_case_insensitive ... ok\ntest tabs_8_wrapped ... ok\ntest ignored_suffix_arg ... ok\ntest tabs_numbers ... ok\ntest tabs_passthrough ... ok\ntest tabs_4_wrapped ... ok\ntest tabs_8 ... ok\ntest strip_ansi_does_not_strip_when_show_nonprintable ... ok\ntest tabs_passthrough_wrapped ... ok\ntest terminal_width_arg_overrides_env ... ok\ntest theme_arg_overrides_env_withconfig ... ok\ntest theme_dark_env_var_is_respected ... ok\ntest terminal_width_env_var_is_respected ... ok\ntest theme_light_env_var_is_respected ... ok\ntest unbuffered_flag_is_accepted ... ok\ntest snip_at_terminal_width_one_does_not_panic ... ok\ntest unbuffered_mode_disables_line_numbers ... ok\ntest theme_arg_overrides_env ... ok\ntest strip_overstrike_for_manpage_syntax ... ok\ntest strip_ansi_auto_does_not_strip_when_plain_text_by_filename ... ok\ntest unbuffered_mode_plain_output ... ok\ntest theme_env_overrides_config ... ok\ntest version_works_with_invalid_config ... ok\ntest utf16le ... ok\ntest strip_ansi_auto_does_not_strip_ansi_when_plain_text_by_option ... ok\ntest unicode_wrap ... ok\ntest utf16be ... ok\ntest utf16be_first_line_not_merged_with_second ... ok\ntest wrap_never_flag_respected_with_paging_always ... FAILED\ntest utf16 ... ok\ntest pager_more ... FAILED\ntest word_wrap_breaks_at_word_boundaries ... ok\ntest word_wrap_short_line_no_wrap ... ok\ntest word_wrap_with_line_numbers ... ok\ntest strip_ansi_auto_strips_ansi_when_provided_syntax_by_option ... ok\ntest strip_ansi_auto_strips_ansi_when_detected_syntax_by_filename ... ok\ntest strip_overstrike_with_syntax_highlighting ... ok\ntest tcl_shebang_detection_expect ... ok\ntest stdin_detects_bash_from_first_line ... ok\ntest tcl_shebang_detection_tclsh ... ok\ntest tcl_shebang_detection_wish ... ok\ntest stdin_detects_diff_from_first_line ... ok\ntest do_not_panic_regression_tests ... ok\ntest pager_overwrite ... FAILED\ntest pager_most_from_bat_pager_env_var ... FAILED\ntest cache_build ... ok\n\nfailures:\n\n---- alias_pager_disable_long_overrides_short stdout ----\n\nthread 'alias_pager_disable_long_overrides_short' (7377) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n---- config_read_arguments_from_file stdout ----\n\nthread 'config_read_arguments_from_file' (7598) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- enable_pager_if_pp_flag_comes_before_paging stdout ----\n\nthread 'enable_pager_if_pp_flag_comes_before_paging' (7672) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- enable_pager_if_disable_paging_flag_comes_before_paging stdout ----\n\nthread 'enable_pager_if_disable_paging_flag_comes_before_paging' (7671) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- env_var_bat_paging stdout ----\n\nthread 'env_var_bat_paging' (7688) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- list_languages stdout ----\n\nthread 'list_languages' (8055) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_arg_override_env_noconfig stdout ----\n\nthread 'pager_arg_override_env_noconfig' (8232) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_arg_override_env_withconfig stdout ----\n\nthread 'pager_arg_override_env_withconfig' (8236) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_basic_arg stdout ----\n\nthread 'pager_basic_arg' (8245) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_basic stdout ----\n\nthread 'pager_basic' (8242) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_env_pager_nooverride_config stdout ----\n\nthread 'pager_env_pager_nooverride_config' (8255) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_env_bat_pager_override_config stdout ----\n\nthread 'pager_env_bat_pager_override_config' (8254) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_most_from_pager_env_var stdout ----\n\nthread 'pager_most_from_pager_env_var' (8280) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_most_with_arg stdout ----\n\nthread 'pager_most_with_arg' (8284) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_most_from_pager_arg stdout ----\n\nthread 'pager_most_from_pager_arg' (8279) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- s_flag_respected_with_paging_always stdout ----\n\nthread 's_flag_respected_with_paging_always' (8386) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- simple_plain_does_not_override_paging stdout ----\n\nthread 'simple_plain_does_not_override_paging' (8517) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- wrap_never_flag_respected_with_paging_always stdout ----\n\nthread 'wrap_never_flag_respected_with_paging_always' (8857) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_more stdout ----\n\nthread 'pager_more' (8274) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_overwrite stdout ----\n\nthread 'pager_overwrite' (8289) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n---- pager_most_from_bat_pager_env_var stdout ----\n\nthread 'pager_most_from_bat_pager_env_var' (8277) panicked at /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/core/src/ops/function.rs:250:5:\nUnexpected stdout, failed var.contains(I am more)\n\u251c\u2500\u2500 var: \n\u2514\u2500\u2500 var as str: \n\ncommand=`\"more\"`\ncode=0\nstdout=\"\"\nstderr=\"\"\n\n\n\nfailures:\n    alias_pager_disable_long_overrides_short\n    config_read_arguments_from_file\n    enable_pager_if_disable_paging_flag_comes_before_paging\n    enable_pager_if_pp_flag_comes_before_paging\n    env_var_bat_paging\n    list_languages\n    pager_arg_override_env_noconfig\n    pager_arg_override_env_withconfig\n    pager_basic\n    pager_basic_arg\n    pager_env_bat_pager_override_config\n    pager_env_pager_nooverride_config\n    pager_more\n    pager_most_from_bat_pager_env_var\n    pager_most_from_pager_arg\n    pager_most_from_pager_env_var\n    pager_most_with_arg\n    pager_overwrite\n    s_flag_respected_with_paging_always\n    simple_plain_does_not_override_paging\n    wrap_never_flag_respected_with_paging_always\n\ntest result: FAILED. 244 passed; 21 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.38s\n\n",
+          "stderr": "warning: `package.homepage` is redundant with `package.repository`\n --> Cargo.toml:5:12\n  |\n5 | homepage = \"https://github.com/sharkdp/bat\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n8 | repository = \"https://github.com/sharkdp/bat\"\n  |              --------------------------------\n  |\n  = note: `cargo::redundant_homepage` is set to `warn` by default\nhelp: consider removing `package.homepage`\nwarning: `bat` (manifest) generated 1 warning\n Downloading crates ...\n  Downloaded float-cmp v0.10.0\n  Downloaded cfg_aliases v0.2.1\n  Downloaded expect-test v1.5.1\n  Downloaded difflib v0.4.0\n  Downloaded dashmap v5.5.3\n  Downloaded dissimilar v1.0.11\n  Downloaded predicates-tree v1.0.13\n  Downloaded predicates-core v1.0.10\n  Downloaded termtree v0.5.1\n  Downloaded autocfg v1.5.0\n  Downloaded lazy_static v1.5.0\n  Downloaded serial_test_derive v2.0.0\n  Downloaded wait-timeout v0.2.1\n  Downloaded normalize-line-endings v0.3.0\n  Downloaded serial_test v2.0.0\n  Downloaded assert_cmd v2.2.1\n  Downloaded predicates v3.1.4\n  Downloaded num-traits v0.2.19\n  Downloaded nix v0.31.3\n   Compiling libc v0.2.186\n   Compiling serde v1.0.228\n   Compiling autocfg v1.5.0\n   Compiling cfg_aliases v0.2.1\n   Compiling predicates-core v1.0.10\n   Compiling difflib v0.4.0\n   Compiling termtree v0.5.1\n   Compiling normalize-line-endings v0.3.0\n   Compiling assert_cmd v2.2.1\n   Compiling serial_test_derive v2.0.0\n   Compiling lazy_static v1.5.0\n   Compiling dissimilar v1.0.11\n   Compiling nix v0.31.3\n   Compiling predicates-tree v1.0.13\n   Compiling expect-test v1.5.1\n   Compiling num-traits v0.2.19\n   Compiling bat v0.26.1 (/workspace/bat)\n   Compiling plist v1.10.0\n   Compiling bincode v1.3.3\n   Compiling serde_yaml v0.9.34+deprecated\n   Compiling float-cmp v0.10.0\n   Compiling predicates v3.1.4\n   Compiling syntect v5.3.0\n   Compiling parking_lot_core v0.9.12\n   Compiling getrandom v0.4.2\n   Compiling memmap2 v0.9.11\n   Compiling gix-sec v0.14.2\n   Compiling errno v0.3.14\n   Compiling filetime v0.2.29\n   Compiling gix-config-value v0.19.0\n   Compiling mio v1.2.0\n   Compiling sysinfo v0.33.1\n   Compiling terminal-trx v0.2.6\n   Compiling console v0.16.4\n   Compiling grep-cli v0.1.12\n   Compiling wait-timeout v0.2.1\n   Compiling signal-hook-registry v1.4.8\n   Compiling signal-hook v0.3.18\n   Compiling parking_lot v0.12.5\n   Compiling dashmap v6.2.1\n   Compiling dashmap v5.5.3\n   Compiling gix-utils v0.3.5\n   Compiling tempfile v3.27.0\n   Compiling gix-quote v0.7.2\n   Compiling gix-url v0.37.0\n   Compiling prodash v31.0.0\n   Compiling serial_test v2.0.0\n   Compiling signal-hook-mio v0.2.5\n   Compiling gix-command v0.9.1\n   Compiling terminal-colorsaurus v1.0.3\n   Compiling crossterm v0.29.0\n   Compiling gix-features v0.49.0\n   Compiling bugreport v0.6.0\n   Compiling gix-hash v0.26.0\n   Compiling gix-fs v0.22.0\n   Compiling gix-glob v0.27.0\n   Compiling gix-transport v0.58.0\n   Compiling minus v5.7.2\n   Compiling gix-tempfile v24.0.0\n   Compiling gix-hashtable v0.16.0\n   Compiling gix-commitgraph v0.38.0\n   Compiling gix-object v0.63.0\n   Compiling gix-attributes v0.34.0\n   Compiling gix-ignore v0.22.0\n   Compiling gix-lock v24.0.0\n   Compiling gix-shallow v0.13.0\n   Compiling gix-pathspec v0.19.0\n   Compiling gix-revwalk v0.34.0\n   Compiling gix-ref v0.66.0\n   Compiling gix-pack v0.73.0\n   Compiling gix-filter v0.33.0\n   Compiling gix-traverse v0.60.0\n   Compiling gix-revision v0.48.0\n   Compiling gix-refspec v0.44.0\n   Compiling gix-index v0.54.0\n   Compiling gix-config v0.59.0\n   Compiling gix-protocol v0.64.0\n   Compiling gix-discover v0.54.0\n   Compiling gix-odb v0.83.0\n   Compiling gix-worktree v0.55.0\n   Compiling gix-diff v0.66.0\n   Compiling gix-submodule v0.33.0\n   Compiling gix v0.86.0\nwarning: unused dependency `clap`\n   --> Cargo.toml:125:21\n    |\n125 | [build-dependencies.clap]\n    |                     ^^^^^\n    |\n    = note: `cargo::unused_dependencies` is set to `warn` by default\nhelp: consider removing the dependency on `clap`\nwarning: `bat` (manifest) generated 1 warning\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.97s\n     Running unittests src/lib.rs (target/debug/build/bat/66b67f6858f5561e/out/bat-66b67f6858f5561e)\n     Running unittests src/bin/bat/main.rs (target/debug/build/bat/b9a54fc79f5a43a9/out/bat-b9a54fc79f5a43a9)\n     Running tests/assets.rs (target/debug/build/bat/e5937399c5d00810/out/assets-e5937399c5d00810)\n     Running tests/github-actions.rs (target/debug/build/bat/42a296e975bdb84c/out/github_actions-42a296e975bdb84c)\n     Running tests/integration_tests.rs (target/debug/build/bat/61e5700d65e632d6/out/integration_tests-61e5700d65e632d6)\nerror: test failed, to rerun pass `--test integration_tests`\n",
+          "timeout": false
+        }
+      }
+    },
+    {
+      "action": {
+        "action": "run",
+        "command": "chmod +x tests/mocked-pagers/more tests/mocked-pagers/most && ls -la tests/mocked-pagers/",
+        "root": false,
+        "verify": true,
+        "reason": "The mocked pager shell scripts used by integration tests exist but lack execute permissions, causing the system 'more'/'most' binaries to be found via PATH instead and produce empty output. Restore executable bits on these test fixtures so the mocked pagers run and emit their expected 'I am more'/'I am most' output."
+      },
+      "judge": {
+        "approved": true,
+        "reason": "The command sets execute permissions on the mocked pager scripts (more, most) in the tests/mocked-pagers/ directory, which are test fixtures required for the integration tests to function correctly. The observed test failures show that commands like 'more' and 'most' are being invoked but produce empty stdout, and the error messages expect output like 'I am more', indicating these mocked scripts are meant to simulate real pagers. Without execute permissions, the scripts cannot run, causing the tests to fail. This change restores the intended test environment by making the provided mock scripts executable, which is necessary for the tests to pass."
+      },
+      "command_result": {
+        "command": [
+          "sh",
+          "-c",
+          "chmod +x tests/mocked-pagers/more tests/mocked-pagers/most && ls -la tests/mocked-pagers/"
+        ],
+        "exit_code": 0,
+        "stdout": "total 20\ndrwxr-xr-x 1 ubuntu ubuntu  64 Nov 22 19:05 .\ndrwxr-xr-x 1 ubuntu ubuntu 432 Nov  7 19:37 ..\n-rw-r--r-- 1 ubuntu ubuntu   8 Nov  7 19:37 echo.bat\n-rwxr-xr-x 1 ubuntu ubuntu  35 Nov 22 19:05 more\n-rw-r--r-- 1 ubuntu ubuntu  15 Nov 22 19:05 more.bat\n-rwxr-xr-x 1 ubuntu ubuntu  35 Nov 22 19:05 most\n-rw-r--r-- 1 ubuntu ubuntu  15 Nov 22 19:05 most.bat\n",
+        "stderr": "",
+        "timeout": false
+      },
+      "observation": {
+        "app": {
+          "command": [
+            "sh",
+            "-c",
+            "cargo build"
+          ],
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": "warning: `package.homepage` is redundant with `package.repository`\n --> Cargo.toml:5:12\n  |\n5 | homepage = \"https://github.com/sharkdp/bat\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n8 | repository = \"https://github.com/sharkdp/bat\"\n  |              --------------------------------\n  |\n  = note: `cargo::redundant_homepage` is set to `warn` by default\nhelp: consider removing `package.homepage`\nwarning: `bat` (manifest) generated 1 warning\nwarning: unused dependency `clap`\n   --> Cargo.toml:125:21\n    |\n125 | [build-dependencies.clap]\n    |                     ^^^^^\n    |\n    = note: `cargo::unused_dependencies` is set to `warn` by default\nhelp: consider removing the dependency on `clap`\nwarning: `bat` (manifest) generated 1 warning\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s\n",
+          "timeout": false
+        },
+        "tests": {
+          "command": [
+            "sh",
+            "-c",
+            "cargo test --locked"
+          ],
+          "exit_code": 0,
+          "stdout": "test result: ok. 147 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s\ntest result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n...[output trimmed]...\n ... ok\ntest concatenate_empty_between ... ok\ntest concatenate_stdin ... ok\ntest boolean_flag_in_config_and_on_command_line ... ok\ntest concatenate_empty_first_and_last ... ok\ntest concatenate_single_line ... ok\ntest config_location_from_bat_config_dir_variable ... ok\ntest disable_pager_if_disable_paging_flag_comes_after_paging ... ok\ntest empty_file_leads_to_empty_output_with_rule_enabled ... ok\ntest does_not_print_unwanted_file_named_cache ... ok\ntest do_not_exit_directory ... ok\ntest config_location_when_generating ... ok\ntest diagnostic_works_with_invalid_config ... ok\ntest cache_build_blank ... ok\ntest empty_file_cycle_is_ok ... ok\ntest env_var_bat_pager_value_bat ... ok\ntest config_read_arguments_from_file ... ok\ntest env_var_pager_value_bat ... ok\ntest disable_pager_if_pp_flag_comes_after_paging ... ok\ntest ansi_highlight_json_keys ... ok\ntest filename_multiple_err ... ok\ntest fail_non_existing ... ok\ntest fail_directory ... ok\ntest empty_file_leads_to_empty_output_with_grid_enabled ... ok\ntest file_with_invalid_utf8_filename ... ok\ntest filename_stdin_binary ... ok\ntest diff_plain_does_not_show_grid_or_header ... ok\ntest first_file_cyclic_is_ok ... ok\ntest grid_overrides_rule ... ok\ntest header_arg_overrides_env ... ok\ntest header_and_changes_only ... ok\ntest filename_stdin ... ok\ntest header_basic ... ok\ntest filename_multiple_ok ... ok\ntest diff_plain_preserves_change_markers ... ok\ntest grid_for_file_without_newline ... ok\ntest header_env_basic ... ok\ntest header_default ... ok\ntest header_full_binary ... ok\ntest header_default_is_default ... ok\ntest header_binary ... ok\ntest header_full_basic ... ok\ntest header_binary_with_null_after_first_line ... ok\ntest header_narrow_terminal_with_multibyte_chars ... ok\ntest bom_stripped_when_colored_output ... ok\ntest header_padding ... ok\ntest header_very_narrow_terminal ... ok\ntest empty_stdin_does_not_detect_syntax ... ok\ntest header_padding_rule ... ok\ntest header_full_padding_rule ... ok\ntest help_with_color_never ... ok\ntest header_zip_file_is_binary ... ok\ntest help_uses_valid_config ... ok\ntest header_full_padding ... ok\ntest line_range_context_around_single_line ... ok\ntest line_range_2_3 ... ok\ntest line_numbers ... ok\ntest line_range_context_around_range ... ok\ntest line_range_context_around_single_line_minimal ... ok\ntest line_numbers_from_cli_in_loop_through_mode ... ok\ntest line_range_context_at_end_of_file ... ok\ntest line_range_context_negative_single_line ... ok\ntest line_range_context_non_numeric_single_line ... ok\ntest line_range_context_at_file_boundaries ... ok\ntest line_range_context_non_numeric_range ... ok\ntest line_range_context_negative_range ... ok\ntest line_range_first_two ... ok\ntest line_range_context_zero ... ok\ntest line_range_from_back_last_two ... ok\ntest help_works_with_invalid_config ... ok\ntest line_range_from_back_last_two_single_line_no_sep ... ok\ntest line_range_from_back_last_two_single_line_eq_sep ... ok\ntest line_range_last_3 ... ok\ntest binary_stdin_does_not_detect_syntax_from_invalid_utf8_first_line ... ok\ntest line_range_up_to_2_from_back_single_line_is_empty ... ok\ntest line_range_up_to_2_from_back ... ok\ntest line_range_context_very_large ... ok\ntest line_range_multiple_with_context ... ok\ntest line_range_multiple ... ok\ntest line_wrapping_when_auto ... ok\ntest list_themes_without_colors ... ok\ntest list_themes_to_piped_output ... ok\ntest explicit_language_overrides_stdin_first_line_detection ... ok\ntest long_help ... ok\ntest no_line_wrapping_when_set_to_never ... ok\ntest do_not_detect_different_syntax_for_stdin_and_files ... ok\ntest no_pager_arg ... ok\ntest highlighting_is_skipped_on_long_lines ... ok\ntest invalid_fallback_syntax_returns_error ... ok\ntest no_line_wrapping_with_s_flag ... ok\ntest no_paging_arg ... ok\ntest highlighting_independant_from_map_syntax_case ... ok\ntest no_strip_overstrike_for_plain_text ... ok\ntest fallback_syntax_does_not_override_explicit_language ... ok\ntest no_first_line_fallback_when_mapping_to_invalid_syntax ... ok\ntest no_paging_short_arg ... ok\ntest no_wrapping_with_chop_long_lines ... ok\ntest number_nonblank_ignored_when_followed_by_plain ... ok\ntest number_nonblank_from_cli_in_loop_through_mode ... ok\ntest numbers_ignored_from_cli_when_followed_by_plain_in_loop_through_mode ... ok\ntest number_nonblank_style ... ok\ntest option_terminator_keeps_filename_from_number_flags ... ok\ntest long_help_with_highlighting ... ok\ntest fallback_syntax_is_used_when_no_syntax_is_detected ... ok\ntest no_broken_osc_emit_with_line_wrapping ... ok\ntest number_nonblank_takes_precedence_over_number ... ok\ntest numbers_honored_from_cli_when_preceeded_by_plain_in_loop_through_mode ... ok\ntest pager_disable ... ok\ntest pager_failed_to_parse ... ok\ntest fallback_syntax_does_not_override_detected_syntax ... ok\ntest all_global_git_config_locations_syntax_mapping_work ... ok\ntest no_strip_overstrike_for_other_syntax ... ok\ntest map_syntax_target_syntax_case_insensitive ... ok\ntest no_args_doesnt_break ... ok\ntest pager_value_bat ... ok\ntest paging_does_not_override_simple_plain ... ok\ntest list_languages ... ok\ntest list_themes_with_colors ... ok\ntest piped_output_with_auto_style ... ok\ntest piped_output_with_implicit_auto_style ... ok\ntest piped_output_with_default_style_flag ... ok\ntest piped_output_with_line_number_flag ... ok\ntest piped_output_with_line_numbers_style_flag ... ok\ntest piped_output_with_line_numbers_with_header_grid_style_flag ... ok\ntest enable_pager_if_pp_flag_comes_before_paging ... ok\ntest piped_output_with_number_nonblank_flag ... ok\ntest ignored_suffix_enables_first_line_detection ... ok\ntest plain_mode_does_not_add_nonexisting_newline ... ok\ntest plain_with_sized_terminal_width ... ok\ntest quiet_empty_does_not_affect_non_empty_input ... ok\ntest ignored_suffix_arg ... ok\ntest quiet_empty_suppresses_output_on_empty_stdin ... ok\ntest quiet_empty_suppresses_output_on_empty_file ... ok\ntest repeated_boolean_flag_is_accepted ... ok\ntest env_var_bat_paging ... ok\ntest sanitize_implies_strip_ansi ... ok\ntest map_syntax_and_ignored_suffix_work_together ... ok\ntest sanitize_preserves_form_feed_in_source ... ok\ntest sanitize_preserves_crlf ... ok\ntest sanitize_preserves_unicode_text ... ok\ntest plain_without_diff_still_works ... ok\ntest sanitize_strips_8bit_csi ... ok\ntest sanitize_strips_window_title_injection ... ok\ntest sanitize_strips_osc_clipboard_hijack ... ok\ntest sanitize_strips_osc_8_hyperlink_spoof ... ok\ntest sanitize_substitutes_bidi_controls ... ok\ntest sanitize_substitutes_bare_cr ... ok\ntest show_all_extends_tab_markers_to_next_tabstop ... ok\ntest short_help ... ok\ntest sanitize_substitutes_zero_width ... ok\ntest show_all_extends_tab_markers_to_next_tabstop_width_8 ... ok\ntest enable_pager_if_disable_paging_flag_comes_before_paging ... ok\ntest repeated_combined_flags_use_last_number_or_plain_flag ... ok\ntest show_all_mode ... ok\ntest show_all_shows_backspace_with_caret_notation ... ok\ntest squeeze_blank ... ok\ntest show_all_with_unicode ... ok\ntest snip ... ok\ntest squeeze_blank_line_numbers ... ok\ntest show_all_with_caret_notation ... ok\ntest stdin ... ok\ntest stdin_to_stdout_cycle ... ok\ntest squeeze_limit ... ok\ntest strip_ansi_always_strips_ansi ... ok\ntest squeeze_limit_line_numbers ... ok\ntest short_help_with_highlighting ... ok\ntest strip_ansi_auto_does_not_strip_ansi_when_plain_text_by_option ... ok\ntest snip_at_terminal_width_one_does_not_panic ... ok\ntest do_not_panic_regression_tests ... ok\ntest strip_ansi_does_not_affect_simple_printer ... ok\ntest strip_ansi_never_does_not_strip_ansi ... ok\ntest strip_ansi_auto_strips_ansi_when_detected_syntax_by_filename ... ok\ntest strip_ansi_auto_does_not_strip_when_plain_text_by_filename ... ok\ntest strip_ansi_auto_strips_ansi_when_provided_syntax_by_option ... ok\ntest style_components_can_be_overidden ... ok\ntest style_components_will_merge ... ok\ntest style_components_can_be_removed ... ok\ntest stdin_detects_diff_from_first_line ... ok\ntest tabs_4 ... ok\ntest tabs_4_arg_overrides_env ... ok\ntest style_components_will_merge_with_env_var ... ok\ntest style_from_env_var_ignored_and_line_numbers_from_cli_in_loop_through_mode ... ok\ntest strip_ansi_does_not_strip_when_show_nonprintable ... ok\ntest tabs_4_arg_overrides_env_noconfig ... ok\ntest tabs_4_env_overrides_config ... ok\ntest tabs_8_wrapped ... ok\ntest tabs_8 ... ok\ntest tabs_4_wrapped ... ok\ntest tabs_passthrough ... ok\ntest tabs_passthrough_wrapped ... ok\ntest tabs_numbers ... ok\ntest stdin_detects_bash_from_first_line ... ok\ntest strip_overstrike_with_syntax_highlighting ... ok\ntest strip_overstrike_for_manpage_syntax ... ok\ntest theme_arg_overrides_env ... ok\ntest terminal_width_env_var_is_respected ... ok\ntest terminal_width_arg_overrides_env ... ok\ntest theme_arg_overrides_env_withconfig ... ok\ntest theme_dark_env_var_is_respected ... ok\ntest unbuffered_flag_is_accepted ... ok\ntest theme_env_overrides_config ... ok\ntest theme_light_env_var_is_respected ... ok\ntest unbuffered_mode_disables_line_numbers ... ok\ntest unbuffered_mode_plain_output ... ok\ntest unicode_wrap ... ok\ntest utf16le ... ok\ntest utf16be ... ok\ntest utf16be_first_line_not_merged_with_second ... ok\ntest version_works_with_invalid_config ... ok\ntest word_wrap_short_line_no_wrap ... ok\ntest utf16 ... ok\ntest word_wrap_with_line_numbers ... ok\ntest word_wrap_breaks_at_word_boundaries ... ok\ntest wrap_never_flag_respected_with_paging_always ... ok\ntest pager_basic ... ok\ntest tcl_shebang_detection_tclsh ... ok\ntest tcl_shebang_detection_expect ... ok\ntest tcl_shebang_detection_wish ... ok\ntest pager_arg_override_env_withconfig ... ok\ntest pager_basic_arg ... ok\ntest pager_env_bat_pager_override_config ... ok\ntest pager_env_pager_nooverride_config ... ok\ntest pager_missing_warning ... ok\ntest pager_more ... ok\ntest pager_most_from_bat_pager_env_var ... ok\ntest pager_most_from_pager_arg ... ok\ntest pager_most_from_pager_env_var ... ok\ntest pager_most_with_arg ... ok\ntest pager_overwrite ... ok\ntest s_flag_respected_with_paging_always ... ok\ntest simple_plain_does_not_override_paging ... ok\ntest pager_arg_override_env_noconfig ... ok\ntest cache_build ... ok\n\ntest result: ok. 265 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s\n\n\nrunning 1 test\ntest no_duplicate_extensions ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s\n\n\nrunning 27 tests\ntest changes_grid_rule ... ok\ntest changes_header_numbers ... ok\ntest changes_grid_header ... ok\ntest changes_grid_header_numbers ... ok\ntest grid_rule ... ok\ntest grid ... ok\ntest grid_numbers ... ok\ntest header_numbers ... ok\ntest changes_grid_header_numbers_rule ... ok\ntest changes_header_rule ... ok\ntest header ... ok\ntest changes_numbers ... ok\ntest changes_rule ... ok\ntest grid_header ... ok\ntest changes_grid_header_rule ... ok\ntest changes ... ok\ntest changes_header ... ok\ntest grid_header_numbers ... ok\ntest header_rule ... ok\ntest grid_header_rule ... ok\ntest changes_grid_numbers ... ok\ntest changes_grid ... ok\ntest full ... ok\ntest header_numbers_rule ... ok\ntest plain ... ok\ntest rule ... ok\ntest numbers ... ok\n\ntest result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s\n\n\nrunning 2 tests\ntest config_overrides_system_config ... ignored\ntest use_systemwide_config ... ignored\n\ntest result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\ntest syntaxes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s\n\n\nrunning 5 tests\ntest src/vscreen.rs - vscreen::EscapeSequenceIterator (line 676) ... ignored\ntest src/vscreen.rs - vscreen::EscapeSequenceOffsetsIterator (line 355) ... ignored\ntest src/theme.rs - theme::ThemeName (line 125) ... ok\ntest src/theme.rs - theme::ThemePreference (line 61) ... ok\ntest src/lib.rs - (line 12) ... ok\n\ntest result: ok. 3 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.58s\n\n",
+          "stderr": "warning: `package.homepage` is redundant with `package.repository`\n --> Cargo.toml:5:12\n  |\n5 | homepage = \"https://github.com/sharkdp/bat\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n8 | repository = \"https://github.com/sharkdp/bat\"\n  |              --------------------------------\n  |\n  = note: `cargo::redundant_homepage` is set to `warn` by default\nhelp: consider removing `package.homepage`\nwarning: `bat` (manifest) generated 1 warning\nwarning: unused dependency `clap`\n   --> Cargo.toml:125:21\n    |\n125 | [build-dependencies.clap]\n    |                     ^^^^^\n    |\n    = note: `cargo::unused_dependencies` is set to `warn` by default\nhelp: consider removing the dependency on `clap`\nwarning: `bat` (manifest) generated 1 warning\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s\n     Running unittests src/lib.rs (target/debug/build/bat/66b67f6858f5561e/out/bat-66b67f6858f5561e)\n     Running unittests src/bin/bat/main.rs (target/debug/build/bat/b9a54fc79f5a43a9/out/bat-b9a54fc79f5a43a9)\n     Running tests/assets.rs (target/debug/build/bat/e5937399c5d00810/out/assets-e5937399c5d00810)\n     Running tests/github-actions.rs (target/debug/build/bat/42a296e975bdb84c/out/github_actions-42a296e975bdb84c)\n     Running tests/integration_tests.rs (target/debug/build/bat/61e5700d65e632d6/out/integration_tests-61e5700d65e632d6)\n     Running tests/no_duplicate_extensions.rs (target/debug/build/bat/b120bce6a44235b2/out/no_duplicate_extensions-b120bce6a44235b2)\n     Running tests/snapshot_tests.rs (target/debug/build/bat/fce5b4c1ea11093a/out/snapshot_tests-fce5b4c1ea11093a)\n     Running tests/system_wide_config.rs (target/debug/build/bat/03a6904996c6acc9/out/system_wide_config-03a6904996c6acc9)\n     Running tests/test_pretty_printer.rs (target/debug/build/bat/40cfc3b96d7bbe30/out/test_pretty_printer-40cfc3b96d7bbe30)\n   Doc-tests bat\n",
+          "timeout": false
+        }
+      }
+    }
+  ],
+  "diff": "--- a/build/syntax_mapping.rs\n+++ b/build/syntax_mapping.rs\n@@ -47,11 +47,14 @@\n     }\n }\n \n-#[derive(Clone, Debug, PartialEq, Eq, Hash, DeserializeFromStr)]\n+#[derive(Clone, Debug, PartialEq, Eq, Hash)]\n /// A single matcher.\n ///\n /// Codegen converts this into a `Lazy<Option<GlobMatcher>>`.\n-struct Matcher(Vec<MatcherSegment>);\n+struct Matcher {\n+    segments: Vec<MatcherSegment>,\n+    case_sensitive: bool,\n+}\n /// Parse a matcher.\n ///\n /// Note that this implementation is rather strict: it will greedily interpret\n@@ -116,18 +119,85 @@\n             bail!(r#\"Invalid matcher: \"{s}\"\"#);\n         }\n \n-        Ok(Self(non_empty_segments))\n-    }\n-}\n+        Ok(Self {\n+            segments: non_empty_segments,\n+            case_sensitive: false,\n+        })\n+    }\n+}\n+\n+impl<'de> serde::Deserialize<'de> for Matcher {\n+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {\n+        use serde::de::{self, MapAccess, Visitor};\n+        use std::fmt;\n+\n+        struct MatcherVisitor;\n+\n+        impl<'de> Visitor<'de> for MatcherVisitor {\n+            type Value = Matcher;\n+\n+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {\n+                formatter.write_str(\"a glob string or a map with 'glob' and 'case_sensitive'\")\n+            }\n+\n+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {\n+                value.parse().map_err(de::Error::custom)\n+            }\n+\n+            fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {\n+                value.parse().map_err(de::Error::custom)\n+            }\n+\n+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {\n+                let mut glob: Option<String> = None;\n+                let mut case_sensitive: Option<bool> = None;\n+                while let Some(key) = map.next_key::<String>()? {\n+                    match key.as_str() {\n+                        \"glob\" => {\n+                            if glob.is_some() {\n+                                return Err(de::Error::duplicate_field(\"glob\"));\n+                            }\n+                            glob = Some(map.next_value()?);\n+                        }\n+                        \"case_sensitive\" => {\n+                            if case_sensitive.is_some() {\n+                                return Err(de::Error::duplicate_field(\"case_sensitive\"));\n+                            }\n+                            case_sensitive = Some(map.next_value()?);\n+                        }\n+                        other => {\n+                            return Err(de::Error::unknown_field(\n+                                other,\n+                                &[\"glob\", \"case_sensitive\"],\n+                            ));\n+                        }\n+                    }\n+                }\n+                let glob = glob.ok_or_else(|| de::Error::missing_field(\"glob\"))?;\n+                let mut matcher: Matcher = glob.parse().map_err(de::Error::custom)?;\n+                matcher.case_sensitive = case_sensitive.unwrap_or(false);\n+                Ok(matcher)\n+            }\n+        }\n+\n+        deserializer.deserialize_any(MatcherVisitor)\n+    }\n+}\n+\n impl ToTokens for Matcher {\n     fn to_tokens(&self, tokens: &mut TokenStream) {\n-        let t = match self.0.as_slice() {\n+        let case = if self.case_sensitive {\n+            quote! { Case::Sensitive }\n+        } else {\n+            quote! { Case::Insensitive }\n+        };\n+        let t = match self.segments.as_slice() {\n             [] => unreachable!(\"0-length matcher should never be created\"),\n             [MatcherSegment::Text(text)] => {\n-                quote! { Lazy::new(|| Some(build_matcher_fixed(#text))) }\n+                quote! { Lazy::new(|| Some(build_matcher_fixed(#text, #case))) }\n             }\n             // parser logic ensures that this case can only happen when there are dynamic segments\n-            segs @ [_, ..] => quote! { Lazy::new(|| build_matcher_dynamic(&[ #(#segs),* ])) },\n+            segs @ [_, ..] => quote! { Lazy::new(|| build_matcher_dynamic(&[ #(#segs),* ], #case)) },\n         };\n         tokens.append_all(t);\n     }\n",
+  "fixed_files": [
+    "build/syntax_mapping.rs"
+  ],
+  "model_requests": [
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 63882,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 18603,
+        "completion_tokens": 24,
+        "total_tokens": 18627,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 13.37,
+      "request_id": "3276f9f4-3317-42eb-ae97-4490ff13b526",
+      "first_content_seconds": 13.37,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 23.319119,
+        "completion_tokens": 25,
+        "energy_wh": 69.196199,
+        "prompt_tokens": 16955,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 16896
+        },
+        "total_tokens": 16980
+      },
+      "content_chars": 99,
+      "elapsed_seconds": 14.35,
+      "agent_time_used_seconds": 14.35,
+      "agent_time_remaining_seconds": 7185.65
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 27947,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 9956,
+        "completion_tokens": 108,
+        "total_tokens": 10064,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.25,
+      "request_id": "48547f15-391d-4225-acc7-4f23ee56c5fa",
+      "first_reasoning_seconds": 2.25,
+      "first_content_seconds": 5.5,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 20.260398,
+        "completion_tokens": 105,
+        "energy_wh": 60.119874,
+        "prompt_tokens": 8918,
+        "total_tokens": 9023
+      },
+      "content_chars": 174,
+      "elapsed_seconds": 24.79,
+      "agent_time_used_seconds": 39.14,
+      "agent_time_remaining_seconds": 7160.86
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 28155,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 10026,
+        "completion_tokens": 244,
+        "total_tokens": 10270,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.99,
+      "request_id": "a90e6784-a977-4207-926f-31961dbcf57a",
+      "first_reasoning_seconds": 0.99,
+      "first_content_seconds": 7.39,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 5.214315,
+        "completion_tokens": 230,
+        "energy_wh": 15.472744,
+        "prompt_tokens": 8983,
+        "total_tokens": 9213
+      },
+      "content_chars": 300,
+      "elapsed_seconds": 10.22,
+      "agent_time_used_seconds": 49.36,
+      "agent_time_remaining_seconds": 7150.64
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 32240,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 11387,
+        "completion_tokens": 92,
+        "total_tokens": 11479,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.92,
+      "request_id": "3915f863-bb62-41cd-8c2d-8cb8da60b54c",
+      "first_reasoning_seconds": 2.92,
+      "first_content_seconds": 4.37,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 2.42214,
+        "completion_tokens": 91,
+        "energy_wh": 7.187359,
+        "prompt_tokens": 10214,
+        "total_tokens": 10305
+      },
+      "content_chars": 85,
+      "elapsed_seconds": 4.78,
+      "agent_time_used_seconds": 54.14,
+      "agent_time_remaining_seconds": 7145.86
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 47950,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 16926,
+        "completion_tokens": 440,
+        "total_tokens": 17366,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.77,
+      "request_id": "0e09e49f-7265-4fde-86c9-94274e0dbb60",
+      "first_reasoning_seconds": 1.77,
+      "first_content_seconds": 5.37,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 5.948741,
+        "completion_tokens": 440,
+        "energy_wh": 17.65205,
+        "prompt_tokens": 15382,
+        "total_tokens": 15822
+      },
+      "content_chars": 947,
+      "elapsed_seconds": 11.08,
+      "agent_time_used_seconds": 65.21,
+      "agent_time_remaining_seconds": 7134.79
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 19776,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 7372,
+        "completion_tokens": 82,
+        "total_tokens": 7454,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 3.27,
+      "request_id": "36d8d367-516a-41fc-b3af-806cdc0c82a6",
+      "first_content_seconds": 3.27,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 11.164636,
+        "completion_tokens": 84,
+        "energy_wh": 33.129485,
+        "prompt_tokens": 7166,
+        "prompt_tokens_details": {
+          "cached_tokens": 256,
+          "created_cache_tokens": 6784
+        },
+        "total_tokens": 7250
+      },
+      "content_chars": 397,
+      "elapsed_seconds": 6.89,
+      "agent_time_used_seconds": 72.11,
+      "agent_time_remaining_seconds": 7127.89
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 49472,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 17333,
+        "completion_tokens": 442,
+        "total_tokens": 17775,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 4.08,
+      "request_id": "4c466295-6106-4d25-9857-4b155356e458",
+      "first_reasoning_seconds": 4.08,
+      "first_content_seconds": 10.65,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 6.952068,
+        "completion_tokens": 442,
+        "energy_wh": 20.629282,
+        "prompt_tokens": 15783,
+        "total_tokens": 16225
+      },
+      "content_chars": 440,
+      "elapsed_seconds": 13.57,
+      "agent_time_used_seconds": 85.68,
+      "agent_time_remaining_seconds": 7114.32
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 20713,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 7625,
+        "completion_tokens": 118,
+        "total_tokens": 7743,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 4.18,
+      "request_id": "71560deb-29b1-4f55-9fe8-793ab9b0afb6",
+      "first_content_seconds": 4.18,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 16.094248,
+        "completion_tokens": 120,
+        "energy_wh": 47.757413,
+        "prompt_tokens": 7422,
+        "prompt_tokens_details": {
+          "cached_tokens": 256,
+          "created_cache_tokens": 7040
+        },
+        "total_tokens": 7542
+      },
+      "content_chars": 625,
+      "elapsed_seconds": 9.9,
+      "agent_time_used_seconds": 95.58,
+      "agent_time_remaining_seconds": 7104.42
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 50578,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 17605,
+        "completion_tokens": 1283,
+        "total_tokens": 18888,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 4.29,
+      "request_id": "6b86a087-dcaa-41ef-9fee-79872e1e12f6",
+      "first_reasoning_seconds": 4.29,
+      "first_content_seconds": 89.63,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 28.125502,
+        "completion_tokens": 1275,
+        "energy_wh": 83.458464,
+        "prompt_tokens": 16052,
+        "total_tokens": 17327
+      },
+      "content_chars": 341,
+      "elapsed_seconds": 98.71,
+      "agent_time_used_seconds": 194.29,
+      "agent_time_remaining_seconds": 7005.71
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 53115,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 18572,
+        "completion_tokens": 358,
+        "total_tokens": 18930,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.24,
+      "request_id": "29f2c390-710f-4831-9868-41aab50eadd6",
+      "first_reasoning_seconds": 2.24,
+      "first_content_seconds": 9.43,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 3.016075,
+        "completion_tokens": 358,
+        "energy_wh": 8.949778,
+        "prompt_tokens": 16952,
+        "total_tokens": 17310
+      },
+      "content_chars": 323,
+      "elapsed_seconds": 12.49,
+      "agent_time_used_seconds": 206.78,
+      "agent_time_remaining_seconds": 6993.22
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 21702,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 7843,
+        "completion_tokens": 92,
+        "total_tokens": 7935,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 8.25,
+      "request_id": "d5301a2f-5f52-489a-8837-166c4efd3b0f",
+      "first_content_seconds": 8.25,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 20.27346,
+        "completion_tokens": 93,
+        "energy_wh": 60.158635,
+        "prompt_tokens": 7639,
+        "prompt_tokens_details": {
+          "cached_tokens": 7168,
+          "created_cache_tokens": 384
+        },
+        "total_tokens": 7732
+      },
+      "content_chars": 500,
+      "elapsed_seconds": 12.41,
+      "agent_time_used_seconds": 219.19,
+      "agent_time_remaining_seconds": 6980.81
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 39955,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 12955,
+        "completion_tokens": 202,
+        "total_tokens": 13157,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.85,
+      "request_id": "7ea9d521-05ec-460d-89f5-bcb67973a926",
+      "first_reasoning_seconds": 2.85,
+      "first_content_seconds": 5.83,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 1.757424,
+        "completion_tokens": 194,
+        "energy_wh": 5.214908,
+        "prompt_tokens": 11772,
+        "total_tokens": 11966
+      },
+      "content_chars": 215,
+      "elapsed_seconds": 7.09,
+      "agent_time_used_seconds": 226.28,
+      "agent_time_remaining_seconds": 6973.72
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 43617,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 14155,
+        "completion_tokens": 257,
+        "total_tokens": 14412,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 4.03,
+      "request_id": "c82fc51f-16e5-4efc-8440-dae4b43af68c",
+      "first_reasoning_seconds": 4.03,
+      "first_content_seconds": 14.65,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 4.247925,
+        "completion_tokens": 259,
+        "energy_wh": 12.605119,
+        "prompt_tokens": 12798,
+        "total_tokens": 13057
+      },
+      "content_chars": 183,
+      "elapsed_seconds": 16.93,
+      "agent_time_used_seconds": 243.21,
+      "agent_time_remaining_seconds": 6956.79
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 44033,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 14279,
+        "completion_tokens": 160,
+        "total_tokens": 14439,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.12,
+      "request_id": "42fef998-f9ea-409b-b5ab-5198edba2c48",
+      "first_reasoning_seconds": 1.12,
+      "first_content_seconds": 6.82,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 2.155449,
+        "completion_tokens": 157,
+        "energy_wh": 6.395992,
+        "prompt_tokens": 12900,
+        "total_tokens": 13057
+      },
+      "content_chars": 188,
+      "elapsed_seconds": 8.85,
+      "agent_time_used_seconds": 252.06,
+      "agent_time_remaining_seconds": 6947.94
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 44238,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 14344,
+        "completion_tokens": 237,
+        "total_tokens": 14581,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.03,
+      "request_id": "c7b90cef-2b1e-4cab-8f8a-7ced41523274",
+      "first_reasoning_seconds": 1.03,
+      "first_content_seconds": 10.91,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 3.131402,
+        "completion_tokens": 234,
+        "energy_wh": 9.291993,
+        "prompt_tokens": 12955,
+        "total_tokens": 13189
+      },
+      "content_chars": 163,
+      "elapsed_seconds": 12.69,
+      "agent_time_used_seconds": 264.76,
+      "agent_time_remaining_seconds": 6935.24
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 56224,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 17969,
+        "completion_tokens": 1181,
+        "total_tokens": 19150,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.69,
+      "request_id": "0d6bd63c-7275-4b96-b5db-4aa7aa5b88ad",
+      "first_reasoning_seconds": 1.69,
+      "first_content_seconds": 83.23,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 21.802948,
+        "completion_tokens": 1175,
+        "energy_wh": 64.697175,
+        "prompt_tokens": 16296,
+        "total_tokens": 17471
+      },
+      "content_chars": 186,
+      "elapsed_seconds": 85.65,
+      "agent_time_used_seconds": 350.4,
+      "agent_time_remaining_seconds": 6849.6
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 62023,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 19603,
+        "completion_tokens": 1183,
+        "total_tokens": 20786,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.19,
+      "request_id": "495f74be-c839-48ac-a9d9-23f7da44ec71",
+      "first_reasoning_seconds": 2.19,
+      "first_content_seconds": 29.31,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 8.774134,
+        "completion_tokens": 1162,
+        "energy_wh": 26.036007,
+        "prompt_tokens": 17796,
+        "total_tokens": 18958
+      },
+      "content_chars": 568,
+      "elapsed_seconds": 33.75,
+      "agent_time_used_seconds": 384.15,
+      "agent_time_remaining_seconds": 6815.85
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 67763,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 21508,
+        "completion_tokens": 374,
+        "total_tokens": 21882,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.79,
+      "request_id": "35096966-dd2a-4c51-84de-4eb6563f72f3",
+      "first_reasoning_seconds": 1.79,
+      "first_content_seconds": 20.91,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 6.598956,
+        "completion_tokens": 370,
+        "energy_wh": 19.581472,
+        "prompt_tokens": 19503,
+        "total_tokens": 19873
+      },
+      "content_chars": 183,
+      "elapsed_seconds": 22.77,
+      "agent_time_used_seconds": 406.93,
+      "agent_time_remaining_seconds": 6793.07
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 68588,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 21735,
+        "completion_tokens": 498,
+        "total_tokens": 22233,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.28,
+      "request_id": "7c904ef5-05ca-4c5a-9a08-0e41df6a7d74",
+      "first_reasoning_seconds": 1.28,
+      "first_content_seconds": 47.51,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 14.304302,
+        "completion_tokens": 493,
+        "energy_wh": 42.446,
+        "prompt_tokens": 19705,
+        "total_tokens": 20198
+      },
+      "content_chars": 200,
+      "elapsed_seconds": 50.11,
+      "agent_time_used_seconds": 457.04,
+      "agent_time_remaining_seconds": 6742.96
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 68864,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 21800,
+        "completion_tokens": 402,
+        "total_tokens": 22202,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 4.3,
+      "request_id": "99b14c5d-1609-4ef8-b378-f4d7d5ba08ed",
+      "first_reasoning_seconds": 4.3,
+      "first_content_seconds": 25.02,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 7.676779,
+        "completion_tokens": 396,
+        "energy_wh": 22.779759,
+        "prompt_tokens": 19766,
+        "total_tokens": 20162
+      },
+      "content_chars": 186,
+      "elapsed_seconds": 26.82,
+      "agent_time_used_seconds": 483.86,
+      "agent_time_remaining_seconds": 6716.14
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 69126,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 21861,
+        "completion_tokens": 395,
+        "total_tokens": 22256,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 4.24,
+      "request_id": "374aa1c5-c0b7-4675-9052-b3de0d384a87",
+      "first_reasoning_seconds": 4.24,
+      "first_content_seconds": 19.43,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 6.553892,
+        "completion_tokens": 391,
+        "energy_wh": 19.44775,
+        "prompt_tokens": 19823,
+        "total_tokens": 20214
+      },
+      "content_chars": 191,
+      "elapsed_seconds": 21.21,
+      "agent_time_used_seconds": 505.07,
+      "agent_time_remaining_seconds": 6694.93
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 73124,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 23015,
+        "completion_tokens": 560,
+        "total_tokens": 23575,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 4.78,
+      "request_id": "b69803f1-9d80-4a3b-93f4-06fb5a11aa3d",
+      "first_reasoning_seconds": 4.78,
+      "first_content_seconds": 18.88,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 5.829981,
+        "completion_tokens": 549,
+        "energy_wh": 17.299647,
+        "prompt_tokens": 20897,
+        "total_tokens": 21446
+      },
+      "content_chars": 207,
+      "elapsed_seconds": 20.06,
+      "agent_time_used_seconds": 525.13,
+      "agent_time_remaining_seconds": 6674.87
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 85710,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 26693,
+        "completion_tokens": 689,
+        "total_tokens": 27382,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.44,
+      "request_id": "f0ba4058-c0a6-47b1-9bf9-e8ebd7078de2",
+      "first_reasoning_seconds": 2.44,
+      "first_content_seconds": 49.01,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 16.098492,
+        "completion_tokens": 682,
+        "energy_wh": 47.770006,
+        "prompt_tokens": 24267,
+        "total_tokens": 24949
+      },
+      "content_chars": 200,
+      "elapsed_seconds": 50.84,
+      "agent_time_used_seconds": 575.97,
+      "agent_time_remaining_seconds": 6624.03
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 97731,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 30335,
+        "completion_tokens": 852,
+        "total_tokens": 31187,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.82,
+      "request_id": "e0209ac7-b8c3-4461-8b52-653a72b77556",
+      "first_reasoning_seconds": 2.82,
+      "first_content_seconds": 23.66,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 8.317195,
+        "completion_tokens": 817,
+        "energy_wh": 24.680102,
+        "prompt_tokens": 27624,
+        "total_tokens": 28441
+      },
+      "content_chars": 200,
+      "elapsed_seconds": 24.36,
+      "agent_time_used_seconds": 600.33,
+      "agent_time_remaining_seconds": 6599.67
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 97862,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 30371,
+        "completion_tokens": 574,
+        "total_tokens": 30945,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 6.54,
+      "request_id": "0c777a30-c6cc-41a6-b169-5917bba2e48e",
+      "first_reasoning_seconds": 6.54,
+      "first_content_seconds": 27.37,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 10.515436,
+        "completion_tokens": 571,
+        "energy_wh": 31.203074,
+        "prompt_tokens": 27658,
+        "total_tokens": 28229
+      },
+      "content_chars": 191,
+      "elapsed_seconds": 28.84,
+      "agent_time_used_seconds": 629.17,
+      "agent_time_remaining_seconds": 6570.83
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 98026,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 30426,
+        "completion_tokens": 8507,
+        "total_tokens": 38933,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 7.3,
+      "request_id": "d86ba8f0-20f4-4580-9729-5c0d3ce61e80",
+      "first_reasoning_seconds": 7.3,
+      "first_content_seconds": 281.72,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 146.368424,
+        "completion_tokens": 8454,
+        "energy_wh": 434.327667,
+        "prompt_tokens": 27709,
+        "total_tokens": 36163
+      },
+      "content_chars": 9623,
+      "elapsed_seconds": 373.95,
+      "agent_time_used_seconds": 1003.12,
+      "agent_time_remaining_seconds": 6196.88
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 36886,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 9986,
+        "completion_tokens": 148,
+        "total_tokens": 10134,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 3.4,
+      "request_id": "029ec8f9-6c90-416f-b472-47415b35af5e",
+      "first_content_seconds": 3.4,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 17.725385,
+        "completion_tokens": 150,
+        "energy_wh": 52.597581,
+        "prompt_tokens": 9236,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 9216
+        },
+        "total_tokens": 9386
+      },
+      "content_chars": 682,
+      "elapsed_seconds": 10.73,
+      "agent_time_used_seconds": 1013.84,
+      "agent_time_remaining_seconds": 6186.16
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 142341,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 43810,
+        "completion_tokens": 437,
+        "total_tokens": 44247,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 17.65,
+      "request_id": "6910269c-dbd0-4b83-8aa8-97d6e9e71f8c",
+      "first_reasoning_seconds": 17.65,
+      "first_content_seconds": 37.63,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 33.783311,
+        "completion_tokens": 431,
+        "energy_wh": 100.247213,
+        "prompt_tokens": 39639,
+        "total_tokens": 40070
+      },
+      "content_chars": 177,
+      "elapsed_seconds": 38.95,
+      "agent_time_used_seconds": 1052.79,
+      "agent_time_remaining_seconds": 6147.21
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 145797,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 44905,
+        "completion_tokens": 266,
+        "total_tokens": 45171,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.69,
+      "request_id": "a3cb9d1d-f901-4356-8b96-58e517752800",
+      "first_reasoning_seconds": 1.69,
+      "first_content_seconds": 8.02,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 6.975086,
+        "completion_tokens": 266,
+        "energy_wh": 20.697584,
+        "prompt_tokens": 40617,
+        "total_tokens": 40883
+      },
+      "content_chars": 284,
+      "elapsed_seconds": 10.52,
+      "agent_time_used_seconds": 1063.32,
+      "agent_time_remaining_seconds": 6136.68
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 146855,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 45264,
+        "completion_tokens": 347,
+        "total_tokens": 45611,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 11.12,
+      "request_id": "b91e4001-18c5-4eb5-aace-5c4ccdd8e15b",
+      "first_reasoning_seconds": 11.12,
+      "first_content_seconds": 18.05,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 17.19487,
+        "completion_tokens": 347,
+        "energy_wh": 51.023354,
+        "prompt_tokens": 40967,
+        "total_tokens": 41314
+      },
+      "content_chars": 167,
+      "elapsed_seconds": 18.99,
+      "agent_time_used_seconds": 1082.3,
+      "agent_time_remaining_seconds": 6117.7
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 146993,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 45310,
+        "completion_tokens": 2058,
+        "total_tokens": 47368,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 20.46,
+      "request_id": "0985a4c5-4cff-4a5f-b3eb-54ecbbf35743",
+      "first_reasoning_seconds": 20.46,
+      "first_content_seconds": 85.04,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 82.035641,
+        "completion_tokens": 2017,
+        "energy_wh": 243.429202,
+        "prompt_tokens": 41008,
+        "total_tokens": 43025
+      },
+      "content_chars": 475,
+      "elapsed_seconds": 88.18,
+      "agent_time_used_seconds": 1170.48,
+      "agent_time_remaining_seconds": 6029.52
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 30038,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 9224,
+        "completion_tokens": 134,
+        "total_tokens": 9358,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 3.41,
+      "request_id": "9aa4c633-6cf2-4c2d-9324-589b56b1346b",
+      "first_content_seconds": 3.41,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 17.61164,
+        "completion_tokens": 135,
+        "energy_wh": 52.260061,
+        "prompt_tokens": 9256,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 9216
+        },
+        "total_tokens": 9391
+      },
+      "content_chars": 686,
+      "elapsed_seconds": 10.37,
+      "agent_time_used_seconds": 1180.85,
+      "agent_time_remaining_seconds": 6019.15
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 2302,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 502,
+        "completion_tokens": 2206,
+        "total_tokens": 2708,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.73,
+      "request_id": "63a3efce-2a1c-4c41-a163-3c854ef9771a",
+      "first_reasoning_seconds": 0.73,
+      "first_content_seconds": 89.43,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 26.035223,
+        "completion_tokens": 2202,
+        "energy_wh": 77.255855,
+        "prompt_tokens": 482,
+        "total_tokens": 2684
+      },
+      "content_chars": 717,
+      "elapsed_seconds": 96.45,
+      "agent_time_used_seconds": 1277.31,
+      "agent_time_remaining_seconds": 5922.69
+    }
+  ],
+  "repository": {
+    "language": "rust",
+    "build_system": "cargo",
+    "docker_image": "repo-repair/sandbox:latest",
+    "python_requirement": null,
+    "requires_linux": false,
+    "entry": "Cargo.toml",
+    "tests": [
+      "tests/assets.rs",
+      "tests/github-actions.rs",
+      "tests/integration_tests.rs",
+      "tests/no_duplicate_extensions.rs",
+      "tests/snapshot_tests.rs",
+      "tests/snapshots/sample.modified.rs",
+      "tests/snapshots/sample.rs",
+      "tests/syntax-tests/highlighted/Rust/output.rs",
+      "tests/syntax-tests/source/Rust/output.rs",
+      "tests/system_wide_config.rs",
+      "tests/test_pretty_printer.rs",
+      "tests/tester/mod.rs",
+      "tests/utils/command.rs",
+      "tests/utils/mocked_pagers.rs",
+      "tests/utils/mod.rs"
+    ],
+    "test_command": [
+      "sh",
+      "-c",
+      "cargo test --locked"
+    ],
+    "build_command": [
+      "sh",
+      "-c",
+      "cargo build"
+    ],
+    "dependency_command": null
+  },
+  "execution_backend": "docker",
+  "docker": {
+    "image": "repo-repair/sandbox:latest",
+    "availability": {
+      "command": [
+        "docker",
+        "info",
+        "--format",
+        "{{.ServerVersion}}"
+      ],
+      "exit_code": 0,
+      "stdout": "29.9.2\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "image_status": {
+      "command": [
+        "docker",
+        "image",
+        "inspect",
+        "repo-repair/sandbox:latest"
+      ],
+      "exit_code": 0,
+      "stdout": "[\n    {\n        \"Id\": \"sha256:d1f6489e6f42dea63762d231b1bffe98a63ffdc0c2a8ae263772f40235ec0493\",\n        \"RepoTags\": [\n            \"repo-repair/sandbox:latest\"\n        ],\n        \"RepoDigests\": [],\n        \"Comment\": \"buildkit.dockerfile.v0\",\n        \"Created\": \"2026-11-22T13:07:42.90710649-07:00\",\n        \"Config\": {\n            \"Env\": [\n                \"PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n                \"DEBIAN_FRONTEND=noninteractive\",\n                \"GOTOOLCHAIN=auto\",\n                \"RUSTUP_HOME=/usr/local/rustup\",\n                \"CARGO_HOME=/usr/local/cargo\"\n            ],\n            \"Cmd\": [\n                \"/bin/bash\"\n            ],\n            \"Labels\": {\n                \"org.opencontainers.image.created\": \"2026-11-06T10:28:50.132595+00:00\",\n                \"org.opencontainers.image.description\": \"The Ubuntu container image maintained by Canonical\\n\\nUbuntu is a Debian-based Linux operating system that runs from the desktop to the cloud, to all your internet connected things.\\nIt is the world's most popular operating system across public clouds and OpenStack clouds.\\nIt is the number one platform for containers; from Docker to Kubernetes to LXD, Ubuntu can run your containers at scale.\\nFast, secure and simple, Ubuntu powers millions of PCs worldwide.\\n\",\n                \"org.opencontainers.image.title\": \"ubuntu\",\n                \"org.opencontainers.image.version\": \"26.04\"\n            }\n        },\n        \"Architecture\": \"amd64\",\n        \"Os\": \"linux\",\n        \"Size\": 1788912042,\n        \"GraphDriver\": {\n            \"Data\": {\n                \"LowerDir\": \"/var/lib/docker/overlay2/vtg82nvzzc49mn0usl82umyzc/diff:/var/lib/docker/overlay2/426f34cf0f5017c8b0842098f27b0c6bf3acff8f089e858046092b95e524c246/diff:/var/lib/docker/overlay2/f9f449c101e8a3697741d0191ac7f934b9d89c1258a7547ee4d5eb303428f130/diff\",\n                \"MergedDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/merged\",\n                \"UpperDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/diff\",\n                \"WorkDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/work\"\n            },\n            \"Name\": \"overlay2\"\n        },\n        \"RootFS\": {\n            \"Type\": \"layers\",\n            \"Layers\": [\n                \"sha256:2a89eb4dbc78f8fe790775a4e807e1355ba2f6b145c8dd7a267a782df1605124\",\n                \"sha256:758b22fe15be2c330dcead0c1b50476c074e113ec507627c6430337ffc9daa5e\",\n                \"sha256:aa95f818b8f1ac09c37174bbea35afe21fb7b70c9abaa35fc629fb02d4fe2355\",\n                \"sha256:3d7ad3c86345d739bd4c1eedf4255636c820ba417acf760872931797cb40e6f2\"\n            ]\n        },\n        \"Metadata\": {\n            \"LastTagTime\": \"2026-11-22T13:07:46.053991942-07:00\"\n        }\n    }\n]\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "mount_check": {
+      "command": [
+        "test",
+        "-f",
+        "Cargo.toml"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "command_plan": {
+    "dependency_command": null,
+    "build_command": [
+      "sh",
+      "-c",
+      "cargo build"
+    ],
+    "test_command": [
+      "sh",
+      "-c",
+      "cargo test --locked"
+    ]
+  },
+  "environment_setup": {
+    "command": [
+      "true"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "timeout": false
+  },
+  "initial": {
+    "app": {
+      "command": [
+        "sh",
+        "-c",
+        "cargo build"
+      ],
+      "exit_code": 101,
+      "stdout": "",
+      "stderr": "warning: `package.homepage` is redundant with `package.repository`\n --> Cargo.toml:5:12\n  |\n5 | homepage = \"https://github.com/sharkdp/bat\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n8 | repository = \"https://github.com/sharkdp/bat\"\n  |              --------------------------------\n  |\n  = note: `cargo::redundant_homepage` is set to `warn` by default\nhelp: consider removing `package.homepage`\nwarning: `bat` (manifest) generated 1 warning\n    Updating crates.io index\n Downloading crates ...\n  Downloaded time-core v0.1.8\n  Downloaded adler2 v2.0.1\n  Downloaded thiserror-impl v2.0.18\n  Downloaded thiserror v2.0.18\n  Downloaded textwrap v0.16.2\n  Downloaded unicode-bom v2.0.3\n  Downloaded version_check v0.9.5\n  Downloaded wild v2.2.1\n  Downloaded xterm-color v1.0.2\n  Downloaded tinyvec_macros v0.1.1\n  Downloaded block-buffer v0.10.4\n  Downloaded utf8parse v0.2.2\n  Downloaded walkdir v2.5.0\n  Downloaded zmij v1.0.21\n  Downloaded cfg-if v1.0.4\n  Downloaded content_inspector v0.2.4\n  Downloaded bisync_macros v0.2.3\n  Downloaded serde_spanned v1.1.1\n  Downloaded equivalent v1.0.2\n  Downloaded toml_datetime v1.1.1+spec-1.1.0\n  Downloaded time-macros v0.2.27\n  Downloaded toml_writer v1.1.1+spec-1.1.0\n  Downloaded document-features v0.2.12\n  Downloaded defmt-parser v1.0.0\n  Downloaded std_prelude v0.2.12\n  Downloaded bisync v0.3.0\n  Downloaded crypto-common v0.1.7\n  Downloaded git-version-macro v0.3.9\n  Downloaded generic-array v0.14.7\n  Downloaded clap_lex v1.1.0\n  Downloaded darling_macro v0.23.0\n  Downloaded clircle v0.6.1\n  Downloaded fnv v1.0.7\n  Downloaded errno v0.3.14\n  Downloaded anstyle-query v1.1.5\n  Downloaded gix-actor v0.41.2\n  Downloaded gix-diff v0.66.0\n  Downloaded ansi_colours v1.2.3\n  Downloaded fastrand v2.4.1\n  Downloaded anstream v1.0.0\n  Downloaded dashmap v6.2.1\n  Downloaded etcetera v0.11.0\n  Downloaded colorchoice v1.0.5\n  Downloaded yaml-rust v0.4.5\n  Downloaded anstyle v1.0.14\n  Downloaded digest v0.10.7\n  Downloaded filetime v0.2.29\n  Downloaded toml_parser v1.1.2+spec-1.1.0\n  Downloaded scopeguard v1.2.0\n  Downloaded unicode-ident v1.0.24\n  Downloaded tinyvec v1.11.0\n  Downloaded allocator-api2 v0.2.21\n  Downloaded git-version v0.3.9\n  Downloaded cpufeatures v0.2.17\n  Downloaded crossbeam-deque v0.8.6\n  Downloaded foldhash v0.2.0\n  Downloaded bitflags v1.3.2\n  Downloaded faster-hex v0.10.0\n  Downloaded deranged v0.5.8\n  Downloaded bytesize v2.7.0\n  Downloaded find-msvc-tools v0.1.9\n  Downloaded byteorder v1.5.0\n  Downloaded shell-words v1.1.1\n  Downloaded proc-macro-error2 v2.0.1\n  Downloaded console v0.16.4\n  Downloaded toml v1.1.2+spec-1.1.0\n  Downloaded convert_case v0.10.0\n  Downloaded bincode v1.3.3\n  Downloaded bugreport v0.6.0\n  Downloaded clru v0.6.3\n  Downloaded quote v1.0.47\n  Downloaded defmt-macros v1.1.0\n  Downloaded unsafe-libyaml v0.2.11\n  Downloaded bitflags v2.11.1\n  Downloaded crossbeam-utils v0.8.21\n  Downloaded crc32fast v1.5.0\n  Downloaded darling v0.23.0\n  Downloaded anstyle-parse v1.0.0\n  Downloaded defmt v1.1.0\n  Downloaded semver v1.0.28\n  Downloaded clap v4.6.1\n  Downloaded either v1.15.0\n  Downloaded once_cell v1.21.4\n  Downloaded parking_lot_core v0.9.12\n  Downloaded crossbeam-epoch v0.9.20\n  Downloaded getrandom v0.4.2\n  Downloaded bytemuck v1.25.0\n  Downloaded anyhow v1.0.103\n  Downloaded arc-swap v1.9.1\n  Downloaded bytes v1.11.1\n  Downloaded typenum v1.20.0\n  Downloaded crossbeam-channel v0.5.15\n  Downloaded plist v1.10.0\n  Downloaded terminal-trx v0.2.6\n  Downloaded darling_core v0.23.0\n  Downloaded base64 v0.22.1\n  Downloaded cc v1.2.62\n  Downloaded derive_more v2.1.1\n  Downloaded flate2 v1.1.9\n  Downloaded unicode-segmentation v1.13.3\n  Downloaded gix-config-value v0.19.0\n  Downloaded unicode-normalization v0.1.25\n  Downloaded derive_more-impl v2.1.1\n  Downloaded percent-encoding v2.3.2\n  Downloaded powerfmt v0.2.0\n  Downloaded linked-hash-map v0.5.6\n  Downloaded gix-chunk v0.7.3\n  Downloaded proc-macro-error-attr2 v2.0.0\n  Downloaded time v0.3.47\n  Downloaded onig v6.5.3\n  Downloaded crossterm v0.29.0\n  Downloaded aho-corasick v1.1.4\n  Downloaded clap_builder v4.6.0\n  Downloaded prettyplease v0.2.37\n  Downloaded proc-macro2 v1.0.107\n  Downloaded winnow v1.0.2\n  Downloaded regex v1.13.1\n  Downloaded gix-hashtable v0.16.0\n  Downloaded prodash v31.0.0\n  Downloaded zlib-rs v0.6.3\n  Downloaded unicode-width v0.2.2\n  Downloaded sha1 v0.10.6\n  Downloaded simd-adler32 v0.3.9\n  Downloaded gix v0.86.0\n  Downloaded bstr v1.12.1\n  Downloaded rustix v1.1.4\n  Downloaded parking_lot v0.12.5\n  Downloaded signal-hook-mio v0.2.5\n  Downloaded rustc_version v0.4.1\n  Downloaded path_abs v0.5.1\n  Downloaded pkg-config v0.3.33\n  Downloaded gix-command v0.9.1\n  Downloaded gix-ignore v0.22.0\n  Downloaded strsim v0.11.1\n  Downloaded gix-bitmap v0.3.3\n  Downloaded shell-escape v0.1.5\n  Downloaded gix-lock v24.0.0\n  Downloaded gix-utils v0.3.5\n  Downloaded gix-sec v0.14.2\n  Downloaded gix-quote v0.7.2\n  Downloaded stable_deref_trait v1.2.1\n  Downloaded rustversion v1.0.22\n  Downloaded serde_core v1.0.228\n  Downloaded onig_sys v69.9.3\n  Downloaded rayon v1.12.0\n  Downloaded quick-xml v0.41.0\n  Downloaded gix-validate v0.11.3\n  Downloaded gix-trace v0.1.21\n  Downloaded itoa v1.0.18\n  Downloaded gix-shallow v0.13.0\n  Downloaded encoding_rs v0.8.35\n  Downloaded ryu v1.0.23\n  Downloaded serde_derive v1.0.228\n  Downloaded same-file v1.0.6\n  Downloaded rayon-core v1.13.0\n  Downloaded serde v1.0.228\n  Downloaded termcolor v1.4.1\n  Downloaded signal-hook-registry v1.4.8\n  Downloaded gix-packetline v0.22.0\n  Downloaded gix-zlib v0.1.0\n  Downloaded hash32 v0.3.1\n  Downloaded num-conv v0.2.1\n  Downloaded ident_case v1.0.1\n  Downloaded is_terminal_polyfill v1.70.2\n  Downloaded shlex v1.3.0\n  Downloaded gix-features v0.49.0\n  Downloaded gix-date v0.15.6\n  Downloaded gix-hash v0.26.0\n  Downloaded gix-commitgraph v0.38.0\n  Downloaded terminal_size v0.4.4\n  Downloaded gix-revision v0.48.0\n  Downloaded gix-fs v0.22.0\n  Downloaded gix-discover v0.54.0\n  Downloaded gix-pathspec v0.19.0\n  Downloaded gix-refspec v0.44.0\n  Downloaded gix-revwalk v0.34.0\n  Downloaded globset v0.4.20\n  Downloaded serde_with_macros v3.21.0\n  Downloaded smallvec v1.15.1\n  Downloaded terminal-colorsaurus v1.0.3\n  Downloaded gix-error v0.2.5\n  Downloaded gix-tempfile v24.0.0\n  Downloaded gix-worktree-stream v0.35.0\n  Downloaded nu-ansi-term v0.50.3\n  Downloaded gix-glob v0.27.0\n  Downloaded lock_api v0.4.14\n  Downloaded grep-cli v0.1.12\n  Downloaded gix-submodule v0.33.0\n  Downloaded rgb v0.8.53\n  Downloaded gix-worktree v0.55.0\n  Downloaded gix-url v0.37.0\n  Downloaded gix-imara-diff v0.2.4\n  Downloaded gix-attributes v0.34.0\n  Downloaded tempfile v3.27.0\n  Downloaded gix-filter v0.33.0\n  Downloaded nonempty v0.12.0\n  Downloaded serde_yaml v0.9.34+deprecated\n  Downloaded gix-path v0.12.3\n  Downloaded gix-traverse v0.60.0\n  Downloaded litrs v1.0.0\n  Downloaded gix-index v0.54.0\n  Downloaded gix-object v0.63.0\n  Downloaded log v0.4.29\n  Downloaded memmap2 v0.9.11\n  Downloaded signal-hook v0.3.18\n  Downloaded gix-protocol v0.64.0\n  Downloaded gix-odb v0.83.0\n  Downloaded gix-config v0.59.0\n  Downloaded miniz_oxide v0.8.9\n  Downloaded gix-ref v0.66.0\n  Downloaded heapless v0.8.0\n  Downloaded gix-transport v0.58.0\n  Downloaded jiff-static v0.2.29\n  Downloaded mio v1.2.0\n  Downloaded memchr v2.8.0\n  Downloaded indexmap v2.14.1\n  Downloaded gix-pack v0.73.0\n  Downloaded hashbrown v0.16.1\n  Downloaded hashbrown v0.14.5\n  Downloaded hashbrown v0.17.1\n  Downloaded itertools v0.14.0\n  Downloaded serde_json v1.0.149\n  Downloaded sysinfo v0.33.1\n  Downloaded serde_with v3.21.0\n  Downloaded syn v2.0.117\n  Downloaded regex-automata v0.4.18\n  Downloaded minus v5.7.2\n  Downloaded sha1-checked v0.10.0\n  Downloaded jiff v0.2.29\n  Downloaded libc v0.2.186\n  Downloaded syntect v5.3.0\n  Downloaded linux-raw-sys v0.12.1\n  Downloaded regex-syntax v0.8.11\n   Compiling proc-macro2 v1.0.107\n   Compiling libc v0.2.186\n   Compiling memchr v2.8.0\n   Compiling quote v1.0.47\n   Compiling unicode-ident v1.0.24\n   Compiling regex-syntax v0.8.11\n   Compiling cfg-if v1.0.4\n   Compiling thiserror v2.0.18\n   Compiling bitflags v2.11.1\n   Compiling getrandom v0.4.2\n   Compiling parking_lot_core v0.9.12\n   Compiling tinyvec_macros v0.1.1\n   Compiling smallvec v1.15.1\n   Compiling once_cell v1.21.4\n   Compiling scopeguard v1.2.0\n   Compiling gix-trace v0.1.21\n   Compiling fastrand v2.4.1\n   Compiling crc32fast v1.5.0\n   Compiling same-file v1.0.6\n   Compiling equivalent v1.0.2\n   Compiling version_check v0.9.5\n   Compiling typenum v1.20.0\n   Compiling linux-raw-sys v0.12.1\n   Compiling heapless v0.8.0\n   Compiling tinyvec v1.11.0\n   Compiling allocator-api2 v0.2.21\n   Compiling lock_api v0.4.14\n   Compiling walkdir v2.5.0\n   Compiling foldhash v0.2.0\n   Compiling byteorder v1.5.0\n   Compiling stable_deref_trait v1.2.1\n   Compiling itoa v1.0.18\n   Compiling cpufeatures v0.2.17\n   Compiling crossbeam-utils v0.8.21\n   Compiling rustix v1.1.4\n   Compiling jiff v0.2.29\n   Compiling hashbrown v0.14.5\n   Compiling nonempty v0.12.0\n   Compiling hash32 v0.3.1\n   Compiling generic-array v0.14.7\n   Compiling strsim v0.11.1\n   Compiling serde_core v1.0.228\n   Compiling unicode-bom v2.0.3\n   Compiling serde v1.0.228\n   Compiling utf8parse v0.2.2\n   Compiling anstyle-query v1.1.5\n   Compiling unicode-normalization v0.1.25\n   Compiling ident_case v1.0.1\n   Compiling colorchoice v1.0.5\n   Compiling hashbrown v0.17.1\n   Compiling anstyle-parse v1.0.0\n   Compiling log v0.4.29\n   Compiling crossbeam-epoch v0.9.20\n   Compiling is_terminal_polyfill v1.70.2\n   Compiling anstyle v1.0.14\n   Compiling shlex v1.3.0\n   Compiling shell-words v1.1.1\n   Compiling aho-corasick v1.1.4\n   Compiling either v1.15.0\n   Compiling find-msvc-tools v0.1.9\n   Compiling anstream v1.0.0\n   Compiling clap_lex v1.1.0\n   Compiling signal-hook v0.3.18\n   Compiling pkg-config v0.3.33\n   Compiling percent-encoding v2.3.2\n   Compiling rayon-core v1.13.0\n   Compiling cc v1.2.62\n   Compiling unicode-segmentation v1.13.3\n   Compiling rustversion v1.0.22\n   Compiling fnv v1.0.7\n   Compiling faster-hex v0.10.0\n   Compiling hashbrown v0.16.1\n   Compiling winnow v1.0.2\n   Compiling prettyplease v0.2.37\n   Compiling zlib-rs v0.6.3\n   Compiling powerfmt v0.2.0\n   Compiling syn v2.0.117\n   Compiling zmij v1.0.21\n   Compiling anyhow v1.0.103\n   Compiling convert_case v0.10.0\n   Compiling crossbeam-deque v0.8.6\n   Compiling deranged v0.5.8\n   Compiling indexmap v2.14.1\n   Compiling block-buffer v0.10.4\n   Compiling crypto-common v0.1.7\n   Compiling toml_parser v1.1.2+spec-1.1.0\n   Compiling encoding_rs v0.8.35\n   Compiling digest v0.10.7\n   Compiling litrs v1.0.0\n   Compiling sha1 v0.10.6\n   Compiling memmap2 v0.9.11\n   Compiling gix-sec v0.14.2\n   Compiling parking_lot v0.12.5\n   Compiling sha1-checked v0.10.0\n   Compiling dashmap v6.2.1\n   Compiling errno v0.3.14\n   Compiling terminal_size v0.4.4\n   Compiling mio v1.2.0\n   Compiling signal-hook-registry v1.4.8\n   Compiling filetime v0.2.29\n   Compiling clap_builder v4.6.0\n   Compiling prodash v31.0.0\n   Compiling regex-automata v0.4.18\n   Compiling clru v0.6.3\n   Compiling time-core v0.1.8\n   Compiling serde_json v1.0.149\n   Compiling num-conv v0.2.1\n   Compiling simd-adler32 v0.3.9\n   Compiling unicode-width v0.2.2\n   Compiling bisync_macros v0.2.3\n   Compiling toml_writer v1.1.1+spec-1.1.0\n   Compiling adler2 v2.0.1\n   Compiling signal-hook-mio v0.2.5\n   Compiling miniz_oxide v0.8.9\n   Compiling onig_sys v69.9.3\n   Compiling document-features v0.2.12\n   Compiling rayon v1.12.0\n   Compiling arc-swap v1.9.1\n   Compiling itertools v0.14.0\n   Compiling bisync v0.3.0\n   Compiling time v0.3.47\n   Compiling quick-xml v0.41.0\n   Compiling linked-hash-map v0.5.6\n   Compiling bytemuck v1.25.0\n   Compiling base64 v0.22.1\n   Compiling tempfile v3.27.0\n   Compiling serde_spanned v1.1.1\n   Compiling toml_datetime v1.1.1+spec-1.1.0\n   Compiling bugreport v0.6.0\n   Compiling flate2 v1.1.9\n   Compiling rgb v0.8.53\n   Compiling yaml-rust v0.4.5\n   Compiling textwrap v0.16.2\n   Compiling terminal-trx v0.2.6\n   Compiling crossbeam-channel v0.5.15\n   Compiling std_prelude v0.2.12\n   Compiling unsafe-libyaml v0.2.11\n   Compiling toml v1.1.2+spec-1.1.0\n   Compiling xterm-color v1.0.2\n   Compiling ryu v1.0.23\n   Compiling termcolor v1.4.1\n   Compiling shell-escape v0.1.5\n   Compiling terminal-colorsaurus v1.0.3\n   Compiling path_abs v0.5.1\n   Compiling ansi_colours v1.2.3\n   Compiling console v0.16.4\n   Compiling bincode v1.3.3\n   Compiling content_inspector v0.2.4\n   Compiling clircle v0.6.1\n   Compiling etcetera v0.11.0\n   Compiling bytesize v2.7.0\n   Compiling semver v1.0.28\n   Compiling nu-ansi-term v0.50.3\n   Compiling wild v2.2.1\n   Compiling plist v1.10.0\n   Compiling serde_yaml v0.9.34+deprecated\n   Compiling clap v4.6.1\n   Compiling bstr v1.12.1\n   Compiling regex v1.13.1\n   Compiling sysinfo v0.33.1\n   Compiling darling_core v0.23.0\n   Compiling gix-validate v0.11.3\n   Compiling gix-utils v0.3.5\n   Compiling gix-error v0.2.5\n   Compiling gix-imara-diff v0.2.4\n   Compiling globset v0.4.20\n   Compiling thiserror-impl v2.0.18\n   Compiling serde_derive v1.0.228\n   Compiling derive_more-impl v2.1.1\n   Compiling git-version-macro v0.3.9\n   Compiling gix-date v0.15.6\n   Compiling gix-chunk v0.7.3\n   Compiling gix-bitmap v0.3.3\n   Compiling gix-quote v0.7.2\n   Compiling gix-actor v0.41.2\n   Compiling grep-cli v0.1.12\n   Compiling git-version v0.3.9\n   Compiling derive_more v2.1.1\n   Compiling crossterm v0.29.0\n   Compiling gix-path v0.12.3\n   Compiling gix-packetline v0.22.0\n   Compiling gix-zlib v0.1.0\n   Compiling gix-features v0.49.0\n   Compiling gix-command v0.9.1\n   Compiling gix-config-value v0.19.0\n   Compiling gix-url v0.37.0\n   Compiling gix-hash v0.26.0\n   Compiling gix-fs v0.22.0\n   Compiling gix-glob v0.27.0\n   Compiling onig v6.5.3\n   Compiling darling_macro v0.23.0\n   Compiling gix-transport v0.58.0\n   Compiling gix-hashtable v0.16.0\n   Compiling gix-commitgraph v0.38.0\n   Compiling gix-tempfile v24.0.0\n   Compiling gix-object v0.63.0\n   Compiling gix-attributes v0.34.0\n   Compiling gix-ignore v0.22.0\n   Compiling minus v5.7.2\n   Compiling darling v0.23.0\n   Compiling serde_with_macros v3.21.0\n   Compiling gix-lock v24.0.0\n   Compiling gix-shallow v0.13.0\n   Compiling gix-pathspec v0.19.0\n   Compiling syntect v5.3.0\n   Compiling serde_with v3.21.0\n   Compiling gix-revwalk v0.34.0\n   Compiling gix-ref v0.66.0\n   Compiling gix-filter v0.33.0\n   Compiling gix-pack v0.73.0\n   Compiling gix-traverse v0.60.0\n   Compiling gix-revision v0.48.0\n   Compiling gix-refspec v0.44.0\n   Compiling gix-index v0.54.0\n   Compiling gix-config v0.59.0\n   Compiling gix-protocol v0.64.0\n   Compiling gix-discover v0.54.0\n   Compiling bat v0.26.1 (/workspace/bat)\nerror: couldn't find file `build/main.rs`\n\nerror: could not compile `bat` (build script) due to 1 previous error\nwarning: build failed, waiting for other jobs to finish...\n",
+      "timeout": false
+    },
+    "tests": {
+      "command": [
+        "sh",
+        "-c",
+        "cargo test --locked"
+      ],
+      "exit_code": -1,
+      "stdout": "",
+      "stderr": "Not run: the build failed",
+      "timeout": false,
+      "skipped": true
+    }
+  },
+  "explorations": 18,
+  "final": {
+    "app": {
+      "command": [
+        "sh",
+        "-c",
+        "cargo build"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "warning: `package.homepage` is redundant with `package.repository`\n --> Cargo.toml:5:12\n  |\n5 | homepage = \"https://github.com/sharkdp/bat\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n8 | repository = \"https://github.com/sharkdp/bat\"\n  |              --------------------------------\n  |\n  = note: `cargo::redundant_homepage` is set to `warn` by default\nhelp: consider removing `package.homepage`\nwarning: `bat` (manifest) generated 1 warning\nwarning: unused dependency `clap`\n   --> Cargo.toml:125:21\n    |\n125 | [build-dependencies.clap]\n    |                     ^^^^^\n    |\n    = note: `cargo::unused_dependencies` is set to `warn` by default\nhelp: consider removing the dependency on `clap`\nwarning: `bat` (manifest) generated 1 warning\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s\n",
+      "timeout": false
+    },
+    "tests": {
+      "command": [
+        "sh",
+        "-c",
+        "cargo test --locked"
+      ],
+      "exit_code": 0,
+      "stdout": "test result: ok. 147 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s\ntest result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n...[output trimmed]...\n ... ok\ntest concatenate_empty_between ... ok\ntest concatenate_stdin ... ok\ntest boolean_flag_in_config_and_on_command_line ... ok\ntest concatenate_empty_first_and_last ... ok\ntest concatenate_single_line ... ok\ntest config_location_from_bat_config_dir_variable ... ok\ntest disable_pager_if_disable_paging_flag_comes_after_paging ... ok\ntest empty_file_leads_to_empty_output_with_rule_enabled ... ok\ntest does_not_print_unwanted_file_named_cache ... ok\ntest do_not_exit_directory ... ok\ntest config_location_when_generating ... ok\ntest diagnostic_works_with_invalid_config ... ok\ntest cache_build_blank ... ok\ntest empty_file_cycle_is_ok ... ok\ntest env_var_bat_pager_value_bat ... ok\ntest config_read_arguments_from_file ... ok\ntest env_var_pager_value_bat ... ok\ntest disable_pager_if_pp_flag_comes_after_paging ... ok\ntest ansi_highlight_json_keys ... ok\ntest filename_multiple_err ... ok\ntest fail_non_existing ... ok\ntest fail_directory ... ok\ntest empty_file_leads_to_empty_output_with_grid_enabled ... ok\ntest file_with_invalid_utf8_filename ... ok\ntest filename_stdin_binary ... ok\ntest diff_plain_does_not_show_grid_or_header ... ok\ntest first_file_cyclic_is_ok ... ok\ntest grid_overrides_rule ... ok\ntest header_arg_overrides_env ... ok\ntest header_and_changes_only ... ok\ntest filename_stdin ... ok\ntest header_basic ... ok\ntest filename_multiple_ok ... ok\ntest diff_plain_preserves_change_markers ... ok\ntest grid_for_file_without_newline ... ok\ntest header_env_basic ... ok\ntest header_default ... ok\ntest header_full_binary ... ok\ntest header_default_is_default ... ok\ntest header_binary ... ok\ntest header_full_basic ... ok\ntest header_binary_with_null_after_first_line ... ok\ntest header_narrow_terminal_with_multibyte_chars ... ok\ntest bom_stripped_when_colored_output ... ok\ntest header_padding ... ok\ntest header_very_narrow_terminal ... ok\ntest empty_stdin_does_not_detect_syntax ... ok\ntest header_padding_rule ... ok\ntest header_full_padding_rule ... ok\ntest help_with_color_never ... ok\ntest header_zip_file_is_binary ... ok\ntest help_uses_valid_config ... ok\ntest header_full_padding ... ok\ntest line_range_context_around_single_line ... ok\ntest line_range_2_3 ... ok\ntest line_numbers ... ok\ntest line_range_context_around_range ... ok\ntest line_range_context_around_single_line_minimal ... ok\ntest line_numbers_from_cli_in_loop_through_mode ... ok\ntest line_range_context_at_end_of_file ... ok\ntest line_range_context_negative_single_line ... ok\ntest line_range_context_non_numeric_single_line ... ok\ntest line_range_context_at_file_boundaries ... ok\ntest line_range_context_non_numeric_range ... ok\ntest line_range_context_negative_range ... ok\ntest line_range_first_two ... ok\ntest line_range_context_zero ... ok\ntest line_range_from_back_last_two ... ok\ntest help_works_with_invalid_config ... ok\ntest line_range_from_back_last_two_single_line_no_sep ... ok\ntest line_range_from_back_last_two_single_line_eq_sep ... ok\ntest line_range_last_3 ... ok\ntest binary_stdin_does_not_detect_syntax_from_invalid_utf8_first_line ... ok\ntest line_range_up_to_2_from_back_single_line_is_empty ... ok\ntest line_range_up_to_2_from_back ... ok\ntest line_range_context_very_large ... ok\ntest line_range_multiple_with_context ... ok\ntest line_range_multiple ... ok\ntest line_wrapping_when_auto ... ok\ntest list_themes_without_colors ... ok\ntest list_themes_to_piped_output ... ok\ntest explicit_language_overrides_stdin_first_line_detection ... ok\ntest long_help ... ok\ntest no_line_wrapping_when_set_to_never ... ok\ntest do_not_detect_different_syntax_for_stdin_and_files ... ok\ntest no_pager_arg ... ok\ntest highlighting_is_skipped_on_long_lines ... ok\ntest invalid_fallback_syntax_returns_error ... ok\ntest no_line_wrapping_with_s_flag ... ok\ntest no_paging_arg ... ok\ntest highlighting_independant_from_map_syntax_case ... ok\ntest no_strip_overstrike_for_plain_text ... ok\ntest fallback_syntax_does_not_override_explicit_language ... ok\ntest no_first_line_fallback_when_mapping_to_invalid_syntax ... ok\ntest no_paging_short_arg ... ok\ntest no_wrapping_with_chop_long_lines ... ok\ntest number_nonblank_ignored_when_followed_by_plain ... ok\ntest number_nonblank_from_cli_in_loop_through_mode ... ok\ntest numbers_ignored_from_cli_when_followed_by_plain_in_loop_through_mode ... ok\ntest number_nonblank_style ... ok\ntest option_terminator_keeps_filename_from_number_flags ... ok\ntest long_help_with_highlighting ... ok\ntest fallback_syntax_is_used_when_no_syntax_is_detected ... ok\ntest no_broken_osc_emit_with_line_wrapping ... ok\ntest number_nonblank_takes_precedence_over_number ... ok\ntest numbers_honored_from_cli_when_preceeded_by_plain_in_loop_through_mode ... ok\ntest pager_disable ... ok\ntest pager_failed_to_parse ... ok\ntest fallback_syntax_does_not_override_detected_syntax ... ok\ntest all_global_git_config_locations_syntax_mapping_work ... ok\ntest no_strip_overstrike_for_other_syntax ... ok\ntest map_syntax_target_syntax_case_insensitive ... ok\ntest no_args_doesnt_break ... ok\ntest pager_value_bat ... ok\ntest paging_does_not_override_simple_plain ... ok\ntest list_languages ... ok\ntest list_themes_with_colors ... ok\ntest piped_output_with_auto_style ... ok\ntest piped_output_with_implicit_auto_style ... ok\ntest piped_output_with_default_style_flag ... ok\ntest piped_output_with_line_number_flag ... ok\ntest piped_output_with_line_numbers_style_flag ... ok\ntest piped_output_with_line_numbers_with_header_grid_style_flag ... ok\ntest enable_pager_if_pp_flag_comes_before_paging ... ok\ntest piped_output_with_number_nonblank_flag ... ok\ntest ignored_suffix_enables_first_line_detection ... ok\ntest plain_mode_does_not_add_nonexisting_newline ... ok\ntest plain_with_sized_terminal_width ... ok\ntest quiet_empty_does_not_affect_non_empty_input ... ok\ntest ignored_suffix_arg ... ok\ntest quiet_empty_suppresses_output_on_empty_stdin ... ok\ntest quiet_empty_suppresses_output_on_empty_file ... ok\ntest repeated_boolean_flag_is_accepted ... ok\ntest env_var_bat_paging ... ok\ntest sanitize_implies_strip_ansi ... ok\ntest map_syntax_and_ignored_suffix_work_together ... ok\ntest sanitize_preserves_form_feed_in_source ... ok\ntest sanitize_preserves_crlf ... ok\ntest sanitize_preserves_unicode_text ... ok\ntest plain_without_diff_still_works ... ok\ntest sanitize_strips_8bit_csi ... ok\ntest sanitize_strips_window_title_injection ... ok\ntest sanitize_strips_osc_clipboard_hijack ... ok\ntest sanitize_strips_osc_8_hyperlink_spoof ... ok\ntest sanitize_substitutes_bidi_controls ... ok\ntest sanitize_substitutes_bare_cr ... ok\ntest show_all_extends_tab_markers_to_next_tabstop ... ok\ntest short_help ... ok\ntest sanitize_substitutes_zero_width ... ok\ntest show_all_extends_tab_markers_to_next_tabstop_width_8 ... ok\ntest enable_pager_if_disable_paging_flag_comes_before_paging ... ok\ntest repeated_combined_flags_use_last_number_or_plain_flag ... ok\ntest show_all_mode ... ok\ntest show_all_shows_backspace_with_caret_notation ... ok\ntest squeeze_blank ... ok\ntest show_all_with_unicode ... ok\ntest snip ... ok\ntest squeeze_blank_line_numbers ... ok\ntest show_all_with_caret_notation ... ok\ntest stdin ... ok\ntest stdin_to_stdout_cycle ... ok\ntest squeeze_limit ... ok\ntest strip_ansi_always_strips_ansi ... ok\ntest squeeze_limit_line_numbers ... ok\ntest short_help_with_highlighting ... ok\ntest strip_ansi_auto_does_not_strip_ansi_when_plain_text_by_option ... ok\ntest snip_at_terminal_width_one_does_not_panic ... ok\ntest do_not_panic_regression_tests ... ok\ntest strip_ansi_does_not_affect_simple_printer ... ok\ntest strip_ansi_never_does_not_strip_ansi ... ok\ntest strip_ansi_auto_strips_ansi_when_detected_syntax_by_filename ... ok\ntest strip_ansi_auto_does_not_strip_when_plain_text_by_filename ... ok\ntest strip_ansi_auto_strips_ansi_when_provided_syntax_by_option ... ok\ntest style_components_can_be_overidden ... ok\ntest style_components_will_merge ... ok\ntest style_components_can_be_removed ... ok\ntest stdin_detects_diff_from_first_line ... ok\ntest tabs_4 ... ok\ntest tabs_4_arg_overrides_env ... ok\ntest style_components_will_merge_with_env_var ... ok\ntest style_from_env_var_ignored_and_line_numbers_from_cli_in_loop_through_mode ... ok\ntest strip_ansi_does_not_strip_when_show_nonprintable ... ok\ntest tabs_4_arg_overrides_env_noconfig ... ok\ntest tabs_4_env_overrides_config ... ok\ntest tabs_8_wrapped ... ok\ntest tabs_8 ... ok\ntest tabs_4_wrapped ... ok\ntest tabs_passthrough ... ok\ntest tabs_passthrough_wrapped ... ok\ntest tabs_numbers ... ok\ntest stdin_detects_bash_from_first_line ... ok\ntest strip_overstrike_with_syntax_highlighting ... ok\ntest strip_overstrike_for_manpage_syntax ... ok\ntest theme_arg_overrides_env ... ok\ntest terminal_width_env_var_is_respected ... ok\ntest terminal_width_arg_overrides_env ... ok\ntest theme_arg_overrides_env_withconfig ... ok\ntest theme_dark_env_var_is_respected ... ok\ntest unbuffered_flag_is_accepted ... ok\ntest theme_env_overrides_config ... ok\ntest theme_light_env_var_is_respected ... ok\ntest unbuffered_mode_disables_line_numbers ... ok\ntest unbuffered_mode_plain_output ... ok\ntest unicode_wrap ... ok\ntest utf16le ... ok\ntest utf16be ... ok\ntest utf16be_first_line_not_merged_with_second ... ok\ntest version_works_with_invalid_config ... ok\ntest word_wrap_short_line_no_wrap ... ok\ntest utf16 ... ok\ntest word_wrap_with_line_numbers ... ok\ntest word_wrap_breaks_at_word_boundaries ... ok\ntest wrap_never_flag_respected_with_paging_always ... ok\ntest pager_basic ... ok\ntest tcl_shebang_detection_tclsh ... ok\ntest tcl_shebang_detection_expect ... ok\ntest tcl_shebang_detection_wish ... ok\ntest pager_arg_override_env_withconfig ... ok\ntest pager_basic_arg ... ok\ntest pager_env_bat_pager_override_config ... ok\ntest pager_env_pager_nooverride_config ... ok\ntest pager_missing_warning ... ok\ntest pager_more ... ok\ntest pager_most_from_bat_pager_env_var ... ok\ntest pager_most_from_pager_arg ... ok\ntest pager_most_from_pager_env_var ... ok\ntest pager_most_with_arg ... ok\ntest pager_overwrite ... ok\ntest s_flag_respected_with_paging_always ... ok\ntest simple_plain_does_not_override_paging ... ok\ntest pager_arg_override_env_noconfig ... ok\ntest cache_build ... ok\n\ntest result: ok. 265 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s\n\n\nrunning 1 test\ntest no_duplicate_extensions ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s\n\n\nrunning 27 tests\ntest changes_grid_rule ... ok\ntest changes_header_numbers ... ok\ntest changes_grid_header ... ok\ntest changes_grid_header_numbers ... ok\ntest grid_rule ... ok\ntest grid ... ok\ntest grid_numbers ... ok\ntest header_numbers ... ok\ntest changes_grid_header_numbers_rule ... ok\ntest changes_header_rule ... ok\ntest header ... ok\ntest changes_numbers ... ok\ntest changes_rule ... ok\ntest grid_header ... ok\ntest changes_grid_header_rule ... ok\ntest changes ... ok\ntest changes_header ... ok\ntest grid_header_numbers ... ok\ntest header_rule ... ok\ntest grid_header_rule ... ok\ntest changes_grid_numbers ... ok\ntest changes_grid ... ok\ntest full ... ok\ntest header_numbers_rule ... ok\ntest plain ... ok\ntest rule ... ok\ntest numbers ... ok\n\ntest result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s\n\n\nrunning 2 tests\ntest config_overrides_system_config ... ignored\ntest use_systemwide_config ... ignored\n\ntest result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\ntest syntaxes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s\n\n\nrunning 5 tests\ntest src/vscreen.rs - vscreen::EscapeSequenceIterator (line 676) ... ignored\ntest src/vscreen.rs - vscreen::EscapeSequenceOffsetsIterator (line 355) ... ignored\ntest src/theme.rs - theme::ThemeName (line 125) ... ok\ntest src/theme.rs - theme::ThemePreference (line 61) ... ok\ntest src/lib.rs - (line 12) ... ok\n\ntest result: ok. 3 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.58s\n\n",
+      "stderr": "warning: `package.homepage` is redundant with `package.repository`\n --> Cargo.toml:5:12\n  |\n5 | homepage = \"https://github.com/sharkdp/bat\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n...\n8 | repository = \"https://github.com/sharkdp/bat\"\n  |              --------------------------------\n  |\n  = note: `cargo::redundant_homepage` is set to `warn` by default\nhelp: consider removing `package.homepage`\nwarning: `bat` (manifest) generated 1 warning\nwarning: unused dependency `clap`\n   --> Cargo.toml:125:21\n    |\n125 | [build-dependencies.clap]\n    |                     ^^^^^\n    |\n    = note: `cargo::unused_dependencies` is set to `warn` by default\nhelp: consider removing the dependency on `clap`\nwarning: `bat` (manifest) generated 1 warning\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s\n     Running unittests src/lib.rs (target/debug/build/bat/66b67f6858f5561e/out/bat-66b67f6858f5561e)\n     Running unittests src/bin/bat/main.rs (target/debug/build/bat/b9a54fc79f5a43a9/out/bat-b9a54fc79f5a43a9)\n     Running tests/assets.rs (target/debug/build/bat/e5937399c5d00810/out/assets-e5937399c5d00810)\n     Running tests/github-actions.rs (target/debug/build/bat/42a296e975bdb84c/out/github_actions-42a296e975bdb84c)\n     Running tests/integration_tests.rs (target/debug/build/bat/61e5700d65e632d6/out/integration_tests-61e5700d65e632d6)\n     Running tests/no_duplicate_extensions.rs (target/debug/build/bat/b120bce6a44235b2/out/no_duplicate_extensions-b120bce6a44235b2)\n     Running tests/snapshot_tests.rs (target/debug/build/bat/fce5b4c1ea11093a/out/snapshot_tests-fce5b4c1ea11093a)\n     Running tests/system_wide_config.rs (target/debug/build/bat/03a6904996c6acc9/out/system_wide_config-03a6904996c6acc9)\n     Running tests/test_pretty_printer.rs (target/debug/build/bat/40cfc3b96d7bbe30/out/test_pretty_printer-40cfc3b96d7bbe30)\n   Doc-tests bat\n",
+      "timeout": false
+    }
+  },
+  "environment_commands": [
+    {
+      "command": "cd /workspace/bat && tar -xzf /tmp/bat.crate --strip-components=1 'bat-0.26.1/build/' && ls -la build/",
+      "root": false
+    },
+    {
+      "command": "chmod +x tests/mocked-pagers/more tests/mocked-pagers/most && ls -la tests/mocked-pagers/",
+      "root": false
+    }
+  ],
+  "steps_to_run": "Run these commands from the repository root.\n\n1. Copy the files from fixed_files into the same paths in your repository.\n2. Prepare the environment: cd /workspace/bat && tar -xzf /tmp/bat.crate --strip-components=1 'bat-0.26.1/build/' && ls -la build/\n3. Prepare the environment: chmod +x tests/mocked-pagers/more tests/mocked-pagers/most && ls -la tests/mocked-pagers/\n4. Build: sh -c cargo build\n5. Run the tests: sh -c cargo test --locked",
+  "steps_source": "fallback",
+  "metrics": {
+    "wall_clock_seconds": 1317.11,
+    "model_api_seconds": 1277.31,
+    "model_request_count": 33,
+    "token_usage": {
+      "source": "tiktoken_cl100k_base_estimate",
+      "available": true,
+      "prompt_tokens": 663298,
+      "completion_tokens": 24950,
+      "total_tokens": 688248
+    },
+    "token_usage_by_agent": {
+      "fixer": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "available": true,
+        "prompt_tokens": 602645,
+        "completion_tokens": 24352,
+        "total_tokens": 626997
+      },
+      "judge": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "available": true,
+        "prompt_tokens": 60653,
+        "completion_tokens": 598,
+        "total_tokens": 61251
+      }
+    },
+    "correct_repair_rate": {
+      "correct_repairs": 1,
+      "evaluated_runs": 1,
+      "percentage": 100.0
+    }
+  },
+  "agent_log_file": "agent_logs.json"
+}

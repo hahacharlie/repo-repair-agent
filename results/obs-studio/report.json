@@ -1,0 +1,993 @@
+{
+  "status": "execution_only",
+  "reason": "Execution passed; functionality not verified (no tests detected)",
+  "pipeline": "proposed",
+  "history": [
+    {
+      "action": {
+        "action": "run",
+        "command": "apt-get update && apt-get install -y extra-cmake-modules",
+        "root": true,
+        "verify": true,
+        "reason": "CMake configuration fails because the ECM (Extra CMake Modules) package is missing. Installing the Debian/Ubuntu package that provides ECMConfig.cmake."
+      },
+      "judge": {
+        "approved": true,
+        "reason": "The command installs the 'extra-cmake-modules' package, which provides the missing ECMConfig.cmake file required by CMake. This is a system dependency needed for configuring the build and matches the error indicating that the ECM package could not be found. The command runs with root privileges as required and does not modify existing source files."
+      },
+      "command_result": {
+        "command": [
+          "sh",
+          "-c",
+          "apt-get update && apt-get install -y extra-cmake-modules"
+        ],
+        "exit_code": 0,
+        "stdout": "Get:1 http://security.ubuntu.com/ubuntu resolute-security InRelease [137 kB]\nGet:2 http://archive.ubuntu.com/ubuntu resolute InRelease [136 kB]\nGet:3 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Packages [885 kB]\nGet:4 http://archive.ubuntu.com/ubuntu resolute-updates InRelease [137 kB]\nGet:5 http://archive.ubuntu.com/ubuntu resolute-backports InRelease [137 kB]\nGet:6 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 Packages [278 kB]\nGet:7 http://archive.ubuntu.com/ubuntu resolute/universe amd64 Packages [20.1 MB]\nGet:8 http://security.ubuntu.com/ubuntu resolute-security/multiverse amd64 Packages [24.6 kB]\nGet:9 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 Packages [723 kB]\nGet:10 http://archive.ubuntu.com/ubuntu resolute/multiverse amd64 Packages [352 kB]\nGet:11 http://archive.ubuntu.com/ubuntu resolute/main amd64 Packages [1874 kB]\nGet:12 http://archive.ubuntu.com/ubuntu resolute/restricted amd64 Packages [189 kB]\nGet:13 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 Packages [773 kB]\nGet:14 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Packages [1110 kB]\nGet:15 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 Packages [26.1 kB]\nGet:16 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 Packages [497 kB]\nGet:17 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 Packages [3308 B]\nFetched 27.4 MB in 7s (4200 kB/s)\nReading package lists...\nReading package lists...\nBuilding dependency tree...\nReading state information...\nSolving dependencies...\nSuggested packages:\n  qt6-base-dev\nThe following NEW packages will be installed:\n  extra-cmake-modules\n0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.\nNeed to get 215 kB of archives.\nAfter this operation, 884 kB of additional disk space will be used.\nGet:1 http://archive.ubuntu.com/ubuntu resolute/universe amd64 extra-cmake-modules amd64 6.24.0-0ubuntu1 [215 kB]\nFetched 215 kB in 1s (394 kB/s)\nSelecting previously unselected package extra-cmake-modules.\n(Reading database ... \n(Reading database ... 5%\n(Reading database ... 10%\n(Reading database ... 15%\n(Reading database ... 20%\n(Reading database ... 25%\n(Reading database ... 30%\n(Reading database ... 35%\n(Reading database ... 40%\n(Reading database ... 45%\n(Reading database ... 50%\n(Reading database ... 55%\n(Reading database ... 60%\n(Reading database ... 65%\n(Reading database ... 70%\n(Reading database ... 75%\n(Reading database ... 80%\n(Reading database ... 85%\n(Reading database ... 90%\n(Reading database ... 95%\n(Reading database ... 100%\n(Reading database ... 41355 files and directories currently installed.)\nPreparing to unpack .../extra-cmake-modules_6.24.0-0ubuntu1_amd64.deb ...\nUnpacking extra-cmake-modules (6.24.0-0ubuntu1) ...\nSetting up extra-cmake-modules (6.24.0-0ubuntu1) ...\n",
+        "stderr": "",
+        "timeout": false
+      },
+      "observation": {
+        "app": {
+          "command": [
+            "sh",
+            "-c",
+            "cmake -S . -B build && cmake --build build"
+          ],
+          "exit_code": 1,
+          "stdout": "-- Checking for interprocedural optimization support\n-- Checking for interprocedural optimization support - enabled [Release, MinSizeRel]\n-- Configuring incomplete, errors occurred!\n",
+          "stderr": "CMake Warning (dev) at cmake/finders/FindSIMDe.cmake:66 (message):\n  Failed to find SIMD Everywhere version.\nCall Stack (most recent call first):\n  libobs/CMakeLists.txt:12 (find_package)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Error at /usr/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake:290 (message):\n  Could NOT find SIMDe (missing: SIMDe_INCLUDE_DIR) (found version \"0.0.0\")\n\n      Reason given by package: Ensure SIMD Everywhere is available in local library paths.\n\nCall Stack (most recent call first):\n  /usr/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake:654 (_FPHSA_FAILURE_MESSAGE)\n  cmake/finders/FindSIMDe.cmake:77 (find_package_handle_standard_args)\n  libobs/CMakeLists.txt:12 (find_package)\n\n\n",
+          "timeout": false
+        },
+        "tests": {
+          "command": [
+            "sh",
+            "-c",
+            "ctest --test-dir build --output-on-failure"
+          ],
+          "exit_code": -1,
+          "stdout": "",
+          "stderr": "Not run: the build failed",
+          "timeout": false,
+          "skipped": true
+        }
+      }
+    },
+    {
+      "action": {
+        "action": "run",
+        "command": "apt-get update && apt-get install -y libsimde-dev",
+        "root": true,
+        "verify": true,
+        "reason": "CMake configuration fails because SIMDe (SIMD Everywhere) headers are missing. Installing the libsimde-dev package provides the simde/simde-common.h header required by FindSIMDe.cmake."
+      },
+      "judge": {
+        "approved": true,
+        "reason": "The command installs the 'libsimde-dev' package, which provides the missing SIMDe headers (including simde/simde-common.h) required by the FindSIMDe.cmake script during CMake configuration. This is a system-level dependency needed to build the project and directly addresses the error 'Could NOT find SIMDe (missing: SIMDe_INCLUDE_DIR)'. The command runs with root privileges as required and does not modify existing source files."
+      },
+      "command_result": {
+        "command": [
+          "sh",
+          "-c",
+          "apt-get update && apt-get install -y libsimde-dev"
+        ],
+        "exit_code": 0,
+        "stdout": "Hit:1 http://archive.ubuntu.com/ubuntu resolute InRelease\nHit:2 http://security.ubuntu.com/ubuntu resolute-security InRelease\nHit:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease\nHit:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease\nReading package lists...\nReading package lists...\nBuilding dependency tree...\nReading state information...\nSolving dependencies...\nThe following NEW packages will be installed:\n  libsimde-dev\n0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.\nNeed to get 469 kB of archives.\nAfter this operation, 8583 kB of additional disk space will be used.\nGet:1 http://archive.ubuntu.com/ubuntu resolute/universe amd64 libsimde-dev all 0.8.2-3 [469 kB]\nFetched 469 kB in 1s (427 kB/s)\nSelecting previously unselected package libsimde-dev.\n(Reading database ... \n(Reading database ... 5%\n(Reading database ... 10%\n(Reading database ... 15%\n(Reading database ... 20%\n(Reading database ... 25%\n(Reading database ... 30%\n(Reading database ... 35%\n(Reading database ... 40%\n(Reading database ... 45%\n(Reading database ... 50%\n(Reading database ... 55%\n(Reading database ... 60%\n(Reading database ... 65%\n(Reading database ... 70%\n(Reading database ... 75%\n(Reading database ... 80%\n(Reading database ... 85%\n(Reading database ... 90%\n(Reading database ... 95%\n(Reading database ... 100%\n(Reading database ... 41505 files and directories currently installed.)\nPreparing to unpack .../libsimde-dev_0.8.2-3_all.deb ...\nUnpacking libsimde-dev (0.8.2-3) ...\nSetting up libsimde-dev (0.8.2-3) ...\n",
+        "stderr": "",
+        "timeout": false
+      },
+      "observation": {
+        "app": {
+          "command": [
+            "sh",
+            "-c",
+            "cmake -S . -B build && cmake --build build"
+          ],
+          "exit_code": 1,
+          "stdout": "-- Checking for interprocedural optimization support\n-- Checking for interprocedural optimization support - enabled [Release, MinSizeRel]\n-- Found SIMDe: /usr/include (found version \"0.8.2\")\n-- Performing Test CMAKE_HAVE_LIBC_PTHREAD\n-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success\n-- Found Threads: TRUE\n-- Configuring incomplete, errors occurred!\n",
+          "stderr": "CMake Warning (dev) at cmake/finders/FindFFmpeg.cmake:235 (message):\n  Failed to find avformat version.\nCall Stack (most recent call first):\n  cmake/finders/FindFFmpeg.cmake:146 (ffmpeg_check_version)\n  cmake/finders/FindFFmpeg.cmake:276 (ffmpeg_find_component)\n  libobs/CMakeLists.txt:15 (find_package)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at cmake/finders/FindFFmpeg.cmake:235 (message):\n  Failed to find avutil version.\nCall Stack (most recent call first):\n  cmake/finders/FindFFmpeg.cmake:146 (ffmpeg_check_version)\n  cmake/finders/FindFFmpeg.cmake:276 (ffmpeg_find_component)\n  libobs/CMakeLists.txt:15 (find_package)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at cmake/finders/FindFFmpeg.cmake:235 (message):\n  Failed to find swscale version.\nCall Stack (most recent call first):\n  cmake/finders/FindFFmpeg.cmake:146 (ffmpeg_check_version)\n  cmake/finders/FindFFmpeg.cmake:276 (ffmpeg_find_component)\n  libobs/CMakeLists.txt:15 (find_package)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at cmake/finders/FindFFmpeg.cmake:235 (message):\n  Failed to find swresample version.\nCall Stack (most recent call first):\n  cmake/finders/FindFFmpeg.cmake:146 (ffmpeg_check_version)\n  cmake/finders/FindFFmpeg.cmake:276 (ffmpeg_find_component)\n  libobs/CMakeLists.txt:15 (find_package)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at cmake/finders/FindFFmpeg.cmake:235 (message):\n  Failed to find avcodec version.\nCall Stack (most recent call first):\n  cmake/finders/FindFFmpeg.cmake:146 (ffmpeg_check_version)\n  cmake/finders/FindFFmpeg.cmake:276 (ffmpeg_find_component)\n  libobs/CMakeLists.txt:15 (find_package)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at cmake/finders/FindFFmpeg.cmake:235 (message):\n  Failed to find avutil version.\nCall Stack (most recent call first):\n  cmake/finders/FindFFmpeg.cmake:146 (ffmpeg_check_version)\n  cmake/finders/FindFFmpeg.cmake:287 (ffmpeg_find_component)\n  libobs/CMakeLists.txt:15 (find_package)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Error at /usr/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake:290 (message):\n  Could NOT find FFmpeg (missing: FFmpeg_LIBRARIES FFmpeg_INCLUDE_DIRS\n  avformat avutil swscale swresample) (Required is at least version \"8.0\")\n\n      Reason given by package: Ensure that required FFmpeg libraries are installed on the system.\n\nCall Stack (most recent call first):\n  /usr/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake:654 (_FPHSA_FAILURE_MESSAGE)\n  cmake/finders/FindFFmpeg.cmake:309 (find_package_handle_standard_args)\n  libobs/CMakeLists.txt:15 (find_package)\n\n\n",
+          "timeout": false
+        },
+        "tests": {
+          "command": [
+            "sh",
+            "-c",
+            "ctest --test-dir build --output-on-failure"
+          ],
+          "exit_code": -1,
+          "stdout": "",
+          "stderr": "Not run: the build failed",
+          "timeout": false,
+          "skipped": true
+        }
+      }
+    },
+    {
+      "action": {
+        "action": "run",
+        "command": "apt-get update && apt-get install -y --no-install-recommends build-essential libglib2.0-dev extra-cmake-modules lsb-release dh-cmake libcurl4-openssl-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libjansson-dev libx11-xcb-dev libgles2-mesa-dev libwayland-dev libpipewire-0.3-dev libpulse-dev libx264-dev libmbedtls-dev libgl1-mesa-dev uthash-dev libsimde-dev libluajit-5.1-dev python3-dev libx11-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xinerama0-dev libxcb-composite0-dev libxinerama-dev libxcb1-dev libx11-xcb-dev libxcb-xfixes0-dev swig libcmocka-dev libxss-dev libglvnd-dev libxkbcommon-dev libatk1.0-dev libatk-bridge2.0-dev libxcomposite-dev libxdamage-dev libasound2-dev libfdk-aac-dev libfontconfig-dev libfreetype6-dev libjack-jackd2-dev libpulse-dev libsndio-dev libspeexdsp-dev libudev-dev libv4l-dev libva-dev libvlc-dev libpci-dev libdrm-dev nlohmann-json3-dev libwebsocketpp-dev libasio-dev libqrcodegencpp-dev libffmpeg-nvenc-dev librist-dev libsrt-openssl-dev qt6-base-dev libqt6svg6-dev qt6-base-private-dev libvpl-dev libvpl2",
+        "root": true,
+        "reason": "CMake configuration fails because FFmpeg libraries and other build dependencies are missing. Installing the complete set of dependencies documented in .github/scripts/utils.zsh/setup_ubuntu to satisfy the CMake find modules.",
+        "verify": true
+      },
+      "judge": {
+        "approved": true,
+        "reason": "The command installs a comprehensive set of system-level development packages required for building the project, including libavcodec-dev, libavformat-dev, libavutil-dev, libswscale-dev, and libswresample-dev, which directly address the missing FFmpeg components (avformat, avutil, swscale, swresample) reported in the CMake error. The project uses CMake as its build system and depends on these native libraries. Installing these packages via apt-get with root privileges is appropriate and does not modify existing source files. While the command installs many packages beyond FFmpeg, they are all build dependencies listed in the project's documentation (referenced in the reason) and are necessary for a complete build environment. This action prepares the environment for the observed failure and aligns with the allowed scope of installing system packages."
+      },
+      "command_result": {
+        "command": [
+          "sh",
+          "-c",
+          "apt-get update && apt-get install -y --no-install-recommends build-essential libglib2.0-dev extra-cmake-modules lsb-release dh-cmake libcurl4-openssl-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libjansson-dev libx11-xcb-dev libgles2-mesa-dev libwayland-dev libpipewire-0.3-dev libpulse-dev libx264-dev libmbedtls-dev libgl1-mesa-dev uthash-dev libsimde-dev libluajit-5.1-dev python3-dev libx11-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xinerama0-dev libxcb-composite0-dev libxinerama-dev libxcb1-dev libx11-xcb-dev libxcb-xfixes0-dev swig libcmocka-dev libxss-dev libglvnd-dev libxkbcommon-dev libatk1.0-dev libatk-bridge2.0-dev libxcomposite-dev libxdamage-dev libasound2-dev libfdk-aac-dev libfontconfig-dev libfreetype6-dev libjack-jackd2-dev libpulse-dev libsndio-dev libspeexdsp-dev libudev-dev libv4l-dev libva-dev libvlc-dev libpci-dev libdrm-dev nlohmann-json3-dev libwebsocketpp-dev libasio-dev libqrcodegencpp-dev libffmpeg-nvenc-dev librist-dev libsrt-openssl-dev qt6-base-dev libqt6svg6-dev qt6-base-private-dev libvpl-dev libvpl2"
+        ],
+        "exit_code": 0,
+        "stdout": "kbcommon0:amd64 (1.13.1-1) ...\nSetting up libwayland-client0:amd64 (1.24.0-2) ...\nSetting up libjpeg8:amd64 (8c-2ubuntu12) ...\nSetting up x11proto-dev (2025.1-1) ...\nSetting up libavc1394-0:amd64 (0.5.4-5build4) ...\nSetting up libfile-stripnondeterminism-perl (1.15.0-1build1) ...\nSetting up bubblewrap (0.11.1-1ubuntu0.3) ...\nSetting up libxcb-dri3-0:amd64 (1.17.0-2ubuntu1) ...\nSetting up libblkid-dev:amd64 (2.41.3-3ubuntu2.2) ...\nSetting up libx11-xcb1:amd64 (2:1.8.13-1ubuntu0.1) ...\nSetting up libice6:amd64 (2:1.1.1-1build1) ...\nSetting up libqt6core6t64:amd64 (6.10.2+dfsg-7) ...\nSetting up libjpeg-turbo8-dev:amd64 (2.1.5-4ubuntu4) ...\nSetting up libgio-2.0-dev-bin (2.88.0-1ubuntu0.1) ...\nSetting up libproxy1v5:amd64 (0.5.12-1) ...\nSetting up libvulkan-dev:amd64 (1.4.341.0-1) ...\nSetting up libsndio-dev:amd64 (1.10.0-0.2) ...\nSetting up libqt6test6:amd64 (6.10.2+dfsg-7) ...\nSetting up libcjson-dev:amd64 (1.7.19-2) ...\nSetting up libxdamage1:amd64 (1:1.1.7-1) ...\nSetting up libpciaccess-dev:amd64 (0.18.1-1ubuntu4.1) ...\nSetting up libgmp-dev:amd64 (2:6.3.0+dfsg-5ubuntu2) ...\nSetting up libpython3-dev:amd64 (3.14.3-0ubuntu2) ...\nSetting up libatk1.0-0t64:amd64 (2.60.4-0ubuntu0.1) ...\nSetting up libzmq5:amd64 (4.3.5-1build3) ...\nSetting up libxau-dev:amd64 (1:1.0.11-1build2) ...\nSetting up libv4lconvert0t64:amd64 (1.32.0-2ubuntu1) ...\nSetting up libpcre2-dev:amd64 (10.46-1ubuntu0.1) ...\nSetting up libzvbi0t64:amd64 (0.2.44-1ubuntu2) ...\nSetting up nettle-dev:amd64 (3.10.2-1) ...\nSetting up libxrender1:amd64 (1:0.9.12-1build1) ...\nSetting up libkdb5-10t64:amd64 (1.22.1-2ubuntu4.1) ...\nSetting up python3.14-dev (3.14.4-1ubuntu0.2) ...\nSetting up libevdev-dev:amd64 (1.13.6+dfsg-1) ...\nSetting up libgirepository-2.0-0:amd64 (2.88.0-1ubuntu0.1) ...\nSetting up gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...\nSetting up libwacom9:amd64 (2.18.0-1) ...\nSetting up libmtdev-dev:amd64 (1.1.7-1build1) ...\nSetting up fontconfig-config (2.17.1-3ubuntu1) ...\nSetting up po-debconf (1.0.22) ...\nSetting up libxkbcommon-dev:amd64 (1.13.1-1) ...\nSetting up libpng-dev:amd64 (1.6.57-1ubuntu0.1) ...\nSetting up libspeexdsp-dev:amd64 (1.2.1-3build1) ...\nSetting up libavahi-common3:amd64 (0.8-18ubuntu1.1) ...\nSetting up libxext6:amd64 (2:1.3.4-1build3) ...\nSetting up libglib2.0-bin (2.88.0-1ubuntu0.1) ...\nSetting up libvlc5:amd64 (3.0.23-1) ...\nSetting up libopenal1:amd64 (1:1.25.1-2) ...\nSetting up libluajit-5.1-2:amd64 (2.1.0+openresty20251030-1) ...\nSetting up libxxf86vm1:amd64 (1:1.1.4-2) ...\nSetting up libinput-bin (1.31.1-1ubuntu1.2) ...\nSetting up librist4:amd64 (0.2.11+dfsg-1build1) ...\nSetting up dh-autoreconf (21+nmu1) ...\nSetting up libthai0:amd64 (0.1.30-1) ...\nSetting up libvorbisfile3:amd64 (1.3.7-3build2) ...\nSetting up libxdmcp-dev:amd64 (1:1.1.5-2) ...\nSetting up libmbedx509-7:amd64 (3.6.5-0.1ubuntu2) ...\nSetting up libqt6xml6:amd64 (6.10.2+dfsg-7) ...\nSetting up libfreetype6:amd64 (2.14.2+dfsg-1ubuntu0.2) ...\nSetting up libqt6sql6:amd64 (6.10.2+dfsg-7) ...\nSetting up libxfixes3:amd64 (1:6.0.0-2build2) ...\nSetting up python3-dev (3.14.3-0ubuntu2) ...\nSetting up gir1.2-gudev-1.0:amd64 (1:238-7build1) ...\nSetting up libxinerama1:amd64 (2:1.1.4-3build2) ...\nSetting up libxkbcommon-x11-0:amd64 (1.13.1-1) ...\nSetting up libdc1394-25:amd64 (2.2.6-6) ...\nSetting up libxv1:amd64 (2:1.0.13-1) ...\nSetting up librubberband3:amd64 (4.0.0+dfsg-2ubuntu1) ...\nSetting up libssh2-1-dev:amd64 (1.11.1-1ubuntu0.26.04.4) ...\nSetting up libluajit-5.1-dev:amd64 (2.1.0+openresty20251030-1) ...\nSetting up libmbedtls21:amd64 (3.6.5-0.1ubuntu2) ...\nSetting up libv4l-0t64:amd64 (1.32.0-2ubuntu1) ...\nSetting up qmake6-bin (6.10.2+dfsg-7) ...\nSetting up dh-strip-nondeterminism (1.15.0-1build1) ...\nSetting up libjack-jackd2-0:amd64 (1.9.22~dfsg-5build1) ...\nSetting up libdrm2:amd64 (2.4.131-1) ...\nSetting up libva-drm2:amd64 (2.23.0-1ubuntu1) ...\nSetting up groff-base (1.23.0-10) ...\nSetting up libvdpau1:amd64 (1.5-4) ...\nSetting up libsord-0-0:amd64 (0.16.20-1) ...\nSetting up libwayland-cursor0:amd64 (1.24.0-2) ...\nSetting up xml-core (0.19build1) ...\nSetting up libsratom-0-0:amd64 (0.6.20-1) ...\nSetting up libkadm5srv-mit12:amd64 (1.22.1-2ubuntu4.1) ...\nSetting up libharfbuzz0b:amd64 (12.3.2-2) ...\nSetting up libxss1:amd64 (1:1.2.3-1build4) ...\nSetting up libfontconfig1:amd64 (2.17.1-3ubuntu1) ...\nSetting up libsndfile1:amd64 (1.2.2-4) ...\nSetting up libjpeg8-dev:amd64 (8c-2ubuntu12) ...\nSetting up libselinux-dev:amd64 (3.9-4build1) ...\nSetting up libva-x11-2:amd64 (2.23.0-1ubuntu1) ...\nSetting up libsm6:amd64 (2:1.2.6-1build1) ...\nSetting up liblilv-0-0:amd64 (0.26.2-1) ...\nSetting up libopenmpt0t64:amd64 (0.8.4-1) ...\nSetting up libavahi-client3:amd64 (0.8-18ubuntu1.1) ...\nSetting up libmount-dev:amd64 (2.41.3-3ubuntu2.2) ...\nSetting up libqt6dbus6:amd64 (6.10.2+dfsg-7) ...\nSetting up libxres1:amd64 (2:1.2.1-1build2) ...\nSetting up libdrm-amdgpu1:amd64 (2.4.131-1) ...\nSetting up krb5-multidev:amd64 (1.22.1-2ubuntu4.1) ...\nSetting up libvlc-dev:amd64 (3.0.23-1) ...\nSetting up libqt6concurrent6:amd64 (6.10.2+dfsg-7) ...\nSetting up libgnutls28-dev:amd64 (3.8.12-2ubuntu1.1) ...\nSetting up libinput10:amd64 (1.31.1-1ubuntu1.2) ...\nSetting up fontconfig (2.17.1-3ubuntu1) ...\nRegenerating fonts cache... done.\nSetting up libdrm-nouveau2:amd64 (2.4.131-1) ...\nSetting up libgio-2.0-dev:amd64 (2.88.0-1ubuntu0.1) ...\nSetting up girepository-tools:amd64 (2.88.0-1ubuntu0.1) ...\nSetting up libxcb1-dev:amd64 (1.17.0-2ubuntu1) ...\nSetting up qt6-base-dev-tools (6.10.2+dfsg-7) ...\nSetting up libxi6:amd64 (2:1.8.2-2) ...\nSetting up libavutil60:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libpulse0:amd64 (1:17.0+dfsg1-2ubuntu4) ...\nSetting up libdrm-radeon1:amd64 (2.4.131-1) ...\nSetting up libxtst6:amd64 (2:1.2.5-1ubuntu0.1) ...\nSetting up libpango-1.0-0:amd64 (1.57.0-1) ...\nSetting up libdrm-intel1:amd64 (2.4.131-1) ...\nSetting up libjpeg-dev:amd64 (8c-2ubuntu12) ...\nSetting up libx11-dev:amd64 (2:1.8.13-1ubuntu0.1) ...\nSetting up libv4l-dev:amd64 (1.32.0-2ubuntu1) ...\nSetting up libxcb-xinerama0-dev:amd64 (1.17.0-2ubuntu1) ...\nSetting up libmbedtls-dev:amd64 (3.6.5-0.1ubuntu2) ...\nSetting up libjack-jackd2-dev:amd64 (1.9.22~dfsg-5build1) ...\nSetting up man-db (2.13.1-1build1) ...\nBuilding database of manual pages ...\nSetting up libwayland-dev:amd64 (1.24.0-2) ...\nSetting up libcairo2:amd64 (1.18.4-3) ...\nSetting up qmake6:amd64 (6.10.2+dfsg-7) ...\nSetting up libfreetype-dev:amd64 (2.14.2+dfsg-1ubuntu0.2) ...\nSetting up libxfixes-dev:amd64 (1:6.0.0-2build2) ...\nSetting up libtheoradec2:amd64 (1.2.0+dfsg-6) ...\nSetting up libkrb5-dev:amd64 (1.22.1-2ubuntu4.1) ...\nSetting up libxcb-shm0-dev:amd64 (1.17.0-2ubuntu1) ...\nSetting up libass9:amd64 (1:0.17.4-2) ...\nSetting up libspa-0.2-modules:amd64 (1.6.2-1ubuntu1.2) ...\nSetting up libswscale9:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libpulse-mainloop-glib0:amd64 (1:17.0+dfsg1-2ubuntu4) ...\nSetting up libatspi2.0-0t64:amd64 (2.60.4-0ubuntu0.1) ...\nSetting up librtmp-dev:amd64 (2.4+20151223.gitfa8646d.1-3) ...\nSetting up libxcb-render0-dev:amd64 (1.17.0-2ubuntu1) ...\nSetting up libswresample6:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libxcb-shape0-dev:amd64 (1.17.0-2ubuntu1) ...\nSetting up libxext-dev:amd64 (2:1.3.4-1build3) ...\nSetting up libva-wayland2:amd64 (2.23.0-1ubuntu1) ...\nSetting up libqt6network6:amd64 (6.10.2+dfsg-7) ...\nSetting up libxres-dev:amd64 (2:1.2.1-1build2) ...\nSetting up libbluray3:amd64 (1:1.4.1-1) ...\nSetting up libcairo-gobject2:amd64 (1.18.4-3) ...\nSetting up libxcb-xfixes0-dev:amd64 (1.17.0-2ubuntu1) ...\nSetting up libpangoft2-1.0-0:amd64 (1.57.0-1) ...\nSetting up libxi-dev:amd64 (2:1.8.2-2) ...\nSetting up libpipewire-0.3-0t64:amd64 (1.6.2-1ubuntu1.2) ...\nSetting up libcups2t64:amd64 (2.4.16-1ubuntu1.3) ...\nSetting up libpangocairo-1.0-0:amd64 (1.57.0-1) ...\nSetting up libxtst-dev:amd64 (2:1.2.5-1ubuntu0.1) ...\nSetting up libxdamage-dev:amd64 (1:1.1.7-1) ...\nSetting up libavutil-dev:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libatk-bridge2.0-0t64:amd64 (2.60.4-0ubuntu0.1) ...\nSetting up libglib2.0-dev-bin (2.88.0-1ubuntu0.1) ...\nSetting up libx11-xcb-dev:amd64 (2:1.8.13-1ubuntu0.1) ...\nSetting up mesa-libgallium:amd64 (26.0.8-1ubuntu0.3) ...\nSetting up libdrm-dev:amd64 (2.4.131-1) ...\nSetting up librist-dev:amd64 (0.2.11+dfsg-1build1) ...\nSetting up gir1.2-freedesktop:amd64 (1.86.0-6build1) ...\nSetting up libxcb-composite0-dev:amd64 (1.17.0-2ubuntu1) ...\nSetting up libgbm1:amd64 (26.0.8-1ubuntu0.3) ...\nSetting up libswresample-dev:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libfontconfig-dev:amd64 (2.17.1-3ubuntu1) ...\nSetting up libxcomposite-dev:amd64 (1:0.4.6-1build1) ...\nSetting up libgl1-mesa-dri:amd64 (26.0.8-1ubuntu0.3) ...\nSetting up debhelper (13.31ubuntu1) ...\nSetting up gir1.2-atspi-2.0:amd64 (2.60.4-0ubuntu0.1) ...\nSetting up libxss-dev:amd64 (1:1.2.3-1build4) ...\nSetting up libegl-mesa0:amd64 (26.0.8-1ubuntu0.3) ...\nSetting up libglib2.0-dev:amd64 (2.88.0-1ubuntu0.1) ...\nSetting up libcurl4-openssl-dev:amd64 (8.18.0-1ubuntu2.8) ...\nSetting up libxcb-randr0-dev:amd64 (1.17.0-2ubuntu1) ...\nSetting up libswscale-dev:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up gir1.2-freedesktop-dev:amd64 (1.86.0-6build1) ...\nSetting up libxinerama-dev:amd64 (2:1.1.4-3build2) ...\nSetting up libpulse-dev:amd64 (1:17.0+dfsg1-2ubuntu4) ...\nSetting up libpipewire-0.3-dev:amd64 (1.6.2-1ubuntu1.2) ...\nSetting up libegl1:amd64 (1.7.0-3) ...\nSetting up libatk1.0-dev:amd64 (2.60.4-0ubuntu0.1) ...\nSetting up libglx-mesa0:amd64 (26.0.8-1ubuntu0.3) ...\nSetting up libglx0:amd64 (1.7.0-3) ...\nSetting up dh-cmake (0.6.3) ...\nSetting up libgudev-1.0-dev:amd64 (1:238-7build1) ...\nSetting up libgl1:amd64 (1.7.0-3) ...\nSetting up libqt6gui6:amd64 (6.10.2+dfsg-7) ...\nSetting up libglx-dev:amd64 (1.7.0-3) ...\nSetting up libva-glx2:amd64 (2.23.0-1ubuntu1) ...\nSetting up libgl-dev:amd64 (1.7.0-3) ...\nSetting up libwacom-dev:amd64 (2.18.0-1) ...\nSetting up qt6-qpa-plugins:amd64 (6.10.2+dfsg-7) ...\nSetting up libegl-dev:amd64 (1.7.0-3) ...\nSetting up libqt6opengl6:amd64 (6.10.2+dfsg-7) ...\nSetting up libqt6widgets6:amd64 (6.10.2+dfsg-7) ...\nSetting up libva-dev:amd64 (2.23.0-1ubuntu1) ...\nSetting up libqt6svg6:amd64 (6.10.2-2) ...\nSetting up libqt6waylandclient6:amd64 (6.10.2+dfsg-7) ...\nSetting up libinput-dev:amd64 (1.31.1-1ubuntu1.2) ...\nSetting up libqt6svgwidgets6:amd64 (6.10.2-2) ...\nSetting up libgles-dev:amd64 (1.7.0-3) ...\nSetting up libqt6openglwidgets6:amd64 (6.10.2+dfsg-7) ...\nSetting up libqt6wlshellintegration6:amd64 (6.10.2+dfsg-7) ...\nSetting up libqt6printsupport6:amd64 (6.10.2+dfsg-7) ...\nSetting up libglvnd-dev:amd64 (1.7.0-3) ...\nSetting up qt6-base-dev:amd64 (6.10.2+dfsg-7) ...\nSetting up qt6-svg-dev:amd64 (6.10.2-2) ...\nSetting up libgl1-mesa-dev:amd64 (26.0.8-1ubuntu0.3) ...\nSetting up libgles2-mesa-dev:amd64 (26.0.8-1ubuntu0.3) ...\nSetting up qt6-base-private-dev:amd64 (6.10.2+dfsg-7) ...\nSetting up libheif-plugin-aomdec:amd64 (1.21.2-3ubuntu0.7) ...\nSetting up libheif1:amd64 (1.21.2-3ubuntu0.7) ...\nSetting up glycin-loaders (2.1.5+ds-0ubuntu0.2) ...\nSetting up libglycin-2-0:amd64 (2.1.5+ds-0ubuntu0.2) ...\nSetting up glycin-thumbnailers (2.1.5+ds-0ubuntu0.2) ...\nSetting up libgdk-pixbuf-2.0-0:amd64 (2.44.5+dfsg-4ubuntu1) ...\nSetting up librsvg2-2:amd64 (2.61.3+dfsg-3ubuntu0.1) ...\nSetting up libavcodec62:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libavformat62:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libavcodec-dev:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libavformat-dev:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libavfilter11:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libavfilter-dev:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libavdevice62:amd64 (7:8.0.1-3ubuntu2) ...\nSetting up libavdevice-dev:amd64 (7:8.0.1-3ubuntu2) ...\nProcessing triggers for libc-bin (2.43-2ubuntu2.7) ...\nProcessing triggers for sgml-base (1.31+nmu1build1) ...\nSetting up libdbus-1-dev:amd64 (1.16.2-2ubuntu4) ...\nSetting up libatspi2.0-dev:amd64 (2.60.4-0ubuntu0.1) ...\nSetting up libatk-bridge2.0-dev:amd64 (2.60.4-0ubuntu0.1) ...\n",
+        "stderr": "",
+        "timeout": false
+      },
+      "observation": {
+        "app": {
+          "command": [
+            "sh",
+            "-c",
+            "cmake -S . -B build && cmake --build build"
+          ],
+          "exit_code": 1,
+          "stdout": "-- Checking for interprocedural optimization support\n-- Checking for interprocedural optimization support - enabled [Release, MinSizeRel]\n-- Found FFmpeg: /usr/lib/x86_64-linux-gnu/libavformat.so;/usr/lib/x86_64-linux-gnu/libavutil.so;/usr/lib/x86_64-linux-gnu/libswscale.so;/usr/lib/x86_64-linux-gnu/libswresample.so;/usr/lib/x86_64-linux-gnu/libavcodec.so (found suitable version \"8.0\", minimum required is \"8.0\") found components: avformat avutil swscale swresample avcodec\n-- Found ZLIB: /usr/lib/x86_64-linux-gnu/libz.so (found version \"1.3.1\")\n-- Found Uthash: /usr/include (found version \"2.3.0\")\n-- Found jansson: /usr/lib/x86_64-linux-gnu/libjansson.so (found version \"2.14\")\n-- Found LibUUID: /usr/lib/x86_64-linux-gnu/libuuid.so (found version \"2.41.3\")\n-- Found X11: /usr/include\n-- Looking for XOpenDisplay in /usr/lib/x86_64-linux-gnu/libX11.so;/usr/lib/x86_64-linux-gnu/libXext.so\n-- Looking for XOpenDisplay in /usr/lib/x86_64-linux-gnu/libX11.so;/usr/lib/x86_64-linux-gnu/libXext.so - found\n-- Looking for gethostbyname\n-- Looking for gethostbyname - found\n-- Looking for connect\n-- Looking for connect - found\n-- Looking for remove\n-- Looking for remove - found\n-- Looking for shmat\n-- Looking for shmat - found\n-- Found X11_XCB: /usr/lib/x86_64-linux-gnu/libX11-xcb.so (found version \"1.8.13\")\n-- Found XCB_XCB: /usr/lib/x86_64-linux-gnu/libxcb.so (found version \"1.17.0\")\n-- Could NOT find XCB_XINPUT (missing: XCB_XINPUT_LIBRARY XCB_XINPUT_INCLUDE_DIR) (found version \"\")\n-- Found XCB: /usr/lib/x86_64-linux-gnu/libxcb.so (found version \"1.17.0\") found components: XCB missing components: XINPUT\n-- Found Gio: /usr/lib/x86_64-linux-gnu/libgio-2.0.so (found version \"2.88.0\")\n-- Performing Test HAVE_MATH_IN_STD_LIB\n-- Performing Test HAVE_MATH_IN_STD_LIB - Failed\n-- Performing Test HAVE_UUID_HEADER\n-- Performing Test HAVE_UUID_HEADER - Success\n-- Found PulseAudio: /usr/include (found version \"17.0\")\n-- Found Wayland_Client: /usr/lib/x86_64-linux-gnu/libwayland-client.so (found version \"1.24.0\")\n-- Found Wayland: /usr/lib/x86_64-linux-gnu/libwayland-client.so (found version \"1.24.0\") found components: Client\n-- Found Xkbcommon: /usr/lib/x86_64-linux-gnu/libxkbcommon.so (found version \"1.13.1\")\n-- Performing Test COMPILER_HAS_HIDDEN_VISIBILITY\n-- Performing Test COMPILER_HAS_HIDDEN_VISIBILITY - Success\n-- Performing Test COMPILER_HAS_HIDDEN_INLINE_VISIBILITY\n-- Performing Test COMPILER_HAS_HIDDEN_INLINE_VISIBILITY - Success\n-- Performing Test COMPILER_HAS_DEPRECATED_ATTR\n-- Performing Test COMPILER_HAS_DEPRECATED_ATTR - Success\n-- Found OpenGL: /usr/lib/x86_64-linux-gnu/libOpenGL.so\n-- Found Libdrm: /usr/lib/x86_64-linux-gnu/libdrm.so (found version \"2.4.131\")\n-- Found XCB: /usr/lib/x86_64-linux-gnu/libxcb.so (found version \"1.17.0\") found components: XCB\n-- Found OpenGL: /usr/lib/x86_64-linux-gnu/libOpenGL.so  found components: EGL\n-- Found Wayland_Server: /usr/lib/x86_64-linux-gnu/libwayland-server.so (found version \"1.24.0\")\n-- Found Wayland_Cursor: /usr/lib/x86_64-linux-gnu/libwayland-cursor.so (found version \"1.24.0\")\n-- Found Wayland_Egl: /usr/lib/x86_64-linux-gnu/libwayland-egl.so (found version \"18.1.0\")\n-- Found Wayland: /usr/lib/x86_64-linux-gnu/libwayland-client.so;/usr/lib/x86_64-linux-gnu/libwayland-server.so;/usr/lib/x86_64-linux-gnu/libwayland-cursor.so;/usr/lib/x86_64-linux-gnu/libwayland-egl.so (found version \"1.24.0\")\n-- Configuring incomplete, errors occurred!\n",
+          "stderr": "CMake Warning (dev) at cmake/finders/FindLibAJANTV2.cmake:100 (message):\n  Failed to find LibAJANTV2 version.\nCall Stack (most recent call first):\n  plugins/aja/CMakeLists.txt:9 (find_package)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Error at /usr/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake:290 (message):\n  Could NOT find LibAJANTV2 (missing: LibAJANTV2_LIBRARY\n  LibAJANTV2_INCLUDE_DIR) (found version \"0.0.0\")\n\n      Reason given by package: Ensure ajantv2 static libraries are available in local library paths.\n\nCall Stack (most recent call first):\n  /usr/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake:654 (_FPHSA_FAILURE_MESSAGE)\n  cmake/finders/FindLibAJANTV2.cmake:114 (find_package_handle_standard_args)\n  plugins/aja/CMakeLists.txt:9 (find_package)\n\n\n",
+          "timeout": false
+        },
+        "tests": {
+          "command": [
+            "sh",
+            "-c",
+            "ctest --test-dir build --output-on-failure"
+          ],
+          "exit_code": -1,
+          "stdout": "",
+          "stderr": "Not run: the build failed",
+          "timeout": false,
+          "skipped": true
+        }
+      }
+    },
+    {
+      "action": {
+        "action": "commands",
+        "build_command": "cmake --preset ubuntu && cmake --build build_ubuntu",
+        "test_command": "ctest --test-dir build_ubuntu --output-on-failure",
+        "evidence": [
+          "CMakePresets.json"
+        ],
+        "reason": "The default CMake configuration enables the AJA plugin (ENABLE_AJA=ON), which requires the proprietary LibAJANTV2 library that is not available in the Ubuntu sandbox. The repository's CMakePresets.json defines an 'ubuntu' preset intended for Linux builds that explicitly sets ENABLE_AJA=false and enables appropriate Linux options (VLC, Wayland). Switching the build and test commands to use this preset resolves the missing dependency without modifying source code."
+      },
+      "judge": {
+        "approved": true,
+        "reason": "The proposed commands use the 'ubuntu' preset defined in CMakePresets.json, which configures the build for Linux with appropriate settings including ENABLE_AJA=false to disable the AJA plugin that depends on the missing proprietary LibAJANTV2 library. This matches the project's intended build configuration for Ubuntu as specified in the evidence file, avoids the configuration error, and aligns with standard CMake usage of presets. The test command correctly targets the same build directory (build_ubuntu) to run tests on the built artifacts, consistent with the project's CI practices."
+      },
+      "observation": {
+        "app": {
+          "command": [
+            "sh",
+            "-c",
+            "cmake --preset ubuntu && cmake --build build_ubuntu"
+          ],
+          "exit_code": 0,
+          "stdout": "-- Performing Test HAVE_MATH_IN_STD_LIB - Failed\n...[output trimmed]...\n.o\n[505/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSWhatsNew.cpp.o\n[506/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicTransform.cpp.o\n[507/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/importer/ImporterModel.cpp.o\n[508/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSMissingFiles.cpp.o\n[509/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/plugin-manager/InstalledPluginRow.cpp.o\n[510/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicInteraction.cpp.o\n[511/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicSourceSelect.cpp.o\n[512/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicProperties.cpp.o\n[513/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/plugin-manager/PluginManagerWindow.cpp.o\n[514/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/oauth/AuthListener.cpp.o\n[515/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/oauth/Auth.cpp.o\n[516/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/FFmpegFormat.cpp.o\n[517/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/OBSCanvas.cpp.o\n[518/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSRemux.cpp.o\n[519/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSHotkeyLabel.cpp.o\n[520/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicFilters.cpp.o\n[521/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/importer/OBSImporter.cpp.o\n[522/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/FFmpegCodec.cpp.o\n[523/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSBasicSettings_Appearance.cpp.o\n[524/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/oauth/OAuth.cpp.o\n[525/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSHotkeyEdit.cpp.o\n[526/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/MultitrackVideoError.cpp.o\n[527/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/AdvancedOutput.cpp.o\n[528/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/GoLiveAPI_CensoredJson.cpp.o\n[529/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/MissingFilesPathItemDelegate.cpp.o\n[530/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSHotkeyWidget.cpp.o\n[531/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/PreviewProgramSizeObserver.cpp.o\n[532/624] Building C object frontend/CMakeFiles/obs-studio.dir/utility/obf.c.o\n[533/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/OBSProxyStyle.cpp.o\n[534/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/GoLiveAPI_PostData.cpp.o\n[535/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSBasicSettings_A11y.cpp.o\n[536/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/MissingFilesModel.cpp.o\n[537/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSBasicSettings_Stream.cpp.o\n[538/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/OBSTranslator.cpp.o\n[539/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/RemuxWorker.cpp.o\n[540/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/RemoteTextThread.cpp.o\n[541/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/ThumbnailView.cpp.o\n[542/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/BasicOutputHandler.cpp.o\n[543/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/QuickTransition.cpp.o\n[544/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/ColorSelect.cpp.o\n[545/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/CrashHandler.cpp.o\n[546/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/SceneRenameDelegate.cpp.o\n[547/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/RemuxEntryPathItemDelegate.cpp.o\n[548/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/RemuxQueueModel.cpp.o\n[549/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/item-widget-helpers.cpp.o\n[550/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/audio-encoders.cpp.o\n[551/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/ThumbnailItem.cpp.o\n[552/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/plugin-manager/PluginManager.cpp.o\n[553/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/GoLiveAPI_Network.cpp.o\n[554/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/SimpleOutput.cpp.o\n[555/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/ScreenshotObj.cpp.o\n[556/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/undo_stack.cpp.o\n[557/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Browser.cpp.o\n[558/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Canvases.cpp.o\n[559/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Clipboard.cpp.o\n[560/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/ThumbnailManager.cpp.o\n[561/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_ContextToolbar.cpp.o\n[562/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Docks.cpp.o\n[563/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Icons.cpp.o\n[564/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Dropfiles.cpp.o\n[565/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_OutputHandler.cpp.o\n[566/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/AudioMixer.cpp.o\n[567/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_ReplayBuffer.cpp.o\n[568/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Projectors.cpp.o\n[569/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Preview.cpp.o\n[570/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Screenshots.cpp.o\n[571/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Service.cpp.o\n[572/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Hotkeys.cpp.o\n[573/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/MultitrackVideoOutput.cpp.o\n[574/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSBasicSettings.cpp.o\n[575/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Recording.cpp.o\n[576/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_StudioMode.cpp.o\n[577/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_SceneCollections.cpp.o\n[578/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Streaming.cpp.o\n[579/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_StatusBar.cpp.o\n[580/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Profiles.cpp.o\n[581/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Updater.cpp.o\n[582/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSQTDisplay.cpp.o\n[583/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_MainControls.cpp.o\n[584/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_VirtualCam.cpp.o\n[585/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/StatusBarWidget.cpp.o\n[586/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/NativeEventFilter.cpp.o\n[587/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_SceneItems.cpp.o\n[588/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/obs-studio_autogen/QM7UNKGVG2/qrc_obs.cpp.o\n[589/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Scenes.cpp.o\n[590/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic.cpp.o\n[591/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_YouTube.cpp.o\n[592/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_SysTray.cpp.o\n[593/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/CrashHandler_Linux.cpp.o\n[594/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Transitions.cpp.o\n[595/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfigVideoPage.cpp.o\n[596/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasicStats.cpp.o\n[597/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasicControls.cpp.o\n[598/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfigStartPage.cpp.o\n[599/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasicStatusBar.cpp.o\n[600/624] Linking CXX shared module shared/obs-scripting/obslua/obslua.so; Copy obslua to plugin directory (lib/x86_64-linux-gnu/obs-scripting)\n[601/624] Linking CXX shared module shared/obs-scripting/obspython/_obspython.so; Copy obspython to plugin directory (lib/x86_64-linux-gnu/obs-scripting); Add obspython import module\n[602/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasicPreview.cpp.o\n[603/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSProjector.cpp.o\n[604/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/obs-main.cpp.o\n[605/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/obs-spinbox/AutoSelectLineEdit.cpp.o\n[606/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/obs-spinbox/SpinBox.cpp.o\n[607/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/platform-x11.cpp.o\n[608/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/properties-view/double-slider.cpp.o\n[609/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfigTestPage.cpp.o\n[610/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/properties-view/spinbox-ignorewheel.cpp.o\n[611/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/obs-spinbox/DoubleSpinBox.cpp.o\n[612/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/vertical-scroll-area/vertical-scroll-area.cpp.o\n[613/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/plain-text-edit/plain-text-edit.cpp.o\n[614/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfig.cpp.o\n[615/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/slider-ignorewheel/slider-ignorewheel.cpp.o\n[616/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/icon-label/IconLabel.cpp.o\n[617/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/wrappers/qt-wrappers.cpp.o\n[618/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/OBSApp_Themes.cpp.o\n[619/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/OBSApp.cpp.o\n[620/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/OBSStudioAPI.cpp.o\n[621/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfigStreamPage.cpp.o\n[622/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/system-info-posix.cpp.o\n[623/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/properties-view/properties-view.cpp.o\n[624/624] Linking CXX executable frontend/obs; Copy obs-studio to binary directory; Copy obs-studio resource /workspace/obs-studio/frontend/../AUTHORS to library directory (share/obs/obs-studio/authors); Copy obs-studio resources to data directory (share/obs/obs-studio)\n",
+          "stderr": "CMake Warning (dev) at shared/obs-scripting/cmake/lua.cmake:8 (add_custom_command):\n  The following keywords are not supported when using\n  add_custom_command(OUTPUT): PRE_BUILD.\n\n  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.\n  Run \"cmake --help-policy CMP0175\" for policy details.  Use the cmake_policy\n  command to set the policy and suppress this warning.\nCall Stack (most recent call first):\n  shared/obs-scripting/CMakeLists.txt:15 (include)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at shared/obs-scripting/cmake/python.cmake:14 (add_custom_command):\n  The following keywords are not supported when using\n  add_custom_command(OUTPUT): PRE_BUILD.\n\n  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.\n  Run \"cmake --help-policy CMP0175\" for policy details.  Use the cmake_policy\n  command to set the policy and suppress this warning.\nCall Stack (most recent call first):\n  shared/obs-scripting/CMakeLists.txt:16 (include)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at cmake/finders/FindLibrnnoise.cmake:87 (message):\n  Failed to find Librnnoise version.\nCall Stack (most recent call first):\n  plugins/obs-filters/cmake/rnnoise.cmake:7 (find_package)\n  plugins/obs-filters/CMakeLists.txt:36 (include)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning at plugins/obs-filters/cmake/rnnoise.cmake:10 (message):\n  No RNNoise library found.  Using internal RNNoise version instead.\nCall Stack (most recent call first):\n  plugins/obs-filters/CMakeLists.txt:36 (include)\n\n\n                      _                   _             _ _       \n                 ___ | |__  ___       ___| |_ _   _  __| (_) ___  \n                / _ \\| '_ \\/ __|_____/ __| __| | | |/ _` | |/ _ \\ \n               | (_) | |_) \\__ \\_____\\__ \\ |_| |_| | (_| | | (_) |\n                \\___/|_.__/|___/     |___/\\__|\\__,_|\\__,_|_|\\___/ \n\nOBS:  Application Version: 0.0.1 - Build Number: 5\n==================================================================================\n\n\n------------------------       Enabled Features           ------------------------\n - Core Modules\n - OpenGL renderer\n - PipeWire 0.3.60+ camera support\n - PulseAudio audio monitoring (Linux)\n - RNNoise noise suppression\n - Scripting Support (Frontend)\n - Scripting support\n - SpeexDSP noise suppression\n - User Interface\n - Wayland compositor support (Linux)\n------------------------       Disabled Features          ------------------------\n - Browser sources are not enabled by default (set CEF_ROOT_DIR and ENABLE_BROWSER)\n - Idian Playground\n - Restream API connection\n - Twitch API connection\n - YouTube API connection\n------------------------        Enabled Modules           ------------------------\n - decklink\n - decklink-captions\n - decklink-output-ui\n - frontend-tools\n - image-source\n - linux-alsa\n - linux-capture\n - linux-pipewire\n - linux-pulseaudio\n - linux-v4l2\n - obs-ffmpeg\n - obs-filters\n - obs-nvenc\n - obs-outputs\n - obs-qsv11\n - obs-transitions\n - obs-vst\n - obs-websocket\n - obs-x264\n - rtmp-services\n - text-freetype2\n - vlc-video\n------------------------        Disabled Modules          ------------------------\n - aja\n - aja-output-ui\n - coreaudio-encoder\n - linux-jack\n - mac-avcapture\n - mac-capture\n - mac-syphon\n - mac-videotoolbox\n - mac-virtualcam\n - nv-filters\n - obs-browser\n - obs-browser\n - obs-libfdk\n - obs-text\n - obs-webrtc\n - oss-audio\n - sndio\n - test-input\n - win-capture\n - win-dshow\n - win-wasapi\n----------------------------------------------------------------------------------\n",
+          "timeout": false
+        },
+        "tests": null
+      }
+    }
+  ],
+  "diff": "",
+  "fixed_files": [],
+  "model_requests": [
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 56250,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 15723,
+        "completion_tokens": 41,
+        "total_tokens": 15764,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 6.67,
+      "request_id": "6ebc2c1c-75ed-4a54-8beb-eb864f090f7e",
+      "first_content_seconds": 6.67,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 8.625812,
+        "completion_tokens": 42,
+        "energy_wh": 25.595882,
+        "prompt_tokens": 14554,
+        "prompt_tokens_details": {
+          "cached_tokens": 256,
+          "created_cache_tokens": 14208
+        },
+        "total_tokens": 14596
+      },
+      "content_chars": 153,
+      "elapsed_seconds": 8.69,
+      "agent_time_used_seconds": 8.69,
+      "agent_time_remaining_seconds": 7191.31
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 23226,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 6940,
+        "completion_tokens": 278,
+        "total_tokens": 7218,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.48,
+      "request_id": "7aa09751-3195-4155-b213-49dbabe27c29",
+      "first_reasoning_seconds": 1.48,
+      "first_content_seconds": 9.43,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 4.387343,
+        "completion_tokens": 265,
+        "energy_wh": 13.018822,
+        "prompt_tokens": 5597,
+        "total_tokens": 5862
+      },
+      "content_chars": 159,
+      "elapsed_seconds": 10.28,
+      "agent_time_used_seconds": 18.97,
+      "agent_time_remaining_seconds": 7181.03
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 23438,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 6997,
+        "completion_tokens": 305,
+        "total_tokens": 7302,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.34,
+      "request_id": "28caaaba-73e2-430b-8f89-da3c963a07a2",
+      "first_reasoning_seconds": 1.34,
+      "first_content_seconds": 21.83,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 13.072346,
+        "completion_tokens": 301,
+        "energy_wh": 38.790343,
+        "prompt_tokens": 5650,
+        "total_tokens": 5951
+      },
+      "content_chars": 275,
+      "elapsed_seconds": 24.79,
+      "agent_time_used_seconds": 43.75,
+      "agent_time_remaining_seconds": 7156.25
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 4615,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 1092,
+        "completion_tokens": 76,
+        "total_tokens": 1168,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.61,
+      "request_id": "7962cc94-f255-42dd-ab62-db363a8080c3",
+      "first_content_seconds": 0.61,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 5.606703,
+        "completion_tokens": 77,
+        "energy_wh": 16.637102,
+        "prompt_tokens": 1029,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 1024
+        },
+        "total_tokens": 1106
+      },
+      "content_chars": 382,
+      "elapsed_seconds": 3.96,
+      "agent_time_used_seconds": 47.71,
+      "agent_time_remaining_seconds": 7152.29
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 36071,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 11017,
+        "completion_tokens": 171,
+        "total_tokens": 11188,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.16,
+      "request_id": "7948130c-24ba-4413-a0e9-b2a7a839cc59",
+      "first_reasoning_seconds": 2.16,
+      "first_content_seconds": 4.38,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 2.946476,
+        "completion_tokens": 170,
+        "energy_wh": 8.743251,
+        "prompt_tokens": 9154,
+        "total_tokens": 9324
+      },
+      "content_chars": 301,
+      "elapsed_seconds": 5.97,
+      "agent_time_used_seconds": 53.68,
+      "agent_time_remaining_seconds": 7146.32
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 5139,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 1219,
+        "completion_tokens": 100,
+        "total_tokens": 1319,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.63,
+      "request_id": "8e6ca192-7c27-44b8-a13c-5dc37077758c",
+      "first_content_seconds": 0.63,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 8.537085,
+        "completion_tokens": 101,
+        "energy_wh": 25.332595,
+        "prompt_tokens": 1170,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 1152
+        },
+        "total_tokens": 1271
+      },
+      "content_chars": 462,
+      "elapsed_seconds": 5.15,
+      "agent_time_used_seconds": 58.84,
+      "agent_time_remaining_seconds": 7141.16
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 50785,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 15369,
+        "completion_tokens": 0,
+        "total_tokens": 15369,
+        "encoding": "cl100k_base"
+      },
+      "error_type": "HTTPError",
+      "http_status": 403,
+      "elapsed_seconds": 0.11,
+      "agent_time_used_seconds": 58.94,
+      "agent_time_remaining_seconds": 7141.06
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 15620,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 4026,
+        "completion_tokens": 648,
+        "total_tokens": 4674,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.5,
+      "request_id": "39f4876e-9100-4b5a-939d-2bb11086e5fb",
+      "first_reasoning_seconds": 1.5,
+      "first_content_seconds": 21.3,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 10.952807,
+        "completion_tokens": 629,
+        "energy_wh": 32.500911,
+        "prompt_tokens": 3715,
+        "total_tokens": 4344
+      },
+      "content_chars": 234,
+      "elapsed_seconds": 23.5,
+      "agent_time_used_seconds": 82.44,
+      "agent_time_remaining_seconds": 7117.56
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 51255,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 15504,
+        "completion_tokens": 226,
+        "total_tokens": 15730,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 3.22,
+      "request_id": "0ce50f0a-f4fe-47cc-8737-479e0512134d",
+      "first_reasoning_seconds": 3.22,
+      "first_content_seconds": 6.96,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 4.287228,
+        "completion_tokens": 216,
+        "energy_wh": 12.721746,
+        "prompt_tokens": 13025,
+        "total_tokens": 13241
+      },
+      "content_chars": 195,
+      "elapsed_seconds": 7.9,
+      "agent_time_used_seconds": 90.34,
+      "agent_time_remaining_seconds": 7109.66
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 55354,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 16916,
+        "completion_tokens": 0,
+        "total_tokens": 16916,
+        "encoding": "cl100k_base"
+      },
+      "error_type": "HTTPError",
+      "http_status": 403,
+      "elapsed_seconds": 0.11,
+      "agent_time_used_seconds": 90.45,
+      "agent_time_remaining_seconds": 7109.55
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 20189,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 5573,
+        "completion_tokens": 532,
+        "total_tokens": 6105,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.32,
+      "request_id": "c76b1bf6-b822-4ab9-ab63-8b98c1a0b033",
+      "first_reasoning_seconds": 1.32,
+      "first_content_seconds": 3.89,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 7.361997,
+        "completion_tokens": 522,
+        "energy_wh": 21.845689,
+        "prompt_tokens": 5092,
+        "total_tokens": 5614
+      },
+      "content_chars": 1407,
+      "elapsed_seconds": 12.61,
+      "agent_time_used_seconds": 103.06,
+      "agent_time_remaining_seconds": 7096.94
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 9562,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 2490,
+        "completion_tokens": 177,
+        "total_tokens": 2667,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.11,
+      "request_id": "f815fd96-1ee0-4a1e-b08d-deb235939593",
+      "first_content_seconds": 2.11,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 15.100732,
+        "completion_tokens": 178,
+        "energy_wh": 44.809295,
+        "prompt_tokens": 2432,
+        "prompt_tokens_details": {
+          "cached_tokens": 384,
+          "created_cache_tokens": 2048
+        },
+        "total_tokens": 2610
+      },
+      "content_chars": 894,
+      "elapsed_seconds": 10.22,
+      "agent_time_used_seconds": 113.27,
+      "agent_time_remaining_seconds": 7086.73
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 47520,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 14718,
+        "completion_tokens": 0,
+        "total_tokens": 14718,
+        "encoding": "cl100k_base"
+      },
+      "error_type": "HTTPError",
+      "http_status": 403,
+      "elapsed_seconds": 0.1,
+      "agent_time_used_seconds": 113.37,
+      "agent_time_remaining_seconds": 7086.63
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 25459,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 7321,
+        "completion_tokens": 108,
+        "total_tokens": 7429,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.07,
+      "request_id": "6998372c-0181-4629-ba81-0f90699f3107",
+      "first_reasoning_seconds": 2.07,
+      "first_content_seconds": 3.03,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 3.617033,
+        "completion_tokens": 110,
+        "energy_wh": 10.733035,
+        "prompt_tokens": 6811,
+        "total_tokens": 6921
+      },
+      "content_chars": 244,
+      "elapsed_seconds": 4.42,
+      "agent_time_used_seconds": 117.8,
+      "agent_time_remaining_seconds": 7082.2
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 49059,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 15345,
+        "completion_tokens": 0,
+        "total_tokens": 15345,
+        "encoding": "cl100k_base"
+      },
+      "error_type": "HTTPError",
+      "http_status": 403,
+      "elapsed_seconds": 0.11,
+      "agent_time_used_seconds": 117.91,
+      "agent_time_remaining_seconds": 7082.09
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 26998,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 7948,
+        "completion_tokens": 219,
+        "total_tokens": 8167,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.98,
+      "request_id": "d2da07bb-a991-4d87-9a75-76c2dc98a50a",
+      "first_reasoning_seconds": 0.98,
+      "first_content_seconds": 4.59,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 3.5635,
+        "completion_tokens": 215,
+        "energy_wh": 10.574184,
+        "prompt_tokens": 7414,
+        "total_tokens": 7629
+      },
+      "content_chars": 198,
+      "elapsed_seconds": 5.71,
+      "agent_time_used_seconds": 123.62,
+      "agent_time_remaining_seconds": 7076.38
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 51168,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 16092,
+        "completion_tokens": 0,
+        "total_tokens": 16092,
+        "encoding": "cl100k_base"
+      },
+      "error_type": "HTTPError",
+      "http_status": 403,
+      "elapsed_seconds": 0.12,
+      "agent_time_used_seconds": 123.73,
+      "agent_time_remaining_seconds": 7076.27
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 29107,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 8695,
+        "completion_tokens": 522,
+        "total_tokens": 9217,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.98,
+      "request_id": "6f25a55d-47ce-47e3-91d8-bf18824df74e",
+      "first_reasoning_seconds": 0.98,
+      "first_content_seconds": 11.09,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 7.930228,
+        "completion_tokens": 511,
+        "energy_wh": 23.531835,
+        "prompt_tokens": 8089,
+        "total_tokens": 8600
+      },
+      "content_chars": 176,
+      "elapsed_seconds": 12.12,
+      "agent_time_used_seconds": 135.86,
+      "agent_time_remaining_seconds": 7064.14
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 59522,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 18926,
+        "completion_tokens": 1125,
+        "total_tokens": 20051,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 3.95,
+      "request_id": "281d911b-ee81-4dd3-8072-d3c141e7a504",
+      "first_reasoning_seconds": 3.95,
+      "first_content_seconds": 25.9,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 12.761423,
+        "completion_tokens": 1093,
+        "energy_wh": 37.867724,
+        "prompt_tokens": 16620,
+        "total_tokens": 17713
+      },
+      "content_chars": 233,
+      "elapsed_seconds": 27.0,
+      "agent_time_used_seconds": 162.86,
+      "agent_time_remaining_seconds": 7037.14
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 62277,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 19689,
+        "completion_tokens": 1617,
+        "total_tokens": 21306,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 4.07,
+      "request_id": "abf60b06-2bcf-42e5-94b3-2abe24902d0f",
+      "first_reasoning_seconds": 4.07,
+      "first_content_seconds": 44.0,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 16.693711,
+        "completion_tokens": 1581,
+        "energy_wh": 49.536234,
+        "prompt_tokens": 17358,
+        "total_tokens": 18939
+      },
+      "content_chars": 298,
+      "elapsed_seconds": 45.43,
+      "agent_time_used_seconds": 208.29,
+      "agent_time_remaining_seconds": 6991.71
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 64698,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 20485,
+        "completion_tokens": 1212,
+        "total_tokens": 21697,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 1.25,
+      "request_id": "50f13d61-d624-4c3a-ac73-0b3d1b59eeb1",
+      "first_reasoning_seconds": 1.25,
+      "first_content_seconds": 27.11,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 12.175417,
+        "completion_tokens": 1186,
+        "energy_wh": 36.128834,
+        "prompt_tokens": 18098,
+        "total_tokens": 19284
+      },
+      "content_chars": 670,
+      "elapsed_seconds": 30.53,
+      "agent_time_used_seconds": 238.82,
+      "agent_time_remaining_seconds": 6961.18
+    },
+    {
+      "agent": "judge",
+      "model": "qwen3-235b-a22b",
+      "request_bytes": 13626,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 3798,
+        "completion_tokens": 124,
+        "total_tokens": 3922,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 2.87,
+      "request_id": "95afe709-3340-42a3-986d-310a3c65371f",
+      "first_content_seconds": 2.87,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 13.103684,
+        "completion_tokens": 125,
+        "energy_wh": 38.883336,
+        "prompt_tokens": 3779,
+        "prompt_tokens_details": {
+          "cached_tokens": 128,
+          "created_cache_tokens": 3584
+        },
+        "total_tokens": 3904
+      },
+      "content_chars": 622,
+      "elapsed_seconds": 8.66,
+      "agent_time_used_seconds": 247.48,
+      "agent_time_remaining_seconds": 6952.52
+    },
+    {
+      "agent": "fixer",
+      "model": "kimi-k2-7-code",
+      "request_bytes": 2927,
+      "agent_time_budget_seconds": 7200,
+      "local_token_usage": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "prompt_tokens": 716,
+        "completion_tokens": 1011,
+        "total_tokens": 1727,
+        "encoding": "cl100k_base"
+      },
+      "headers_seconds": 0.76,
+      "request_id": "801cadc2-acb0-45eb-8bfb-a1fc3a198f1d",
+      "first_reasoning_seconds": 0.76,
+      "first_content_seconds": 12.51,
+      "finish_reason": "stop",
+      "usage": {
+        "co2_g": 8.978423,
+        "completion_tokens": 1008,
+        "energy_wh": 26.642205,
+        "prompt_tokens": 697,
+        "total_tokens": 1705
+      },
+      "content_chars": 1500,
+      "elapsed_seconds": 22.03,
+      "agent_time_used_seconds": 269.51,
+      "agent_time_remaining_seconds": 6930.49
+    }
+  ],
+  "repository": {
+    "language": "cpp",
+    "build_system": "cmake",
+    "docker_image": "repo-repair/sandbox:latest",
+    "python_requirement": null,
+    "requires_linux": false,
+    "entry": "CMakeLists.txt",
+    "tests": [],
+    "test_command": [
+      "sh",
+      "-c",
+      "ctest --test-dir build_ubuntu --output-on-failure"
+    ],
+    "build_command": [
+      "sh",
+      "-c",
+      "cmake --preset ubuntu && cmake --build build_ubuntu"
+    ],
+    "dependency_command": null
+  },
+  "execution_backend": "docker",
+  "docker": {
+    "image": "repo-repair/sandbox:latest",
+    "availability": {
+      "command": [
+        "docker",
+        "info",
+        "--format",
+        "{{.ServerVersion}}"
+      ],
+      "exit_code": 0,
+      "stdout": "29.9.2\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "image_status": {
+      "command": [
+        "docker",
+        "image",
+        "inspect",
+        "repo-repair/sandbox:latest"
+      ],
+      "exit_code": 0,
+      "stdout": "[\n    {\n        \"Id\": \"sha256:d1f6489e6f42dea63762d231b1bffe98a63ffdc0c2a8ae263772f40235ec0493\",\n        \"RepoTags\": [\n            \"repo-repair/sandbox:latest\"\n        ],\n        \"RepoDigests\": [],\n        \"Comment\": \"buildkit.dockerfile.v0\",\n        \"Created\": \"2026-11-22T13:07:42.90710649-07:00\",\n        \"Config\": {\n            \"Env\": [\n                \"PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n                \"DEBIAN_FRONTEND=noninteractive\",\n                \"GOTOOLCHAIN=auto\",\n                \"RUSTUP_HOME=/usr/local/rustup\",\n                \"CARGO_HOME=/usr/local/cargo\"\n            ],\n            \"Cmd\": [\n                \"/bin/bash\"\n            ],\n            \"Labels\": {\n                \"org.opencontainers.image.created\": \"2026-11-06T10:28:50.132595+00:00\",\n                \"org.opencontainers.image.description\": \"The Ubuntu container image maintained by Canonical\\n\\nUbuntu is a Debian-based Linux operating system that runs from the desktop to the cloud, to all your internet connected things.\\nIt is the world's most popular operating system across public clouds and OpenStack clouds.\\nIt is the number one platform for containers; from Docker to Kubernetes to LXD, Ubuntu can run your containers at scale.\\nFast, secure and simple, Ubuntu powers millions of PCs worldwide.\\n\",\n                \"org.opencontainers.image.title\": \"ubuntu\",\n                \"org.opencontainers.image.version\": \"26.04\"\n            }\n        },\n        \"Architecture\": \"amd64\",\n        \"Os\": \"linux\",\n        \"Size\": 1788912042,\n        \"GraphDriver\": {\n            \"Data\": {\n                \"LowerDir\": \"/var/lib/docker/overlay2/vtg82nvzzc49mn0usl82umyzc/diff:/var/lib/docker/overlay2/426f34cf0f5017c8b0842098f27b0c6bf3acff8f089e858046092b95e524c246/diff:/var/lib/docker/overlay2/f9f449c101e8a3697741d0191ac7f934b9d89c1258a7547ee4d5eb303428f130/diff\",\n                \"MergedDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/merged\",\n                \"UpperDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/diff\",\n                \"WorkDir\": \"/var/lib/docker/overlay2/btnyt0b7ygi4lr29mbasyajj7/work\"\n            },\n            \"Name\": \"overlay2\"\n        },\n        \"RootFS\": {\n            \"Type\": \"layers\",\n            \"Layers\": [\n                \"sha256:2a89eb4dbc78f8fe790775a4e807e1355ba2f6b145c8dd7a267a782df1605124\",\n                \"sha256:758b22fe15be2c330dcead0c1b50476c074e113ec507627c6430337ffc9daa5e\",\n                \"sha256:aa95f818b8f1ac09c37174bbea35afe21fb7b70c9abaa35fc629fb02d4fe2355\",\n                \"sha256:3d7ad3c86345d739bd4c1eedf4255636c820ba417acf760872931797cb40e6f2\"\n            ]\n        },\n        \"Metadata\": {\n            \"LastTagTime\": \"2026-11-22T13:07:46.053991942-07:00\"\n        }\n    }\n]\n",
+      "stderr": "",
+      "timeout": false
+    },
+    "mount_check": {
+      "command": [
+        "test",
+        "-f",
+        "CMakeLists.txt"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "command_plan": {
+    "dependency_command": null,
+    "build_command": [
+      "sh",
+      "-c",
+      "cmake -S . -B build && cmake --build build"
+    ],
+    "test_command": [
+      "sh",
+      "-c",
+      "ctest --test-dir build --output-on-failure"
+    ]
+  },
+  "environment_setup": {
+    "command": [
+      "true"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "timeout": false
+  },
+  "initial": {
+    "app": {
+      "command": [
+        "sh",
+        "-c",
+        "cmake -S . -B build && cmake --build build"
+      ],
+      "exit_code": 1,
+      "stdout": "-- The C compiler identification is GNU 15.2.0\n-- The CXX compiler identification is GNU 15.2.0\n-- Detecting C compiler ABI info\n-- Detecting C compiler ABI info - done\n-- Check for working C compiler: /usr/bin/cc - skipped\n-- Detecting C compile features\n-- Detecting C compile features - done\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Checking for interprocedural optimization support\n-- Checking for interprocedural optimization support - available\n-- Checking for interprocedural optimization support - enabled [Release, MinSizeRel]\n-- Configuring incomplete, errors occurred!\n",
+      "stderr": "CMake Error at cmake/linux/ecmconfig.cmake:5 (find_package):\n  Could not find a package configuration file provided by \"ECM\" with any of\n  the following names:\n\n    ECMConfig.cmake\n    ecm-config.cmake\n\n  Add the installation prefix of \"ECM\" to CMAKE_PREFIX_PATH or set \"ECM_DIR\"\n  to a directory containing one of the above files.  If \"ECM\" provides a\n  separate development package or SDK, be sure it has been installed.\nCall Stack (most recent call first):\n  cmake/linux/defaults.cmake:43 (include)\n  CMakeLists.txt:15 (include)\n\n\n",
+      "timeout": false
+    },
+    "tests": {
+      "command": [
+        "sh",
+        "-c",
+        "ctest --test-dir build --output-on-failure"
+      ],
+      "exit_code": -1,
+      "stdout": "",
+      "stderr": "Not run: the build failed",
+      "timeout": false,
+      "skipped": true
+    }
+  },
+  "explorations": 8,
+  "command_changes": [
+    {
+      "build_command": "cmake --preset ubuntu && cmake --build build_ubuntu",
+      "test_command": "ctest --test-dir build_ubuntu --output-on-failure"
+    }
+  ],
+  "tests_note": "The test command ran no tests, so only the build is verified",
+  "final": {
+    "app": {
+      "command": [
+        "sh",
+        "-c",
+        "cmake --preset ubuntu && cmake --build build_ubuntu"
+      ],
+      "exit_code": 0,
+      "stdout": "-- Performing Test HAVE_MATH_IN_STD_LIB - Failed\n...[output trimmed]...\n.o\n[505/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSWhatsNew.cpp.o\n[506/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicTransform.cpp.o\n[507/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/importer/ImporterModel.cpp.o\n[508/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSMissingFiles.cpp.o\n[509/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/plugin-manager/InstalledPluginRow.cpp.o\n[510/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicInteraction.cpp.o\n[511/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicSourceSelect.cpp.o\n[512/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicProperties.cpp.o\n[513/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/plugin-manager/PluginManagerWindow.cpp.o\n[514/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/oauth/AuthListener.cpp.o\n[515/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/oauth/Auth.cpp.o\n[516/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/FFmpegFormat.cpp.o\n[517/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/OBSCanvas.cpp.o\n[518/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSRemux.cpp.o\n[519/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSHotkeyLabel.cpp.o\n[520/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/dialogs/OBSBasicFilters.cpp.o\n[521/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/importer/OBSImporter.cpp.o\n[522/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/FFmpegCodec.cpp.o\n[523/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSBasicSettings_Appearance.cpp.o\n[524/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/oauth/OAuth.cpp.o\n[525/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSHotkeyEdit.cpp.o\n[526/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/MultitrackVideoError.cpp.o\n[527/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/AdvancedOutput.cpp.o\n[528/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/GoLiveAPI_CensoredJson.cpp.o\n[529/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/MissingFilesPathItemDelegate.cpp.o\n[530/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSHotkeyWidget.cpp.o\n[531/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/PreviewProgramSizeObserver.cpp.o\n[532/624] Building C object frontend/CMakeFiles/obs-studio.dir/utility/obf.c.o\n[533/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/OBSProxyStyle.cpp.o\n[534/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/GoLiveAPI_PostData.cpp.o\n[535/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSBasicSettings_A11y.cpp.o\n[536/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/MissingFilesModel.cpp.o\n[537/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSBasicSettings_Stream.cpp.o\n[538/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/OBSTranslator.cpp.o\n[539/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/RemuxWorker.cpp.o\n[540/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/RemoteTextThread.cpp.o\n[541/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/ThumbnailView.cpp.o\n[542/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/BasicOutputHandler.cpp.o\n[543/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/QuickTransition.cpp.o\n[544/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/ColorSelect.cpp.o\n[545/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/CrashHandler.cpp.o\n[546/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/SceneRenameDelegate.cpp.o\n[547/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/RemuxEntryPathItemDelegate.cpp.o\n[548/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/RemuxQueueModel.cpp.o\n[549/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/item-widget-helpers.cpp.o\n[550/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/audio-encoders.cpp.o\n[551/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/ThumbnailItem.cpp.o\n[552/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/plugin-manager/PluginManager.cpp.o\n[553/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/GoLiveAPI_Network.cpp.o\n[554/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/SimpleOutput.cpp.o\n[555/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/ScreenshotObj.cpp.o\n[556/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/undo_stack.cpp.o\n[557/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Browser.cpp.o\n[558/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Canvases.cpp.o\n[559/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Clipboard.cpp.o\n[560/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/ThumbnailManager.cpp.o\n[561/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_ContextToolbar.cpp.o\n[562/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Docks.cpp.o\n[563/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Icons.cpp.o\n[564/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Dropfiles.cpp.o\n[565/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_OutputHandler.cpp.o\n[566/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/AudioMixer.cpp.o\n[567/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_ReplayBuffer.cpp.o\n[568/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Projectors.cpp.o\n[569/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Preview.cpp.o\n[570/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Screenshots.cpp.o\n[571/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Service.cpp.o\n[572/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Hotkeys.cpp.o\n[573/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/MultitrackVideoOutput.cpp.o\n[574/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/settings/OBSBasicSettings.cpp.o\n[575/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Recording.cpp.o\n[576/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_StudioMode.cpp.o\n[577/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_SceneCollections.cpp.o\n[578/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Streaming.cpp.o\n[579/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_StatusBar.cpp.o\n[580/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Profiles.cpp.o\n[581/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Updater.cpp.o\n[582/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSQTDisplay.cpp.o\n[583/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_MainControls.cpp.o\n[584/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_VirtualCam.cpp.o\n[585/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/StatusBarWidget.cpp.o\n[586/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/NativeEventFilter.cpp.o\n[587/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_SceneItems.cpp.o\n[588/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/obs-studio_autogen/QM7UNKGVG2/qrc_obs.cpp.o\n[589/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Scenes.cpp.o\n[590/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic.cpp.o\n[591/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_YouTube.cpp.o\n[592/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_SysTray.cpp.o\n[593/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/CrashHandler_Linux.cpp.o\n[594/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasic_Transitions.cpp.o\n[595/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfigVideoPage.cpp.o\n[596/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasicStats.cpp.o\n[597/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasicControls.cpp.o\n[598/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfigStartPage.cpp.o\n[599/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasicStatusBar.cpp.o\n[600/624] Linking CXX shared module shared/obs-scripting/obslua/obslua.so; Copy obslua to plugin directory (lib/x86_64-linux-gnu/obs-scripting)\n[601/624] Linking CXX shared module shared/obs-scripting/obspython/_obspython.so; Copy obspython to plugin directory (lib/x86_64-linux-gnu/obs-scripting); Add obspython import module\n[602/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSBasicPreview.cpp.o\n[603/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/widgets/OBSProjector.cpp.o\n[604/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/obs-main.cpp.o\n[605/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/obs-spinbox/AutoSelectLineEdit.cpp.o\n[606/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/obs-spinbox/SpinBox.cpp.o\n[607/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/platform-x11.cpp.o\n[608/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/properties-view/double-slider.cpp.o\n[609/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfigTestPage.cpp.o\n[610/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/properties-view/spinbox-ignorewheel.cpp.o\n[611/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/obs-spinbox/DoubleSpinBox.cpp.o\n[612/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/vertical-scroll-area/vertical-scroll-area.cpp.o\n[613/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/plain-text-edit/plain-text-edit.cpp.o\n[614/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfig.cpp.o\n[615/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/slider-ignorewheel/slider-ignorewheel.cpp.o\n[616/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/icon-label/IconLabel.cpp.o\n[617/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/qt/wrappers/qt-wrappers.cpp.o\n[618/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/OBSApp_Themes.cpp.o\n[619/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/OBSApp.cpp.o\n[620/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/OBSStudioAPI.cpp.o\n[621/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/wizards/AutoConfigStreamPage.cpp.o\n[622/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/utility/system-info-posix.cpp.o\n[623/624] Building CXX object frontend/CMakeFiles/obs-studio.dir/__/shared/properties-view/properties-view.cpp.o\n[624/624] Linking CXX executable frontend/obs; Copy obs-studio to binary directory; Copy obs-studio resource /workspace/obs-studio/frontend/../AUTHORS to library directory (share/obs/obs-studio/authors); Copy obs-studio resources to data directory (share/obs/obs-studio)\n",
+      "stderr": "CMake Warning (dev) at shared/obs-scripting/cmake/lua.cmake:8 (add_custom_command):\n  The following keywords are not supported when using\n  add_custom_command(OUTPUT): PRE_BUILD.\n\n  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.\n  Run \"cmake --help-policy CMP0175\" for policy details.  Use the cmake_policy\n  command to set the policy and suppress this warning.\nCall Stack (most recent call first):\n  shared/obs-scripting/CMakeLists.txt:15 (include)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at shared/obs-scripting/cmake/python.cmake:14 (add_custom_command):\n  The following keywords are not supported when using\n  add_custom_command(OUTPUT): PRE_BUILD.\n\n  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.\n  Run \"cmake --help-policy CMP0175\" for policy details.  Use the cmake_policy\n  command to set the policy and suppress this warning.\nCall Stack (most recent call first):\n  shared/obs-scripting/CMakeLists.txt:16 (include)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning (dev) at cmake/finders/FindLibrnnoise.cmake:87 (message):\n  Failed to find Librnnoise version.\nCall Stack (most recent call first):\n  plugins/obs-filters/cmake/rnnoise.cmake:7 (find_package)\n  plugins/obs-filters/CMakeLists.txt:36 (include)\nThis warning is for project developers.  Use -Wno-dev to suppress it.\n\nCMake Warning at plugins/obs-filters/cmake/rnnoise.cmake:10 (message):\n  No RNNoise library found.  Using internal RNNoise version instead.\nCall Stack (most recent call first):\n  plugins/obs-filters/CMakeLists.txt:36 (include)\n\n\n                      _                   _             _ _       \n                 ___ | |__  ___       ___| |_ _   _  __| (_) ___  \n                / _ \\| '_ \\/ __|_____/ __| __| | | |/ _` | |/ _ \\ \n               | (_) | |_) \\__ \\_____\\__ \\ |_| |_| | (_| | | (_) |\n                \\___/|_.__/|___/     |___/\\__|\\__,_|\\__,_|_|\\___/ \n\nOBS:  Application Version: 0.0.1 - Build Number: 5\n==================================================================================\n\n\n------------------------       Enabled Features           ------------------------\n - Core Modules\n - OpenGL renderer\n - PipeWire 0.3.60+ camera support\n - PulseAudio audio monitoring (Linux)\n - RNNoise noise suppression\n - Scripting Support (Frontend)\n - Scripting support\n - SpeexDSP noise suppression\n - User Interface\n - Wayland compositor support (Linux)\n------------------------       Disabled Features          ------------------------\n - Browser sources are not enabled by default (set CEF_ROOT_DIR and ENABLE_BROWSER)\n - Idian Playground\n - Restream API connection\n - Twitch API connection\n - YouTube API connection\n------------------------        Enabled Modules           ------------------------\n - decklink\n - decklink-captions\n - decklink-output-ui\n - frontend-tools\n - image-source\n - linux-alsa\n - linux-capture\n - linux-pipewire\n - linux-pulseaudio\n - linux-v4l2\n - obs-ffmpeg\n - obs-filters\n - obs-nvenc\n - obs-outputs\n - obs-qsv11\n - obs-transitions\n - obs-vst\n - obs-websocket\n - obs-x264\n - rtmp-services\n - text-freetype2\n - vlc-video\n------------------------        Disabled Modules          ------------------------\n - aja\n - aja-output-ui\n - coreaudio-encoder\n - linux-jack\n - mac-avcapture\n - mac-capture\n - mac-syphon\n - mac-videotoolbox\n - mac-virtualcam\n - nv-filters\n - obs-browser\n - obs-browser\n - obs-libfdk\n - obs-text\n - obs-webrtc\n - oss-audio\n - sndio\n - test-input\n - win-capture\n - win-dshow\n - win-wasapi\n----------------------------------------------------------------------------------\n",
+      "timeout": false
+    },
+    "tests": null
+  },
+  "environment_commands": [
+    {
+      "command": "apt-get update && apt-get install -y extra-cmake-modules",
+      "root": true
+    },
+    {
+      "command": "apt-get update && apt-get install -y libsimde-dev",
+      "root": true
+    },
+    {
+      "command": "apt-get update && apt-get install -y --no-install-recommends build-essential libglib2.0-dev extra-cmake-modules lsb-release dh-cmake libcurl4-openssl-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libjansson-dev libx11-xcb-dev libgles2-mesa-dev libwayland-dev libpipewire-0.3-dev libpulse-dev libx264-dev libmbedtls-dev libgl1-mesa-dev uthash-dev libsimde-dev libluajit-5.1-dev python3-dev libx11-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xinerama0-dev libxcb-composite0-dev libxinerama-dev libxcb1-dev libx11-xcb-dev libxcb-xfixes0-dev swig libcmocka-dev libxss-dev libglvnd-dev libxkbcommon-dev libatk1.0-dev libatk-bridge2.0-dev libxcomposite-dev libxdamage-dev libasound2-dev libfdk-aac-dev libfontconfig-dev libfreetype6-dev libjack-jackd2-dev libpulse-dev libsndio-dev libspeexdsp-dev libudev-dev libv4l-dev libva-dev libvlc-dev libpci-dev libdrm-dev nlohmann-json3-dev libwebsocketpp-dev libasio-dev libqrcodegencpp-dev libffmpeg-nvenc-dev librist-dev libsrt-openssl-dev qt6-base-dev libqt6svg6-dev qt6-base-private-dev libvpl-dev libvpl2",
+      "root": true
+    }
+  ],
+  "steps_to_run": "1. Run the environment setup commands in order. All require root privileges (run as root or with sudo):\n   apt-get update && apt-get install -y extra-cmake-modules\n   apt-get update && apt-get install -y libsimde-dev\n   apt-get update && apt-get install -y --no-install-recommends build-essential libglib2.0-dev extra-cmake-modules lsb-release dh-cmake libcurl4-openssl-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libjansson-dev libx11-xcb-dev libgles2-mesa-dev libwayland-dev libpipewire-0.3-dev libpulse-dev libx264-dev libmbedtls-dev libgl1-mesa-dev uthash-dev libsimde-dev libluajit-5.1-dev python3-dev libx11-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xinerama0-dev libxcb-composite0-dev libxinerama-dev libxcb1-dev libx11-xcb-dev libxcb-xfixes0-dev swig libcmocka-dev libxss-dev libglvnd-dev libxkbcommon-dev libatk1.0-dev libatk-bridge2.0-dev libxcomposite-dev libxdamage-dev libasound2-dev libfdk-aac-dev libfontconfig-dev libfreetype6-dev libjack-jackd2-dev libpulse-dev libsndio-dev libspeexdsp-dev libudev-dev libv4l-dev libva-dev libvlc-dev libpci-dev libdrm-dev nlohmann-json3-dev libwebsocketpp-dev libasio-dev libqrcodegencpp-dev libffmpeg-nvenc-dev librist-dev libsrt-openssl-dev qt6-base-dev libqt6svg6-dev qt6-base-private-dev libvpl-dev libvpl2\n2. Build the project:\n   cmake --preset ubuntu && cmake --build build_ubuntu\n3. Run tests:\n   ctest --test-dir build_ubuntu --output-on-failure",
+  "steps_source": "fixer_model",
+  "metrics": {
+    "wall_clock_seconds": 449.72,
+    "model_api_seconds": 269.51,
+    "model_request_count": 23,
+    "token_usage": {
+      "source": "tiktoken_cl100k_base_estimate",
+      "available": true,
+      "prompt_tokens": 236599,
+      "completion_tokens": 8492,
+      "total_tokens": 245091
+    },
+    "token_usage_by_agent": {
+      "fixer": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "available": true,
+        "prompt_tokens": 212277,
+        "completion_tokens": 7974,
+        "total_tokens": 220251
+      },
+      "judge": {
+        "source": "tiktoken_cl100k_base_estimate",
+        "available": true,
+        "prompt_tokens": 24322,
+        "completion_tokens": 518,
+        "total_tokens": 24840
+      }
+    },
+    "correct_repair_rate": {
+      "correct_repairs": 0,
+      "evaluated_runs": 1,
+      "percentage": 0.0,
+      "note": "no_tests_found"
+    }
+  },
+  "agent_log_file": "agent_logs.json"
+}

@@ -3,10 +3,10 @@
 import json
 import os
 import re
-import shlex
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 
 import constants as ct
@@ -21,6 +21,11 @@ def basic_run_steps(context):
         steps.append(
             "Copy the files from fixed_files into the same paths in your "
             "repository.")
+    for command in context.get("environment_commands", []):
+        steps.append(
+            "Prepare the environment"
+            + (" (as root): " if command.get("root") else ": ")
+            + command["command"])
     if repository["language"] != "python":
         packages = context.get("installed_packages", [])
         if packages:
@@ -59,6 +64,87 @@ def basic_run_steps(context):
         for number, step in enumerate(steps, start=1)
     )
     return "\n".join(lines)
+
+
+def shell_command(value):
+    """Return the argument list for one command that a model sent.
+
+    A model may send one shell command line, or a list of arguments. A list
+    that holds shell operators is also one command line.
+    """
+    if isinstance(value, list) and all(
+            isinstance(item, str) for item in value):
+        operators = {"&&", "||", ";", "|", ">", ">>", "<"}
+        if len(value) == 1 or operators.intersection(value):
+            value = " ".join(value)
+    if isinstance(value, str):
+        if not value.strip() or len(value) > ct.MAX_SHELL_COMMAND_CHARS:
+            raise ValueError("Invalid repository command")
+        return ["sh", "-c", value.strip()]
+    if (not isinstance(value, list) or not value
+            or len(value) > ct.COMMAND_MAX_ARGUMENTS
+            or any(not isinstance(item, str) or not item
+                   or len(item) > ct.COMMAND_MAX_ARGUMENT_CHARS
+                   for item in value)):
+        raise ValueError("Invalid repository command")
+    return value
+
+
+GATEWAY_NOTE = (
+    "The model gateway refused the full context, so file snapshots, "
+    "documents, exploration results, or command output were shortened. Ask "
+    "for small pieces: read fewer lines, or filter command output with grep "
+    "or head.")
+GATEWAY_LEVELS = 5
+
+
+def reduce_context(context, level):
+    """Return a smaller context after the model gateway refused a request.
+
+    The gateway scores the text of each request and refuses one that holds
+    much command-like text, such as a build log. Each level from 1 to
+    GATEWAY_LEVELS leaves out more free text, and tells the agent that it
+    did. The same levels serve the Fixer, the Judge, and command planning.
+    """
+    reduced = dict(context, omitted=GATEWAY_NOTE)
+    for key in ("files", "ci_commands"):
+        if key in reduced:
+            reduced[key] = {}
+    if level >= 2:
+        if reduced.get("explored"):
+            reduced["explored"] = reduced["explored"][-1:]
+        for key in ("evidence", "root_files"):
+            if key in reduced:
+                reduced[key] = {}
+    if level >= 3:
+        if "explored" in reduced:
+            reduced["explored"] = []
+        limit = {3: 3000, 4: 600}.get(level, 200)
+        if isinstance(reduced.get("readme"), str):
+            reduced["readme"] = reduced["readme"][:limit * 2]
+        if isinstance(reduced.get("observation"), dict):
+            reduced["observation"] = {
+                name: result if not isinstance(result, dict) else dict(
+                    result,
+                    stdout=result.get("stdout", "")[-limit:],
+                    stderr=result.get("stderr", "")[-limit:])
+                for name, result in reduced["observation"].items()
+            }
+        if isinstance(reduced.get("history"), list):
+            # The last level keeps only what happened, with no free text.
+            kept = {"round", "action", "error", "files", "package"}
+            reduced["history"] = [
+                item if not isinstance(item, dict) else {
+                    key: (
+                        {name: value for name, value in item[key].items()
+                         if name in {"exit_code", "timeout", "approved"}}
+                        if isinstance(item[key], dict) else item[key])
+                    for key in item
+                    if level < GATEWAY_LEVELS or key in kept
+                    or isinstance(item[key], dict)}
+                for item in reduced["history"]
+            ]
+    return reduced
 
 
 class ModelResponseError(ValueError):
@@ -184,10 +270,15 @@ def set_response_timeout(response, timeout):
 
 
 def parse_model_json(content):
+    # Some models wrap the answer in tool-call markers such as
+    # "<|tool_call_begin|> functions.search:0 ... {json} <|tool_call_end|>".
+    text = re.sub(r"<\|[^|>]*\|>", " ", content).strip()
+    call = re.fullmatch(
+        r"functions\.([A-Za-z_]+):\d+\s*(\{.*\})", text, re.DOTALL)
+    if call:
+        text = call.group(2)
     # Remove one code block when the model adds one.
-    text = content.strip()
     if text.startswith("```"):
-        import re
         fenced = re.fullmatch(
             r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL | re.IGNORECASE)
         if fenced:
@@ -201,6 +292,9 @@ def parse_model_json(content):
     if not isinstance(value, dict):
         raise InvalidModelJSONError(
             "Model response must be a JSON object")
+    if call:
+        # The tool-call form names the action outside the JSON object.
+        value.setdefault("action", call.group(1).lower())
     return value
 
 
@@ -323,18 +417,27 @@ class ModelAgents:
     def request(
             self, model, instruction, context,
             agent="model", purpose="request", show_progress=True):
-        """Retry twice when the model does not return one JSON object."""
+        """Retry twice when the model does not return one JSON object.
+
+        When the gateway refuses a request (HTTP 403), send less context.
+        """
         retry_instruction = instruction
-        for attempt in range(ct.MODEL_JSON_MAX_ATTEMPTS):
+        level = 0
+        attempt = 0
+        while True:
             try:
                 return self._request_once(
                     model,
                     retry_instruction,
-                    context,
+                    reduce_context(context, level) if level else context,
                     agent=agent,
                     purpose=purpose,
                     show_progress=show_progress,
                 )
+            except urllib.error.HTTPError as error:
+                if error.code != 403 or level >= GATEWAY_LEVELS:
+                    raise
+                level += 1
             except InvalidModelJSONError:
                 if attempt + 1 == ct.MODEL_JSON_MAX_ATTEMPTS:
                     raise ModelResponseError(
@@ -342,7 +445,8 @@ class ModelAgents:
                         + str(ct.MODEL_JSON_MAX_ATTEMPTS)
                         + " attempts; no action was applied"
                     ) from None
-                retry_number = attempt + 1
+                attempt += 1
+                retry_number = attempt
                 if show_progress:
                     print(
                         "Invalid model JSON. Retrying "
@@ -515,6 +619,8 @@ class ModelAgents:
             return parsed
         except Exception as error:
             metrics["error_type"] = type(error).__name__
+            if isinstance(error, urllib.error.HTTPError):
+                metrics["http_status"] = error.code
             if log is not None:
                 log["error_type"] = type(error).__name__
             raise
@@ -571,42 +677,29 @@ class ModelAgents:
         if not isinstance(response, dict) or set(response) != fields:
             raise ValueError("Invalid repository command plan")
         for name in fields:
-            command = response[name]
-            if command is None:
-                continue
-            # Models sometimes return a whole command line as one item.
-            if (isinstance(command, list) and len(command) == 1
-                    and isinstance(command[0], str)
-                    and len(command[0].split()) > 1):
-                try:
-                    command = shlex.split(command[0])
-                except ValueError:
-                    raise ValueError(
-                        "Invalid repository command: " + name) from None
-                response[name] = command
-            if (not isinstance(command, list) or not command
-                    or len(command) > ct.COMMAND_MAX_ARGUMENTS
-                    or any(not isinstance(item, str) or not item
-                           or len(item) > ct.COMMAND_MAX_ARGUMENT_CHARS
-                           for item in command)):
-                raise ValueError("Invalid repository command: " + name)
+            if response[name] is not None:
+                response[name] = shell_command(response[name])
         if response["build_command"] is None:
             raise ValueError("README does not document a build command")
         return response
 
     def propose(self, context):
-        # Ask the Fixer for one install, edit, or stop action.
+        # Ask the Fixer for one exploration, repair, or stop action.
         instruction = ct.FIXER_REPAIR_INSTRUCTION
         return self.request(
             self.config["fixer_model"], instruction, context,
             agent="fixer", purpose="repair_proposal")
 
     def review(self, context):
-        # Ask the Judge to accept or reject the code change.
-        instruction = ct.JUDGE_REVIEW_INSTRUCTION
+        # Ask the Judge to accept or reject a code change, a sandbox
+        # command, or new build and test commands.
+        instruction, purpose = {
+            "run": (ct.JUDGE_RUN_INSTRUCTION, "command_review"),
+            "commands": (ct.JUDGE_COMMANDS_INSTRUCTION, "plan_review"),
+        }.get(context.get("kind"), (ct.JUDGE_REVIEW_INSTRUCTION, "code_review"))
         response = self.request(
             self.config["judge_model"], instruction, context,
-            agent="judge", purpose="code_review")
+            agent="judge", purpose=purpose)
         if (not isinstance(response, dict)
                 or type(response.get("approved")) is not bool
                 or not isinstance(response.get("reason"), str)):

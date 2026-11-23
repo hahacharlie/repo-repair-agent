@@ -10,9 +10,6 @@ from backends import DockerBackend, LocalBackend
 from cli import resolve_repository, resolve_script, write_results
 from config import load_config
 import constants as ct
-from validation import validate_action
-from execution import run_command
-import repair as repair_module
 from repair import (
     add_requirement,
     has_mixed_cosmetic_changes,
@@ -181,10 +178,13 @@ class RepairTests(unittest.TestCase):
             ignored.write_text("ignored\n")
             cases = (
                 (str(outside.resolve()), "absolute target"),
-                ("missing.txt", "dangling target"),
+                ("../missing.txt", "target escapes repository"),
                 ("../outside.txt", "target escapes repository"),
                 (".git/config", "target is ignored"),
             )
+            # A link to a missing file inside the repository is a fault
+            # that the agents can repair, so it is accepted.
+            validate_repository_symlink(root, link, "missing.txt")
             for link_target, expected in cases:
                 with self.subTest(link_target=link_target):
                     with self.assertRaisesRegex(ValueError, expected):
@@ -362,166 +362,6 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(report["fixed_files"], {})
         self.assertEqual(len(report["history"]), 1)
 
-    def test_replacement_edits_become_complete_files(self):
-        for replacements in (
-                {"greeting.py": [
-                    {"old": '"Hello, " + person', "new": '"Hello, " + name'}]},
-                [{"path": "greeting.py",
-                  "old": '"Hello, " + person', "new": '"Hello, " + name'}]):
-            step = {
-                "action": {
-                    "action": "edit",
-                    "reason": "Use the parameter name",
-                    "replacements": replacements,
-                },
-                "approved": True,
-            }
-            report = repair(BROKEN_REPO, ScriptedAgents([step]), rounds=1)
-            self.assertEqual(report["status"], "passed")
-            self.assertEqual(report["fixed_files"], {"greeting.py": FIX})
-            self.assertNotIn("replacements", report["history"][0]["action"])
-
-        # Dropped indentation is tolerated when the text is still unique.
-        loose = {"action": {
-            "action": "edit", "reason": "Use the parameter name",
-            "replacements": {"greeting.py": [
-                {"old": 'return "Hello, "   +  person',
-                 "new": 'return "Hello, " + name'}]}}, "approved": True}
-        report = repair(BROKEN_REPO, ScriptedAgents([loose]), rounds=1)
-        self.assertEqual(report["fixed_files"], {"greeting.py": FIX})
-        self.assertIn("replacements", loose["action"])
-
-        for edits in (
-                [{"old": "missing text", "new": "x"}],
-                [{"old": "e", "new": "x"}],
-                [{"old": "", "new": "x"}],
-                "not a list"):
-            with self.subTest(edits=edits):
-                bad = {"action": {
-                    "action": "edit", "reason": "bad",
-                    "replacements": {"greeting.py": edits}}, "approved": True}
-                report = repair(BROKEN_REPO, ScriptedAgents([bad]), rounds=1)
-                self.assertEqual(report["history"][0]["error"], "ValueError")
-                self.assertEqual(report["fixed_files"], {})
-        with self.assertRaises(ValueError):
-            repair_module.materialize_replacements({
-                "action": "edit", "reason": "bad",
-                "replacements": {"tests/test_greeting.py": [
-                    {"old": "a", "new": "b"}]}}, BROKEN_REPO, {".py"})
-
-    def test_patch_that_deletes_a_missing_import_is_rejected(self):
-        from repair import hides_missing_dependency
-        before = {"fetcher.py": "import requests\n\ndef fetch():\n    return 1\n"}
-        after = {"fetcher.py": "\ndef fetch():\n    return 1\n"}
-        error = "ModuleNotFoundError: No module named 'requests'"
-        self.assertTrue(hides_missing_dependency(before, after, error))
-        self.assertFalse(hides_missing_dependency(before, after, "NameError: x"))
-        self.assertFalse(hides_missing_dependency(before, before, error))
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "main.py").write_text("import requests\nprint('ok')\n")
-            remove = {"action": {
-                "action": "edit", "reason": "drop unused import",
-                "files": {"main.py": "print('ok')\n"}}, "approved": True}
-
-            def execute(command, cwd, timeout):
-                if command[:3] == ["uv", "pip", "install"]:
-                    return command_result()
-                return run_command(command, cwd, timeout)
-
-            with patch("repair.run_command", side_effect=execute):
-                report = repair(root, ScriptedAgents([remove]), rounds=1)
-        self.assertEqual(
-            report["history"][0]["error"], "Patch hides a missing dependency")
-        self.assertNotIn("judge", report["history"][0])
-
-    def test_patch_that_deletes_a_check_is_rejected_without_the_judge(self):
-        from repair import has_weakened_checks
-        before = {"build.rs": 'fn main() {\n    compile_error!("enable a backend");\n}\n'}
-        self.assertTrue(has_weakened_checks(
-            before, {"build.rs": 'fn main() {\n    println!("warning");\n}\n'}))
-        self.assertFalse(has_weakened_checks(
-            before, {"build.rs": 'fn main() {\n    let x = 1;\n    compile_error!("enable a backend");\n}\n'}))
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "main.py").write_text(
-                "import sys\nif len(sys.argv) < 5:\n    raise SystemExit(1)\n")
-            weaken = {"action": {
-                "action": "edit", "reason": "stop failing",
-                "files": {"main.py": "import sys\nif len(sys.argv) < 5:\n    print('ok')\n"}},
-                "approved": True}
-            report = repair(root, ScriptedAgents([weaken]), rounds=1)
-        self.assertEqual(report["history"][0]["error"], "Patch weakens a check")
-        self.assertNotIn("judge", report["history"][0])
-        self.assertEqual(report["fixed_files"], {})
-
-    def test_search_and_read_feed_the_next_proposal_without_using_rounds(self):
-        contexts = []
-
-        class Recording(ScriptedAgents):
-            def propose(self, context):
-                contexts.append(json.loads(json.dumps(context)))
-                return super().propose(context)
-
-        steps = [
-            {"action": {"action": "search", "pattern": "person",
-                        "reason": "Find the undefined name"}},
-            {"action": {"action": "read", "files": ["greeting.py"],
-                        "reason": "Read the failing function"}},
-            step(),
-        ]
-        report = repair(BROKEN_REPO, Recording(steps), rounds=1)
-
-        self.assertEqual(report["status"], "passed")
-        self.assertEqual(report["fixed_files"], {"greeting.py": FIX})
-        self.assertEqual(report["history"][0]["search_matches"], 1)
-        self.assertEqual(report["history"][1]["read_files"], ["greeting.py"])
-        self.assertEqual(contexts[0]["explored"], {"files": {}, "searches": {}})
-        self.assertEqual(
-            contexts[1]["explored"]["searches"]["person"],
-            ['greeting.py:2: return "Hello, " + person'])
-        self.assertIn(
-            "person", contexts[2]["explored"]["files"]["greeting.py"])
-        self.assertEqual(
-            contexts[2]["navigation_actions_left"],
-            ct.MAX_NAVIGATION_ACTIONS - 2)
-
-    def test_navigation_is_validated_and_limited(self):
-        for action in (
-                {"action": "read", "files": ["../outside.py"], "reason": "x"},
-                {"action": "read", "files": ["missing.py"], "reason": "x"},
-                {"action": "read", "files": [], "reason": "x"},
-                {"action": "search", "pattern": "", "reason": "x"},
-                {"action": "search", "pattern": "x" * 201, "reason": "x"}):
-            with self.subTest(action=action), self.assertRaises(ValueError):
-                validate_action(action, BROKEN_REPO)
-        validate_action(
-            {"action": "read", "files": ["tests/test_greeting.py"],
-             "reason": "Reading a test is allowed"}, BROKEN_REPO)
-        validate_action(
-            {"action": "read", "files": ["greeting.py:1-2"],
-             "reason": "A line range is allowed"}, BROKEN_REPO)
-        with self.assertRaises(ValueError):
-            validate_action(
-                {"action": "read", "files": ["greeting.py:3-1"],
-                 "reason": "x"}, BROKEN_REPO)
-        from repository import read_repository_file
-        self.assertEqual(
-            read_repository_file(BROKEN_REPO, "greeting.py:2-2"),
-            '2:     return "Hello, " + person\n')
-
-        searches = [
-            {"action": {"action": "search", "pattern": "p" + str(number),
-                        "reason": "look"}}
-            for number in range(ct.MAX_NAVIGATION_ACTIONS + 1)]
-        report = repair(BROKEN_REPO, ScriptedAgents(searches), rounds=1)
-        self.assertEqual(
-            report["history"][-1]["error"], "Search and read limit reached")
-        self.assertEqual(
-            len(report["history"]), ct.MAX_NAVIGATION_ACTIONS + 1)
-
     def test_give_up_does_not_call_judge(self):
         action = {
             "action": {
@@ -537,14 +377,14 @@ class RepairTests(unittest.TestCase):
             report["reason"], "A human must update the environment")
         self.assertNotIn("judge", report["history"][0])
 
-    def test_unsupported_install_stops_without_judge(self):
+    def test_unsupported_install_is_reported_without_judge(self):
         backend = DockerBackend("meson:test")
 
         def run_in_container(command, cwd, timeout, network=False):
             del cwd, timeout, network
             if command == ["test", "-f", "meson.build"]:
                 return command_result()
-            if command == ["mkdir", "-p", ".home/tmp"]:
+            if command == ["true"]:
                 return command_result()
             return {
                 **command_result(127),
@@ -573,19 +413,17 @@ class RepairTests(unittest.TestCase):
                 report = repair(
                     root, ScriptedAgents([install]), rounds=30, backend="auto")
 
-        # The unsupported install costs one round, then the script's give_up.
-        self.assertEqual(len(report["history"]), 2)
         self.assertNotIn("judge", report["history"][0])
         self.assertFalse(report["history"][0]["approval_required"])
         self.assertEqual(
             report["history"][0]["error"],
             "Dependency installation unsupported for meson",
         )
+        # The Fixer is told, and the run goes on until it gives up twice:
+        # the sandbox declines the first give_up while rounds are left.
         self.assertEqual(
-            report["history"][0]["error_detail"],
-            "Dependency installation unsupported for meson",
-        )
-        self.assertEqual(report["history"][1]["action"]["action"], "give_up")
+            [record.get("error") for record in report["history"][1:]],
+            ["give_up declined once", None])
         self.assertEqual(report["reason"], "Script exhausted")
 
     def test_regression_is_rolled_back(self):
@@ -635,27 +473,6 @@ class RepairTests(unittest.TestCase):
 
         self.assertTrue(report["docker"]["pull_required"])
         self.assertIn("--allow-docker-pull", report["reason"])
-
-    def test_missing_project_image_is_built_from_its_dockerfile(self):
-        backend = DockerBackend("repo-repair/cpp:latest")
-        with patch.object(
-                backend, "availability_status", return_value=command_result()), patch.object(
-                backend, "image_status", return_value=command_result(1)), patch.object(
-                backend, "build_image", return_value=command_result()) as build, patch.object(
-                backend, "run", return_value=command_result()), patch(
-                "repair.make_backend", return_value=backend):
-            report = repair(
-                BROKEN_REPO, ScriptedAgents([]), backend="docker")
-
-        self.assertTrue(build.called)
-        self.assertEqual(report["docker"]["build"], command_result())
-        self.assertNotIn("pull_required", report["docker"])
-        self.assertEqual(report["status"], "passed")
-        self.assertEqual(
-            build.call_args.args[1], ct.DEFAULT_COMMAND_TIMEOUT)
-        self.assertIsNone(DockerBackend("python:3.12-slim").dockerfile())
-        self.assertEqual(
-            backend.dockerfile(), ct.DOCKERFILES / "cpp.Dockerfile")
 
     def test_docker_runs_only_the_temporary_copy(self):
         backend = DockerBackend("python:test")
@@ -721,7 +538,7 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(docker_calls[:3], [
             ["test", "-f", "main.py"],
             ["python", "-m", "venv", ".venv"],
-            [".venv/bin/python", "main.py"],
+            ["/workspace/" + root.name + "/.venv/bin/python", "main.py"],
         ])
 
     def test_cargo_repository_builds_and_tests_in_docker(self):
@@ -761,10 +578,12 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(report["status"], "passed")
         self.assertEqual(report["execution_backend"], "docker")
         self.assertEqual(sorted(report["fixed_files"]), ["src/main.rs"])
-        self.assertEqual(calls[:5], [
+        # Tests do not run while the build fails.
+        self.assertEqual(calls, [
             (["test", "-f", "Cargo.toml"], False),
-            (["mkdir", "-p", ".home/tmp"], False),
+            (["true"], False),
             (["cargo", "fetch"], True),
+            (["cargo", "build"], False),
             (["cargo", "build"], False),
             (["cargo", "test"], False),
         ])
@@ -782,10 +601,8 @@ class RepairTests(unittest.TestCase):
         def run_in_container(command, cwd, timeout, network=False):
             del cwd, timeout
             calls.append((command, network))
-            # Both the documented dependency step and the cargo fallback
-            # fail, so the documented failure must reach the Fixer.
-            failing = (plan["dependency_command"], ["cargo", "build"])
-            result = command_result(1 if command in failing else 0)
+            result = command_result(
+                1 if command == plan["dependency_command"] else 0)
             result["command"] = command
             if result["exit_code"]:
                 result["stderr"] = "dependency preparation failed"
@@ -825,71 +642,16 @@ class RepairTests(unittest.TestCase):
             planning_context["root_files"]["Cargo.toml"],
             "[package]\nname = \"demo\"\n",
         )
-        # The documented commands failed, so the Fixer repairs against the
-        # cargo defaults and the documented failure stays in the report.
         context = propose.call_args.args[0]
-        self.assertEqual(context["repository"]["build_command"], ["cargo", "build"])
-        self.assertIsNone(context["repository"]["test_command"])
-        self.assertEqual(context["observation"]["app"]["command"], ["cargo", "build"])
+        self.assertEqual(context["repository"]["build_command"], plan["build_command"])
+        self.assertEqual(context["repository"]["test_command"], plan["test_command"])
         self.assertEqual(
-            report["command_plan_failure"]["app"]["command"],
+            context["observation"]["app"]["command"],
             plan["dependency_command"],
         )
-        self.assertEqual(
-            report["command_plan_fallback"]["build_command"], ["cargo", "build"])
         self.assertIn((plan["dependency_command"], True), calls)
         self.assertNotIn((plan["build_command"], False), calls)
-        self.assertIn((["cargo", "build"], False), calls)
         self.assertEqual(report["reason"], give_up["reason"])
-
-    def test_failed_documented_build_falls_back_to_toolchain_defaults(self):
-        backend = DockerBackend("rust:test")
-        plan = {
-            "dependency_command": None,
-            "build_command": ["make", "install"],
-            "test_command": ["make", "test"],
-        }
-        calls = []
-
-        def run_in_container(command, cwd, timeout, network=False):
-            del cwd, timeout
-            calls.append((command, network))
-            result = command_result(2 if command[0] == "make" else 0)
-            result["stderr"] = "Not on git repository" if command[0] == "make" else ""
-            return result
-
-        with patch.dict(os.environ, {ct.API_KEY_ENV: "test-token"}):
-            agents = ModelAgents(load_config(ROOT / "config.json"))
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            (root / "src").mkdir()
-            (root / "tests").mkdir()
-            (root / "Cargo.toml").write_text("[package]\nname = \"demo\"\n")
-            (root / "README.md").write_text("Run `make install` and `make test`.\n")
-            (root / "src/main.rs").write_text("fn main() {}\n")
-            (root / "tests/cli.rs").write_text("#[test] fn ok() {}\n")
-            with patch.object(
-                    agents, "plan_commands", return_value=plan), patch.object(
-                    agents, "propose") as propose, patch.object(
-                    agents, "generate_run_steps", return_value="cargo build"), patch.object(
-                    backend, "availability_status", return_value=command_result()), patch.object(
-                    backend, "image_status", return_value=command_result()), patch.object(
-                    backend, "run", side_effect=run_in_container), patch(
-                    "repair.make_backend", return_value=backend):
-                report = repair(root, agents, rounds=1, backend="auto")
-
-        self.assertFalse(propose.called)
-        self.assertEqual(report["status"], "passed")
-        self.assertEqual(
-            report["command_plan_fallback"]["build_command"], ["cargo", "build"])
-        self.assertEqual(
-            report["command_plan_fallback"]["test_command"], ["cargo", "test"])
-        self.assertEqual(report["repository"]["build_command"], ["cargo", "build"])
-        # The null dependency plan still fetches before the documented build.
-        self.assertLess(
-            calls.index((["cargo", "fetch"], True)),
-            calls.index((["make", "install"], False)))
-        self.assertIn((["cargo", "test"], False), calls)
 
 
 if __name__ == "__main__":

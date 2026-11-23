@@ -421,7 +421,7 @@ class AgentTests(unittest.TestCase):
                 return_value=stream_response(json.dumps(joined))):
             split = ModelAgents(config).plan_commands({"readme": "x"})
         self.assertEqual(
-            split["test_command"], ["go", "test", "-short", "-race", "./..."])
+            split["test_command"], ["sh", "-c", "go test -short -race ./..."])
         body = json.loads(request.call_args.args[0].data)
         self.assertEqual(body["model"], config["judge_model"])
         self.assertEqual(

@@ -1,5 +1,6 @@
 """Main code repair loop."""
 
+import contextlib
 import difflib
 import json
 import os
@@ -9,19 +10,24 @@ import shutil
 import sys
 import tempfile
 import time
+import urllib.error
 
 from agents import (
-    ModelAgents, ModelResponseError, basic_run_steps, summarize_token_usage,
+    AgentTimeLimitError, ModelAgents, ModelResponseError, basic_run_steps,
+    summarize_token_usage,
 )
 from backends import DockerBackend, make_backend
 import constants as ct
 from execution import run_command
 from metrics import summarize_repair_rate
 from repository import (
-    IGNORED, TOOLCHAINS, command_planning_context, inspect_repository,
-    mentioned_files, read_repository_file, search_repository, snapshot,
+    IGNORED, TOOLCHAINS, changed_files, command_planning_context,
+    file_manifest, inspect_repository, is_test_path, mentioned_files,
+    read_repository_file, root_listing, search_repository, snapshot,
     source_suffixes)
-from validation import validate_action
+from validation import (
+    EXPLORATIONS, REMOTE_BUILD, SYSTEM_INSTALL, apply_replacements,
+    validate_action)
 
 
 def diff_files(before, after):
@@ -48,11 +54,13 @@ def validate_repository_symlink(root, path, link_target):
         raise ValueError(
             f"Unsupported symlink '{relative}': absolute target")
     try:
-        resolved = (path.parent / link_target).resolve(strict=True)
+        # A link to a file that the repository lacks is a fault that the
+        # agents can repair. It must still point inside the repository.
+        resolved = (path.parent / link_target).resolve()
         target_relative = resolved.relative_to(root)
-    except FileNotFoundError:
+    except (OSError, RuntimeError):
         raise ValueError(
-            f"Unsupported symlink '{relative}': dangling target") from None
+            f"Unsupported symlink '{relative}': unreadable target") from None
     except ValueError:
         raise ValueError(
             f"Unsupported symlink '{relative}': target escapes repository"
@@ -91,56 +99,15 @@ def has_mixed_cosmetic_changes(before, after):
             new_content = [
                 "".join(line.split()) for line in new_changed if line.strip()
             ]
-            if old_blank != new_blank:
+            # Blank lines that come or go with added or removed code are
+            # part of that code, not a separate cosmetic change.
+            if old_blank != new_blank and len(old_content) == len(new_content):
                 cosmetic = True
             if old_content != new_content:
                 substantive = True
             elif old_changed != new_changed:
                 cosmetic = True
     return cosmetic and substantive
-
-
-# Lines that make a program fail loudly; deleting them hides problems.
-CHECK_LINE = re.compile(
-    r"\b(compile_error!|assert\w*!?\s*\(|panic!|unreachable!|abort\s*\(|"
-    r"raise\s+\w|throw\s+\w|exit\s*\(\s*[1-9]|os\.Exit\s*\(\s*[1-9]|"
-    r"log\.Fatal|\.unwrap\(\)|\.expect\()")
-
-
-def has_weakened_checks(before, after):
-    """Return whether a patch deletes check lines without keeping them."""
-    for name, text in after.items():
-        old_lines = [line.strip() for line in before.get(name, "").splitlines()]
-        new_lines = set(line.strip() for line in text.splitlines())
-        for line in old_lines:
-            if line and CHECK_LINE.search(line) and line not in new_lines:
-                return True
-    return False
-
-
-IMPORT_LINE = re.compile(
-    r"^\s*(?:import\s+([\w.]+)|from\s+([\w.]+)\s+import|use\s+([\w]+)|"
-    r"(?:import\s+)?\"([\w./-]+)\")")
-
-
-def hides_missing_dependency(before, after, failure_text):
-    """Return whether a patch deletes an import of the module reported missing."""
-    for name, text in after.items():
-        new_lines = set(line.strip() for line in text.splitlines())
-        for line in before.get(name, "").splitlines():
-            if line.strip() in new_lines:
-                continue
-            match = IMPORT_LINE.match(line)
-            if not match:
-                continue
-            module = next(group for group in match.groups() if group)
-            top = re.split(r"[./]", module)[0]
-            if re.search(
-                    r"(No module named|cannot find|not found|unresolved|"
-                    r"can't find)[^\n]*\b" + re.escape(top) + r"\b",
-                    failure_text):
-                return True
-    return False
 
 
 def preserve_cosmetic_side_changes(before, after):
@@ -187,77 +154,6 @@ def preserve_cosmetic_side_changes(before, after):
     return preserved
 
 
-def locate_once(text, old):
-    """Return the one region of text that old refers to.
-
-    Exact matches win. Otherwise whitespace differences are tolerated, since
-    models often drop indentation when copying a line.
-    """
-    count = text.count(old)
-    if count == 1:
-        return old
-    if count > 1:
-        raise ValueError(
-            "Replacement text appears " + str(count) + " times; include "
-            "more surrounding lines so it is unique")
-    tokens = old.split()
-    if not tokens:
-        raise ValueError("Replacement text was not found")
-    pattern = r"\s+".join(re.escape(token) for token in tokens)
-    matches = re.findall(pattern, text)
-    if len(matches) != 1:
-        raise ValueError(
-            "Replacement text was not found; copy it exactly from the "
-            "current file" if not matches else
-            "Replacement text appears " + str(len(matches))
-            + " times; include more surrounding lines so it is unique")
-    return matches[0]
-
-
-def materialize_replacements(action, root, suffixes):
-    """Turn search-and-replace edits into complete replacement files."""
-    if not isinstance(action, dict) or "replacements" not in action:
-        return action
-    # Copy first: the original dict is also kept in the agent log.
-    action = dict(action)
-    replacements = action.pop("replacements")
-    # Also accept a flat list of {"path", "old", "new"} entries.
-    if isinstance(replacements, list) and all(
-            isinstance(item, dict) and isinstance(item.get("path"), str)
-            for item in replacements):
-        grouped = {}
-        for item in replacements:
-            grouped.setdefault(item["path"], []).append(
-                {"old": item.get("old"), "new": item.get("new")})
-        replacements = grouped
-    if not isinstance(replacements, dict) or not replacements:
-        raise ValueError("replacements must map paths to lists of edits")
-    # Check the paths with the same rules as a full-file edit before reading.
-    validate_action(
-        dict(action, files={name: "" for name in replacements}), root, suffixes)
-    files = dict(action.get("files") or {})
-    for name, edits in replacements.items():
-        text = (root / name).read_text()
-        if not isinstance(edits, list) or not edits:
-            raise ValueError("Each replacement entry needs a list of edits")
-        for edit in edits:
-            old = edit.get("old") if isinstance(edit, dict) else None
-            new = edit.get("new") if isinstance(edit, dict) else None
-            if not isinstance(old, str) or not old or not isinstance(new, str):
-                raise ValueError("Each edit needs non-empty old text and new text")
-            try:
-                found = locate_once(text, old)
-            except ValueError as error:
-                raise ValueError(str(error) + " (" + name + ")") from None
-            if found != old and new == new.lstrip():
-                # Keep the file's indentation when the model dropped it.
-                new = found[:len(found) - len(found.lstrip())] + new
-            text = text.replace(found, new)
-        files[name] = text
-    action["files"] = files
-    return action
-
-
 def add_requirement(text, package):
     # Do not add a package that is already listed.
     wanted = re.sub(r"[-_.]+", "-", package).lower()
@@ -279,8 +175,11 @@ def command_passed(result):
     return result["exit_code"] == 0 and not result["timeout"]
 
 
-def judge_history(history):
-    """Keep the useful parts of earlier rounds for the Judge."""
+def judge_history(history, outputs=False):
+    """Keep the useful parts of earlier rounds for the Judge.
+
+    The Fixer gets the same summary, with the end of each command output.
+    """
     saved = []
     for round_number, record in enumerate(history, start=1):
         item = {"round": round_number}
@@ -289,9 +188,17 @@ def judge_history(history):
             item["action"] = action.get("action")
             item["reason"] = action.get("reason")
             if action.get("action") == "edit":
-                item["files"] = sorted(action.get("files", {}))
+                item["files"] = sorted(
+                    set(action.get("files", {}))
+                    | set(action.get("replacements", {})))
             elif action.get("action") == "install":
                 item["package"] = action.get("package")
+            elif action.get("action") == "run":
+                item["command"] = action.get("command")
+                item["root"] = action.get("root", False)
+            elif action.get("action") == "commands":
+                item["build_command"] = action.get("build_command")
+                item["test_command"] = action.get("test_command")
 
         review = record.get("judge")
         if isinstance(review, dict):
@@ -301,6 +208,19 @@ def judge_history(history):
             }
         if record.get("error"):
             item["error"] = record["error"]
+        if record.get("error_detail"):
+            item["error_detail"] = record["error_detail"]
+        for name in ("command_result", "installation"):
+            result = record.get(name)
+            if isinstance(result, dict):
+                item[name] = {
+                    "exit_code": result.get("exit_code"),
+                    "timeout": result.get("timeout", False),
+                }
+                if outputs:
+                    item[name]["output"] = output_tail(result)
+        if record.get("changed_files"):
+            item["changed_files"] = record["changed_files"]
         if record.get("rolled_back"):
             item["rolled_back"] = True
 
@@ -337,7 +257,7 @@ def repair(
         source,
         agents,
         rounds=ct.DEFAULT_REPAIR_ROUNDS,
-        timeout=ct.DEFAULT_COMMAND_TIMEOUT,
+        timeout=120,
         allow_install=True,
         backend="auto",
         docker_image=None,
@@ -377,11 +297,76 @@ def repair(
     return report
 
 
+def copy_ignore(source):
+    """Skip caches in every folder and the saved offline script at the root.
+
+    The script holds the expected repair, so the agents must not see it.
+    """
+    caches = shutil.ignore_patterns(*IGNORED)
+
+    def ignore(folder, entries):
+        skipped = set(caches(folder, entries))
+        if Path(folder) == source and "repair.json" in entries:
+            skipped.add("repair.json")
+        return skipped
+    return ignore
+
+
+def agent_view(metadata):
+    """Bound the repository facts that go into a prompt."""
+    view = dict(metadata)
+    tests = view.get("tests") or []
+    if len(tests) > 20:
+        view["tests"] = tests[:20]
+        view["test_file_count"] = len(tests)
+    return view
+
+
+def output_tail(result, limit=ct.HISTORY_OUTPUT_CHARS):
+    """Return the end of one command's output for a prompt."""
+    text = (result.get("stdout", "") + "\n" + result.get("stderr", "")).strip()
+    return text[-limit:]
+
+
+def ran_no_tests(result):
+    """Return whether a passing test command reports that it ran no tests."""
+    text = result.get("stdout", "") + "\n" + result.get("stderr", "")
+    if re.search(
+            r"No tests were found|No tests defined|collected 0 items"
+            r"|^Ran 0 tests", text, re.MULTILINE):
+        return True
+    counts = re.findall(r"^running (\d+) tests?$", text, re.MULTILINE)
+    return bool(counts) and not any(int(count) for count in counts)
+
+
+def failure_text(observation):
+    """Return the failing output of one check, without numbers that vary."""
+    return re.sub(r"\d+", "#", "\n".join(
+        name + str(item["exit_code"]) + item.get("stdout", "")[-2000:]
+        + item.get("stderr", "")[-2000:]
+        for name, item in sorted(observation.items())
+        if item is not None and (item["exit_code"] != 0 or item["timeout"])))
+
+
+def evidence_excerpt(text, commands):
+    """Return the lines of a document that mention the proposed commands."""
+    words = {
+        word for command in commands if command
+        for word in re.findall(r"[A-Za-z0-9_./-]{4,}", command)}
+    lines = text.splitlines()
+    keep = set()
+    for number, line in enumerate(lines):
+        if any(word in line for word in words):
+            keep.update(range(max(0, number - 2), min(len(lines), number + 3)))
+    excerpt = "\n".join(lines[number] for number in sorted(keep))
+    return (excerpt or text)[:6000]
+
+
 def _repair(
         source,
         agents,
         rounds=ct.DEFAULT_REPAIR_ROUNDS,
-        timeout=ct.DEFAULT_COMMAND_TIMEOUT,
+        timeout=120,
         allow_install=True,
         backend="auto",
         docker_image=None,
@@ -417,21 +402,26 @@ def _repair(
     # Keep the disposable work copy beside the selected repo. Docker Desktop
     # shares project folders but does not expose macOS system temp folders.
     with tempfile.TemporaryDirectory(
-            prefix=".repo-repair-", dir=source.parent) as temporary:
-        # Keep the repository's name: some builds and tests check it.
+            prefix=".repo-repair-", dir=source.parent) as temporary, (
+            contextlib.ExitStack()) as cleanup:
+        # Keep the repository's own folder name: some projects check it.
         root = Path(temporary) / source.name
         announce("\nPreparing temporary work copy...")
 
         # Preserve links without reading their targets, then validate the copy.
         shutil.copytree(
-            source, root, symlinks=True,
-            ignore=shutil.ignore_patterns(*IGNORED))
+            source, root, symlinks=True, ignore=copy_ignore(source))
         validate_repository_symlinks(root)
+        # The copy keeps file times, so this records the original state.
+        manifest = file_manifest(root)
+        protected = [name for name in manifest if is_test_path(name)]
         metadata = inspect_repository(root)
         report["repository"] = metadata
 
         execution_backend = select_backend(metadata, backend, docker_image)
         report["execution_backend"] = execution_backend.name
+        # Remove the sandbox container before the work copy is deleted.
+        cleanup.callback(lambda: execution_backend.close())
 
         def prepare_docker(candidate):
             # Check Docker and its image before any container command.
@@ -447,32 +437,28 @@ def _repair(
             image_status = candidate.image_status(root, timeout)
             report["docker"]["image_status"] = image_status
             if not command_passed(image_status):
-                if candidate.dockerfile() is not None:
-                    # The project's own Dockerfiles need no download approval.
-                    announce("Building Docker image: " + candidate.image)
-                    built = candidate.build_image(root, max(timeout, 3600))
-                    report["docker"]["build"] = built
-                    if not command_passed(built):
-                        report["reason"] = (
-                            "Docker image '" + candidate.image
-                            + "' could not be built from "
-                            + str(candidate.dockerfile()) + ".")
-                        return False
-                    return True
+                local_image = candidate.dockerfile() is not None
                 if not allow_docker_pull:
                     report["docker"]["pull_required"] = True
                     report["reason"] = (
                         "Docker image '" + candidate.image
                         + "' is not available locally. Re-run with "
-                        "--allow-docker-pull to approve downloading it.")
+                        "--allow-docker-pull to approve "
+                        + ("building it." if local_image
+                           else "downloading it."))
                     return False
-                announce("Pulling Docker image: " + candidate.image)
-                pulled = candidate.pull(root, timeout)
+                if local_image:
+                    announce("Building Docker image: " + candidate.image)
+                    pulled = candidate.build_image(root, max(timeout, 1800))
+                else:
+                    announce("Pulling Docker image: " + candidate.image)
+                    pulled = candidate.pull(root, timeout)
                 report["docker"]["pull"] = pulled
                 if not command_passed(pulled):
                     report["reason"] = (
                         "Docker image '" + candidate.image
-                        + "' could not be downloaded.")
+                        + "' could not be "
+                        + ("built." if local_image else "downloaded."))
                     return False
             return True
 
@@ -495,40 +481,43 @@ def _repair(
         if readme_commands:
             readme = next(
                 (root / name for name in (
-                    "README.md", "readme.md", "README.rst", "README.txt")
+                    "README.md", "readme.md", "README.rst", "README.txt",
+                    "README")
                  if (root / name).is_file()),
                 None,
             )
-            if readme is None:
-                report["reason"] = (
-                    "Non-Python repository has no README for command selection")
-                return report
             announce("Planning repository commands from README...")
             try:
-                command_plan = agents.plan_commands(
-                    command_planning_context(
-                        root, readme, metadata["build_system"]))
+                command_plan = agents.plan_commands(command_planning_context(
+                    root, readme, metadata["build_system"]))
             except Exception as error:
-                if isinstance(error, ModelResponseError):
-                    report["reason"] = str(error)
-                    return report
-                # Without a documented plan, fall back to the toolchain.
-                report["command_plan_error"] = type(error).__name__
-                announce("README gives no usable commands; using "
-                         + metadata["build_system"] + " defaults.")
-                command_plan = {
-                    "dependency_command": toolchain.get("fetch"),
-                    "build_command": toolchain["build"],
-                    "test_command": metadata["test_command"],
-                }
-            metadata.update(command_plan)
+                # The toolchain defaults build most repositories, and the
+                # Fixer can propose better commands during the repair.
+                command_plan = {}
+                report["command_plan_error"] = (
+                    str(error) if isinstance(error, ModelResponseError)
+                    else type(error).__name__)
+            else:
+                # Detected tests must still run when the plan names none.
+                if command_plan["test_command"] is None:
+                    command_plan["test_command"] = metadata["test_command"]
+                if REMOTE_BUILD.search(" ".join(command_plan["build_command"])):
+                    # An install of a published copy does not build this
+                    # repository; use the default build command.
+                    command_plan["build_command"] = metadata["build_command"]
+                    report["command_plan_note"] = (
+                        "The planned build command fetched a published "
+                        "copy, so the default build command is used")
+                dependency = command_plan["dependency_command"]
+                if dependency and SYSTEM_INSTALL.search(" ".join(dependency)):
+                    command_plan["dependency_command"] = None
+                    report["dependency_command_note"] = (
+                        "The planned dependency command installed system "
+                        "packages, which needs root, so it is not used")
+                metadata.update(command_plan)
             report["command_plan"] = command_plan
-            # "Not documented" is not "not needed": tests often need modules
-            # the build never downloads, so keep the toolchain's fetch step.
-            if metadata.get("dependency_command") is None:
-                metadata["dependency_command"] = toolchain.get("fetch")
 
-        def execute(command, cwd, command_timeout, network=False):
+        def execute(command, cwd, command_timeout, network=False, user=None):
             # Keep local execution patchable by the existing test suite.
             if execution_backend.name == "local":
                 return run_command(command, cwd, command_timeout)
@@ -537,6 +526,7 @@ def _repair(
                 cwd,
                 command_timeout,
                 network=network,
+                **({"user": user} if user else {}),
             )
 
         def docker_mount_available():
@@ -557,6 +547,7 @@ def _repair(
             return report
 
         installed_packages = []
+        environment_commands = []
         has_requirements = is_python and (root / "requirements.txt").is_file()
         # Record manifest text so tool-made dependency edits reach the patch.
         manifests = toolchain.get("manifests", [])
@@ -577,9 +568,10 @@ def _repair(
         def add_run_steps():
             # Save AI instructions, with a simple backup if that call fails.
             steps_context = {
-                "repository": metadata,
+                "repository": agent_view(metadata),
                 "has_requirements": has_requirements,
                 "installed_packages": sorted(set(installed_packages)),
+                "environment_commands": environment_commands,
                 "fixed_files": sorted(report["fixed_files"]),
                 "status": report["status"],
             }
@@ -597,6 +589,10 @@ def _repair(
                         package.lower() not in lower_steps
                         for package in installed_packages):
                     raise ValueError("Run steps omit an installed package")
+                if any(
+                        item["command"] not in steps
+                        for item in environment_commands):
+                    raise ValueError("Run steps omit an environment command")
                 report["steps_to_run"] = steps
                 report["steps_source"] = (
                     "stakeholder_baseline"
@@ -649,11 +645,10 @@ def _repair(
             "Preparing Python environment..."
             if is_python else "Preparing build environment...")
         if not is_python:
-            # Compiled toolchains need the cache folder named in backends.py.
-            setup = execute(["mkdir", "-p", ".home/tmp"], root, timeout)
+            # Check that the sandbox runs a command as the build user.
+            setup = execute(["true"], root, timeout)
         elif execution_backend.name == "docker":
-            # Relative to the container's working directory (the work copy).
-            python = ".venv/bin/python"
+            python = execution_backend.container_root(root) + "/.venv/bin/python"
             setup = execute(
                 ["python", "-m", "venv", ".venv"], root, timeout)
         else:
@@ -689,19 +684,32 @@ def _repair(
                 if execution_backend.name == "local"
                 else [python, "-m", "pip", "install", package])
 
-        def dependency_fetch():
-            if has_requirements:
-                return pip_install("-r") + ["requirements.txt"]
-            return metadata.get("dependency_command", toolchain.get("fetch"))
+        fetch = (
+            pip_install("-r") + ["requirements.txt"] if has_requirements
+            else metadata.get("dependency_command", toolchain.get("fetch")))
 
-        fetch = dependency_fetch()
+        def restore_tests():
+            # No action or command may change the tests that prove a repair.
+            restored = []
+            for name in changed_files(root, manifest, protected):
+                original = source / name
+                if original.is_symlink() or not original.is_file():
+                    continue
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(original, root / name)
+                restored.append(name)
+            return restored
 
         def verify():
-            if readme_commands and allow_install and dependency_fetch():
+            restored = restore_tests()
+            if restored:
+                report.setdefault("restored_test_files", []).extend(
+                    name for name in restored[:50]
+                    if name not in report["restored_test_files"])
+            if readme_commands and allow_install and fetch:
                 announce("Fetching declared dependencies...")
                 before_manifests = read_manifests()
-                setup = execute(
-                    dependency_fetch(), root, timeout, network=True)
+                setup = execute(fetch, root, timeout, network=True)
                 keep_manifest_changes(before_manifests)
                 report["setup"] = setup
                 if not command_passed(setup):
@@ -713,10 +721,42 @@ def _repair(
                 [python, metadata["entry"]] if is_python
                 else metadata["build_command"], root, timeout)
             tests = None
-            if metadata["test_command"]:
+            if metadata["test_command"] and (is_python or command_passed(app)):
                 announce("Running tests...\n")
+                started = time.time()
                 tests = execute(
                     with_python(metadata["test_command"]), root, timeout)
+                if (not command_passed(tests) and not tests["timeout"]
+                        and not is_python
+                        and time.time() - started < ct.TEST_RETRY_SECONDS):
+                    # Run once more to separate a test that fails now and
+                    # then from a real failure.
+                    announce("Tests failed; running them once more...\n")
+                    again = execute(
+                        with_python(metadata["test_command"]), root, timeout)
+                    if command_passed(again):
+                        again["attempts"] = 2
+                        report["tests_note"] = (
+                            "The tests failed once and passed on the "
+                            "second run")
+                        tests = again
+                if command_passed(tests) and ran_no_tests(tests):
+                    # A command that ran no tests proves nothing; report
+                    # the build only.
+                    report["tests_note"] = (
+                        "The test command ran no tests, so only the build "
+                        "is verified")
+                    tests = None
+            elif metadata["test_command"]:
+                # Tests of a compiled project cannot pass without its build.
+                tests = {
+                    "command": metadata["test_command"],
+                    "exit_code": -1,
+                    "stdout": "",
+                    "stderr": "Not run: the build failed",
+                    "timeout": False,
+                    "skipped": True,
+                }
             return {"app": app, "tests": tests}
 
         def passed(observation):
@@ -741,24 +781,6 @@ def _repair(
 
         # Save the first app and test result before asking for a fix.
         observation = verify()
-        # Documented commands often carry environment-specific flags (a
-        # prebuilt file, git metadata). When they fail out of the box, repair
-        # against the toolchain's standard commands, which source edits
-        # reliably affect.
-        if (readme_commands and not command_passed(observation["app"])
-                and metadata["build_command"] != toolchain["build"]):
-            report["command_plan_failure"] = observation
-            metadata.update({
-                "dependency_command": toolchain.get("fetch"),
-                "build_command": toolchain["build"],
-                "test_command": toolchain["test"] if metadata["tests"] else None,
-            })
-            announce("Documented build failed; using "
-                     + metadata["build_system"] + " defaults...")
-            observation = verify()
-            report["command_plan_fallback"] = {
-                key: metadata[key] for key in (
-                    "dependency_command", "build_command", "test_command")}
         report["initial"] = observation
         if passed(observation):
             report["final"] = observation
@@ -772,7 +794,8 @@ def _repair(
                     "No execution error found; no repair was needed "
                     "(no tests detected)")
             return report
-        seen = set()
+        # Each tried action, with the failure that it was tried against.
+        seen = {}
         install_supported = (
             allow_install and (is_python or "add" in toolchain))
         if not allow_install:
@@ -784,6 +807,9 @@ def _repair(
                 + metadata["build_system"])
         else:
             install_unavailable_reason = None
+        # Shell actions need the sandbox; they never run on the host.
+        shell_supported = (
+            execution_backend.name == "docker" and not stakeholder_baseline)
         capabilities = {
             "dependency_installation": {
                 "supported": install_supported,
@@ -794,106 +820,193 @@ def _repair(
                 ),
                 "unavailable_reason": install_unavailable_reason,
             },
+            "shell": {
+                "supported": shell_supported,
+                **({
+                    "workdir": execution_backend.container_root(root),
+                    "env_file": execution_backend.HOME + "/env",
+                    "memory_disk": execution_backend.MEMORY_DISK,
+                    "package_manager": "apt-get (root:true)",
+                    "users": {
+                        "build": "runs the build, the tests, and run "
+                                 "actions; can write the repository",
+                        "inspect": "runs inspect actions; can write only "
+                                   "/tmp and memory_disk",
+                    },
+                } if shell_supported else {}),
+            },
         }
+        suffixes = source_suffixes(metadata["build_system"])
+        explorations_left = rounds * ct.EXPLORATIONS_PER_ROUND
+        explored = []
+        report["explorations"] = 0
+        model_failures = 0
+        gave_up_before = False
 
-        # Files and search results the Fixer asked for, newest last.
-        explored = {"files": {}, "searches": {}}
-        navigation_used = 0
-        rounds_used = 0
-        while rounds_used < rounds:
-            # Stop as soon as both the app and tests pass.
-            if passed(observation):
-                break
-            rounds_used += 1
-            record = {}
-            report["history"].append(record)
+        def reject(record, message, error="ValueError"):
+            # Tell the Fixer what was wrong; the round is used.
+            record["error"] = error
+            record["error_detail"] = message
+            report["reason"] = message
+
+        def review(context):
+            # The fixer-only baseline runs every proposal without a Judge.
+            if fixer_only_baseline:
+                return {"approved": True}
+            return agents.review({
+                "repository": agent_view(metadata),
+                "observation": observation,
+                "history": judge_history(report["history"][:-1]),
+                # Only the sandbox details: the language package field
+                # does not limit system packages, and it misled the Judge.
+                "capabilities": {"shell": capabilities["shell"]},
+                **context,
+            })
+
+        while len(report["history"]) < rounds and not passed(observation):
+            failed_output = "\n".join(
+                item.get("stdout", "") + "\n" + item.get("stderr", "")
+                for item in observation.values() if item is not None)
             try:
                 # Give the Fixer the repo files, errors, and past work.
-                # Show the current text of files read earlier, after edits.
-                for name in list(explored["files"]):
-                    if (root / name.rsplit(":", 1)[0]).is_file() or (
-                            root / name).is_file():
-                        explored["files"][name] = read_repository_file(
-                            root, name)
-                    else:
-                        del explored["files"][name]
-                failure_text = "".join(
-                    item["stdout"] + item["stderr"]
-                    for item in observation.values() if item is not None)
                 action = agents.propose({
-                    "repository": metadata,
+                    "repository": agent_view(metadata),
+                    "root_listing": root_listing(root),
+                    # Send repository files only, never build output.
                     "files": snapshot(
-                        root, metadata["build_system"],
-                        mentioned_files(
-                            root, failure_text, metadata["build_system"])),
+                        root, metadata["build_system"], mentioned_files(
+                            root, failed_output, metadata["build_system"]),
+                        set(manifest) | set(originals)),
                     "observation": observation,
-                    "history": report["history"][:-1],
-                    "capabilities": capabilities,
+                    "history": (
+                        report["history"] if stakeholder_baseline
+                        else judge_history(report["history"], outputs=True)),
                     "explored": explored,
-                    "navigation_actions_left": (
-                        ct.MAX_NAVIGATION_ACTIONS - navigation_used),
+                    "capabilities": capabilities,
+                    "budget": {
+                        "rounds_left": rounds - len(report["history"]),
+                        "explorations_left": explorations_left,
+                    },
                 })
-                action = materialize_replacements(
-                    action, root, source_suffixes(metadata["build_system"]))
-                validate_action(
-                    action, root, source_suffixes(metadata["build_system"]))
-                record["action"] = action
-                if action["action"] in {"search", "read"}:
-                    # Looking around changes nothing, so it uses its own
-                    # budget instead of a repair round.
-                    rounds_used -= 1
-                    navigation_used += 1
-                    if navigation_used > ct.MAX_NAVIGATION_ACTIONS:
-                        rounds_used += 1
-                        record["error"] = "Search and read limit reached"
-                        record["error_detail"] = (
-                            "No search or read actions are left. Propose an "
-                            "edit, install, or give_up.")
-                        continue
-                    if action["action"] == "search":
-                        hits = search_repository(root, action["pattern"])
-                        explored["searches"][action["pattern"]] = (
-                            hits or ["(no matches)"])
-                        record["search_matches"] = len(hits)
-                    else:
-                        for name in action["files"]:
-                            explored["files"].pop(name, None)
-                            explored["files"][name] = read_repository_file(
-                                root, name)
-                        record["read_files"] = list(action["files"])
-                        # Keep the newest files within the context budget.
-                        while (len(explored["files"]) > 1 and sum(
-                                map(len, explored["files"].values()))
-                                > ct.MAX_EXPLORED_CHARS):
-                            explored["files"].pop(next(iter(explored["files"])))
-                    announce("Fixer " + action["action"] + ": " + (
-                        action.get("pattern") or ", ".join(action["files"])))
-                    continue
-                # Do not run the same action more than once.
-                signature = json.dumps(
-                    {key: value for key, value in action.items()
-                     if key != "reason"},
-                    sort_keys=True,
-                )
-                if not stakeholder_baseline and signature in seen:
-                    record["error"] = "Repeated action rejected"
-                    report["reason"] = (
-                        "Fixer repeated a previously rejected action")
+            except Exception as error:
+                # Save a safe error name without model reply text.
+                report["history"].append({"error": type(error).__name__})
+                report["reason"] = (
+                    str(error) if isinstance(error, ModelResponseError)
+                    else "Invalid action or infrastructure failure ("
+                    + type(error).__name__ + ")")
+                model_failures += 1
+                if (isinstance(error, AgentTimeLimitError)
+                        or model_failures >= 3):
                     break
-                seen.add(signature)
+                if isinstance(error, urllib.error.HTTPError):
+                    # The model server is busy; give it time.
+                    time.sleep(ct.MODEL_HTTP_RETRY_SECONDS)
+                continue
+            model_failures = 0
 
+            try:
+                validate_action(action, root, suffixes, shell=shell_supported)
+            except ValueError as error:
+                record = {}
+                if isinstance(action, dict) and isinstance(
+                        action.get("action"), str):
+                    record["action"] = {
+                        key: value for key, value in action.items()
+                        if key in {"action", "reason", "path", "command",
+                                   "package", "build_command", "test_command"}
+                        and isinstance(value, str)}
+                report["history"].append(record)
+                reject(record, str(error))
+                continue
+
+            kind = action["action"]
+            if kind in EXPLORATIONS:
+                # Look without changing anything. No repair round is used
+                # until the exploration limit is reached; then each look
+                # uses one round.
+                if explorations_left > 0:
+                    explorations_left -= 1
+                else:
+                    report["history"].append(
+                        {"action": action, "exploration": True})
+                report["explorations"] += 1
+                if kind == "read":
+                    announce("Fixer reads: " + action["path"])
+                    result = read_repository_file(
+                        root, action["path"], action.get("start"),
+                        action.get("end"))
+                elif kind == "search":
+                    announce("Fixer searches: " + action["pattern"])
+                    result = "\n".join(search_repository(
+                        root, action["pattern"],
+                        action.get("path") or None)) or "No matches"
+                else:
+                    announce("Fixer inspects: " + action["command"])
+                    inspected = execute(
+                        ["sh", "-c", action["command"]], root,
+                        min(timeout, 300), user="reader")
+                    result = (
+                        "exit code " + str(inspected["exit_code"]) + "\n"
+                        + output_tail(inspected, ct.MAX_READ_CHARS))
+                explored.append({
+                    "action": {
+                        key: value for key, value in action.items()
+                        if key != "reason"},
+                    "result": result,
+                })
+                # Drop the oldest results when the prompt would grow too big.
+                while (len(explored) > 1 and sum(
+                        len(item["result"]) for item in explored)
+                        > ct.MAX_EXPLORED_CHARS):
+                    explored.pop(0)
+                continue
+
+            record = {"action": action}
+            report["history"].append(record)
+            # Do not run the same action more than once.
+            signature = json.dumps(
+                {key: value for key, value in action.items()
+                 if key != "reason"},
+                sort_keys=True,
+            )
+            # The same action is permitted again after the failure changed:
+            # the Judge can reject a correct action that came too early.
+            state = failure_text(observation)
+            if not stakeholder_baseline and seen.get(signature) == state:
+                reject(
+                    record,
+                    "This action was already tried against this failure; "
+                    "send a different action",
+                    "Repeated action rejected")
+                continue
+            seen[signature] = state
+
+            try:
                 # A report stops the run without calling the edit Judge.
-                if action["action"] == "give_up":
+                if kind == "give_up":
+                    if (shell_supported and not gave_up_before
+                            and len(report["history"]) < rounds):
+                        # The sandbox can still change; ask once more.
+                        gave_up_before = True
+                        seen.pop(signature, None)
+                        reject(
+                            record,
+                            "Rounds are left. Explore with inspect, read, "
+                            "or search, or prepare the environment with "
+                            "run. Send give_up again only when no action "
+                            "can make progress.",
+                            "give_up declined once")
+                        continue
                     report["reason"] = action["reason"]
                     break
-                # The Judge reviews code edits, not package installs.
-                if action["action"] == "install":
+                if kind == "install":
+                    # The Judge reviews code edits, not package installs.
                     record["approval_required"] = False
                     if not install_supported:
-                        # Costs one round; the Fixer reads the reason next.
-                        record["error"] = install_unavailable_reason
-                        record["error_detail"] = install_unavailable_reason
-                        report["reason"] = install_unavailable_reason
+                        reject(
+                            record, install_unavailable_reason,
+                            install_unavailable_reason)
                         continue
                     announce(
                         "Installing dependency proposed by Fixer: "
@@ -926,40 +1039,118 @@ def _repair(
                             requirements.write_text(new_requirements)
                             has_requirements = True
                             record["requirements_updated"] = True
+                elif kind == "run":
+                    verdict = review({
+                        "kind": "run",
+                        "proposal": {
+                            "command": action["command"],
+                            "root": action.get("root", False),
+                        },
+                        "reason": action["reason"],
+                    })
+                    if fixer_only_baseline:
+                        record["approval_required"] = False
+                    else:
+                        record["judge"] = verdict
+                    if not verdict["approved"]:
+                        continue
+                    announce("Running command proposed by Fixer: "
+                             + action["command"])
+                    changed_before = set(changed_files(root, manifest))
+                    command_result = execute(
+                        ["sh", "-c", action["command"]], root, timeout,
+                        network=True,
+                        user="root" if action.get("root") else None)
+                    record["command_result"] = command_result
+                    # Show which original files the command changed.
+                    changed = sorted(
+                        set(changed_files(root, manifest)) - changed_before)
+                    restored = restore_tests()
+                    if restored:
+                        record["restored_test_files"] = restored[:50]
+                    changed = [
+                        name for name in changed if name not in restored]
+                    if changed:
+                        record["changed_files"] = changed[:50]
+                    for name in changed:
+                        try:
+                            originals.setdefault(
+                                name, (source / name).read_text())
+                        except (OSError, UnicodeDecodeError):
+                            pass
+                    if not command_passed(command_result):
+                        continue
+                    environment_commands.append({
+                        "command": action["command"],
+                        "root": action.get("root", False),
+                    })
+                    if action.get("verify") is False:
+                        continue
+                elif kind == "commands":
+                    proposal = {
+                        "build_command": action["build_command"],
+                        "test_command": action.get("test_command"),
+                    }
+                    if is_python:
+                        reject(record, "Python repositories run their entry "
+                               "file and unittest; commands cannot change")
+                        continue
+                    if metadata["test_command"] and not proposal["test_command"]:
+                        reject(record, "The test command cannot be removed")
+                        continue
+                    verdict = review({
+                        "kind": "commands",
+                        "current": {
+                            "build_command": metadata["build_command"],
+                            "test_command": metadata["test_command"],
+                        },
+                        "proposal": proposal,
+                        "evidence": {
+                            name: evidence_excerpt(
+                                (root / name).read_text(errors="replace"),
+                                proposal.values())
+                            for name in action.get("evidence", [])
+                        },
+                        "reason": action["reason"],
+                    })
+                    if fixer_only_baseline:
+                        record["approval_required"] = False
+                    else:
+                        record["judge"] = verdict
+                    if not verdict["approved"]:
+                        continue
+                    announce("Using commands proposed by Fixer")
+                    metadata["build_command"] = [
+                        "sh", "-c", proposal["build_command"]]
+                    metadata["test_command"] = (
+                        ["sh", "-c", proposal["test_command"]]
+                        if proposal["test_command"] else None)
+                    # The new build command fetches what it needs.
+                    metadata["dependency_command"] = None
+                    fetch = None
+                    report.setdefault("command_changes", []).append(proposal)
                 else:
                     # Send every code edit to the Judge before writing it.
+                    names = list(action.get("files", {})) + list(
+                        action.get("replacements", {}))
+                    created = [
+                        name for name in names if not (root / name).exists()]
                     before = {
-                        name: (root / name).read_text()
-                        for name in action["files"]
+                        name: "" if name in created
+                        else (root / name).read_text()
+                        for name in names
                     }
+                    proposed = dict(action.get("files", {}))
+                    for name, changes in action.get(
+                            "replacements", {}).items():
+                        proposed[name] = apply_replacements(
+                            before[name], changes, name)
                     files = (
-                        action["files"]
+                        proposed
                         if stakeholder_baseline
-                        else preserve_cosmetic_side_changes(
-                            before, action["files"])
+                        else preserve_cosmetic_side_changes(before, proposed)
                     )
-                    cosmetic_changes_removed = files != action["files"]
-                    if all(files[name] == before[name] for name in files):
-                        raise ValueError("Edit changes nothing")
-                    if (not stakeholder_baseline and install_supported
-                            and hides_missing_dependency(
-                                before, files, failure_text)):
-                        record["error"] = "Patch hides a missing dependency"
-                        record["error_detail"] = (
-                            "The patch deletes the import of a module the "
-                            "error reports as missing. Install the package "
-                            "with the install action instead.")
-                        report["reason"] = record["error"]
-                        continue
-                    if (not stakeholder_baseline
-                            and has_weakened_checks(before, files)):
-                        record["error"] = "Patch weakens a check"
-                        record["error_detail"] = (
-                            "The patch deletes or replaces an error, assertion, "
-                            "or panic. Fix the configuration or code the error "
-                            "points to instead.")
-                        report["reason"] = record["error"]
-                        continue
+                    cosmetic_changes_removed = files != proposed
                     proposed_diff = diff_files(before, files)
                     mixed_cosmetic = (
                         False
@@ -967,11 +1158,11 @@ def _repair(
                         else has_mixed_cosmetic_changes(before, files)
                     )
                     if fixer_only_baseline:
-                        review = {"approved": True}
+                        verdict = {"approved": True}
                         record["approval_required"] = False
                     else:
-                        review = agents.review({
-                            "repository": metadata,
+                        verdict = agents.review({
+                            "repository": agent_view(metadata),
                             "observation": observation,
                             "history": judge_history(report["history"][:-1]),
                             "before": before,
@@ -984,58 +1175,86 @@ def _repair(
                                 "mixed_cosmetic_changes": mixed_cosmetic,
                             },
                         })
-                        record["judge"] = review
+                        record["judge"] = verdict
                     if cosmetic_changes_removed:
                         record["cosmetic_side_changes_removed"] = True
                     if mixed_cosmetic:
                         record["error"] = "Patch includes cosmetic side changes"
                         report["reason"] = record["error"]
                         continue
-                    if not review["approved"]:
+                    if not verdict["approved"]:
                         continue
                     # Save the first file text for the final patch.
                     for name, text in files.items():
                         originals.setdefault(name, before[name])
+                        (root / name).parent.mkdir(parents=True, exist_ok=True)
                         (root / name).write_text(text)
 
                 # Run the app and tests again after the action.
                 updated = verify()
                 record["observation"] = updated
-                regressed = action["action"] == "edit" and any(
+                regressed = kind == "edit" and any(
                     observation[key] is not None
                     and observation[key]["exit_code"] == 0
                     and not observation[key]["timeout"]
-                    and (updated[key]["exit_code"] != 0
+                    and (updated[key] is None
+                         or updated[key]["exit_code"] != 0
                          or updated[key]["timeout"])
                     for key in observation
                 )
+                # An edit that leaves the failure as it was did not help;
+                # keeping it would make the final patch larger than needed.
+                ineffective = (
+                    kind == "edit" and not passed(updated)
+                    and failure_text(updated) == failure_text(observation))
+                if ineffective and not stakeholder_baseline:
+                    record["ineffective"] = True
+                    record["error_detail"] = (
+                        "The edit did not change the failure, so it was "
+                        "undone")
                 # Undo the edit if a command that passed now fails.
-                if regressed and not stakeholder_baseline:
+                if (regressed or ineffective) and not stakeholder_baseline:
                     for name, text in before.items():
-                        (root / name).write_text(text)
+                        if name in created:
+                            (root / name).unlink()
+                        else:
+                            (root / name).write_text(text)
                     record["rolled_back"] = True
                 else:
                     observation = updated
             except ValueError as error:
-                # An action the checks reject costs one round; the message is
-                # our own text, so the Fixer can read it next round.
-                record["error"] = type(error).__name__
-                record["error_detail"] = str(error)
-                report["reason"] = "Invalid action (" + str(error) + ")"
-                continue
+                # The action could not be applied; tell the Fixer why.
+                reject(record, str(error))
             except Exception as error:
                 # Save a safe error name without model reply text.
                 record["error"] = type(error).__name__
+                if (isinstance(error, urllib.error.HTTPError)
+                        and error.code == 403):
+                    record["error_detail"] = (
+                        "The model gateway refused the request to review "
+                        "this action, so it was not applied. Send a "
+                        "different, simpler action.")
                 if isinstance(error, ModelResponseError):
                     report["reason"] = str(error)
                 else:
                     report["reason"] = (
                         "Invalid action or infrastructure failure ("
                         + type(error).__name__ + ")")
-                break
+                model_failures += 1
+                if (isinstance(error, AgentTimeLimitError)
+                        or model_failures >= 3):
+                    break
+        else:
+            # The loop used every round; keep the last problem for the user.
+            if (not passed(observation)
+                    and report["reason"] != "Round limit reached"):
+                report["reason"] = (
+                    "Round limit reached. Last problem: " + report["reason"])
 
         # Set the final status and make the patch for the user.
         report["final"] = observation
+        if environment_commands:
+            report["environment_commands"] = environment_commands
         if passed(observation):
             if observation["tests"] is not None:
                 report["status"] = "passed"
@@ -1045,10 +1264,13 @@ def _repair(
                 report["reason"] = (
                     "Execution passed; functionality not verified "
                     "(no tests detected)")
-        final_files = {
-            name: (root / name).read_text()
-            for name in originals
-        }
+        final_files = {}
+        for name in originals:
+            try:
+                final_files[name] = (root / name).read_text()
+            except (OSError, UnicodeDecodeError):
+                # A command removed the file or made it binary.
+                continue
         report["diff"] = diff_files(originals, final_files)
 
         # Save changed file text only when the full repair passed.

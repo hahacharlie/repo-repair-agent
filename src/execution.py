@@ -49,13 +49,14 @@ def _safe_command(command, cwd):
 OUTPUT_LIMIT = 16000
 FAILURE_LINE = re.compile(
     r"(^|\s)(FAIL|FAILED|ERROR|error\b|error\[|panic|panicked|Traceback|"
-    r"Exception|fatal|undefined|cannot find|No module named)", re.IGNORECASE)
+    r"Exception|fatal|undefined|cannot find|not found|No such file|"
+    r"No module named)", re.IGNORECASE)
 
 
 def _trim_output(text):
     """Keep the tail of long output, led by its failure lines.
 
-    Build and test logs can run to megabytes; the lines that name a failure
+    Build and test logs can run to megabytes. The lines that name a failure
     are often far from the end, so they are kept before the tail.
     """
     if len(text) <= OUTPUT_LIMIT:
